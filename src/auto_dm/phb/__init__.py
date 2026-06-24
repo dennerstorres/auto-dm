@@ -1,0 +1,110 @@
+"""Player's Handbook loader.
+
+Parses the PHB markdown files into typed Python objects and exposes
+lookup functions for races, classes, spells, equipment, conditions,
+languages, poisons, traps, and diseases.
+
+Usage:
+    from auto_dm.phb import get_race, get_class, get_spell, get_weapon
+
+    dwarf = get_race("Dwarf")
+    fireball = get_spell("Fireball")
+    longsword = get_weapon("Longsword")
+"""
+from auto_dm.phb.models import (
+    AbilityBonus,
+    CharacterClass,
+    ClassFeature,
+    ClassProficiency,
+    PHBArmor,
+    PHBArmorCategory,
+    PHBCondition,
+    PHBDisease,
+    PHBLanguage,
+    PHBPoison,
+    PHBSpell,
+    PHBSpellComponent,
+    PHBSpellSchool,
+    PHBTrap,
+    PHBWeapon,
+    PHBWeaponCategory,
+    Race,
+    SpellcastingInfo,
+    Subclass,
+    Subrace,
+    Trait,
+)
+from auto_dm.phb.lookup import (
+    get_armor,
+    get_armor_list,
+    get_class,
+    get_classes,
+    get_condition,
+    get_conditions,
+    get_disease,
+    get_diseases,
+    get_language,
+    get_languages,
+    get_phb_root,
+    get_poison,
+    get_poisons,
+    get_race,
+    get_races,
+    get_spell,
+    get_spells,
+    get_spells_for_class,
+    get_trap,
+    get_traps,
+    get_weapon,
+    get_weapons,
+    set_phb_root,
+)
+
+__all__ = [
+    # Models
+    "AbilityBonus",
+    "CharacterClass",
+    "ClassFeature",
+    "ClassProficiency",
+    "PHBArmor",
+    "PHBArmorCategory",
+    "PHBCondition",
+    "PHBDisease",
+    "PHBLanguage",
+    "PHBPoison",
+    "PHBSpell",
+    "PHBSpellComponent",
+    "PHBSpellSchool",
+    "PHBTrap",
+    "PHBWeapon",
+    "PHBWeaponCategory",
+    "Race",
+    "SpellcastingInfo",
+    "Subclass",
+    "Subrace",
+    "Trait",
+    # Lookups
+    "get_armor",
+    "get_armor_list",
+    "get_class",
+    "get_classes",
+    "get_condition",
+    "get_conditions",
+    "get_disease",
+    "get_diseases",
+    "get_language",
+    "get_languages",
+    "get_phb_root",
+    "get_poison",
+    "get_poisons",
+    "get_race",
+    "get_races",
+    "get_spell",
+    "get_spells",
+    "get_spells_for_class",
+    "get_trap",
+    "get_traps",
+    "get_weapon",
+    "get_weapons",
+    "set_phb_root",
+]

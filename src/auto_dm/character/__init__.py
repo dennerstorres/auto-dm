@@ -1,0 +1,41 @@
+"""Character creation: stats, builder, and spell selection.
+
+The character builder is pure-Python and testable. The CLI / LLM
+prompts are layered on top later (Phase 6/9).
+
+Usage:
+    from auto_dm.character import CharacterBuilder
+    from auto_dm.engine.dice import roll_stats
+
+    draft = (CharacterBuilder()
+        .with_name("Thorgar")
+        .with_race("Dwarf", subrace="Hill Dwarf")
+        .with_class("Fighter")
+        .with_background("Soldier")
+        .with_alignment("LN")
+        .with_level(1)
+        .with_standard_array()  # or .with_ability_scores([15, 14, 13, 12, 10, 8])
+        .with_skills(["athletics", "perception"])
+        .build())
+"""
+from auto_dm.character.builder import (
+    CharacterBuilder,
+    CharacterDraft,
+    STAT_BLOCK_SIZE,
+    STANDARD_ARRAY,
+)
+from auto_dm.character.spells import (
+    SpellSelection,
+    prepare_caster_spells,
+    select_cantrips,
+)
+
+__all__ = [
+    "CharacterBuilder",
+    "CharacterDraft",
+    "STANDARD_ARRAY",
+    "STAT_BLOCK_SIZE",
+    "SpellSelection",
+    "prepare_caster_spells",
+    "select_cantrips",
+]

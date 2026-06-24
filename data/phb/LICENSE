@@ -1,0 +1,127 @@
+================================================================================
+DUNGEONS & DRAGONS 5TH EDITION SYSTEM REFERENCE DOCUMENT v5.1
+================================================================================
+
+The markdown files in this directory are derived from the Dungeons &
+Dragons 5th Edition System Reference Document v5.1 ("SRD 5.1"), which is
+made available by Wizards of the Coast LLC under the Open Game License
+v1.0a and the Creative Commons Attribution 4.0 International License
+(CC BY 4.0).
+
+--------------------------------------------------------------------------------
+UPSTREAM SOURCES
+--------------------------------------------------------------------------------
+
+The original Markdown conversion of the SRD 5.1 was created by:
+  - oldmanumby/dnd.srd.5.1  https://github.com/oldmanumby/dnd.srd.5.1
+
+This project uses the remastered fork:
+  - palikhov/DND5E.SRD.Wiki  https://github.com/palikhov/DND5E.SRD.Wiki
+
+The conversion process consists of reformatting the SRD text into Markdown.
+No game rules, spell descriptions, monster statistics, or other content have
+been added beyond what is contained in the original SRD 5.1.
+
+--------------------------------------------------------------------------------
+OPEN GAME LICENSE v1.0a — COPYRIGHT NOTICE
+--------------------------------------------------------------------------------
+
+Original content copyright (c) 2016, Wizards of the Coast LLC.
+
+System Reference Document 5.1 — Copyright 2016, Wizards of the Coast, Inc.
+All Rights Reserved.
+
+The current version of the SRD 5.1 (updated January 2023) is additionally
+released under the Creative Commons Attribution 4.0 License (CC BY 4.0):
+  https://creativecommons.org/licenses/by/4.0/
+
+The full text of the Open Game License v1.0a is reproduced below.
+
+--------------------------------------------------------------------------------
+OPEN GAME LICENSE Version 1.0a — FULL TEXT
+--------------------------------------------------------------------------------
+
+The following text is the full OGL v1.0a license under which the SRD 5.1 is
+distributed. Inclusion of this text is a requirement of the license.
+
+  OPEN GAME LICENSE Version 1.0a
+
+  The following text is the property of Wizards of the Coast, Inc. and is
+  Copyright 2000 Wizards of the Coast, Inc ("Wizards"). All Rights Reserved.
+
+  1. Definitions:
+     (a) "Contributors" means the copyright and/or trademark owners who have
+         contributed Open Game Content;
+     (b) "Derivative Material" means copyrighted material including
+         derivative works and translations (including into other computer
+         languages), potation, modification, correction, addition,
+         extension, upgrade, improvement, compilation, abridgment or other
+         form in which an existing work may be recast, transformed or
+         adapted;
+     (c) "Distribute" means to reproduce, license, rent, lease, sell,
+         broadcast, publicly display, transmit or otherwise distribute;
+     (d) "Open Game Content" means the game mechanic and includes the
+         methods, procedures, processes and routines to the extent such
+         content does not embody the Product Identity and is an
+         enhancement over any prior competitive product. Open Game Content
+         does not include any data, information, or content that is
+         proprietary to a Contributor;
+     (e) "Product Identity" means product and product line names, logos
+         and identifying marks including trade dress; artifacts, creatures,
+         characters, names and descriptions of characters, spells,
+         enchantments, personalities, teams, personas, likenesses and
+         special abilities; places, locations, environments, creatures,
+         equipment, magical or supernatural abilities or effects, logos,
+         symbols, or designs; and any combination of the above; and any
+         and all trademarks, service marks, and trade dress;
+     (f) "Trademark" means the logos and names of products, product lines
+         and any other source-identifying marks of a Contributor; and
+     (g) "Use", "Used" or "Using" means to use, Distribute, copy, edit,
+         format, modify, translate and otherwise create Derivative Material
+         of Open Game Content.
+
+  2. Grant and Consideration: In consideration of agreeing to use this
+     License, the Contributors grant You a perpetual, worldwide,
+     royalty-free, non-exclusive license with the exact terms of this
+     License to Use, the Open Game Content.
+
+  3. Representations and Warranties: None.
+
+  4. Limitations on Grant: This License is limited to the Open Game Content
+     only.
+
+  5. Order of Precedence: Where any conflict arises between the terms of
+     this License and another license, this License shall control with
+     respect to Open Game Content.
+
+  6. Termination: This License will terminate automatically if You fail
+     to comply with all terms and conditions of this License.
+
+  7. Miscellaneous: If any provision of this License is held to be
+     unenforceable, such provision shall be reformed only to the extent
+     necessary to make it enforceable.
+
+  END OF LICENSE
+
+--------------------------------------------------------------------------------
+CC BY 4.0 — ATTRIBUTION NOTICE (per the January 2023 release)
+--------------------------------------------------------------------------------
+
+This work includes material taken from the System Reference Document 5.1
+(https://dnd.wizards.com/resources/systems-reference-document) and is used
+under the terms of the Creative Commons Attribution 4.0 License (CC BY 4.0).
+
+Modifications from the original SRD text: the text has been reformatted into
+Markdown by the upstream contributors (oldmanumby, palikhov) and is
+loaded by the Python engine in `src/auto_dm/phb/` for game-mechanics
+purposes only. No substantive changes to game rules have been made.
+
+--------------------------------------------------------------------------------
+PRODUCT IDENTITY
+--------------------------------------------------------------------------------
+
+Product Identity (as defined in section 1(e) of the OGL) is not used in
+this project. Specifically: this project does not use the names "Dungeons
+& Dragons", "D&D", or any Wizards of the Coast trademarks. Game content
+(SRD 5.1) is loaded as data; no content is included that would prevent
+this project from being distributed under the OGL/CC BY 4.0 terms.

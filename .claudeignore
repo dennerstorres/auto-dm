@@ -1,0 +1,47 @@
+# Secrets and credentials
+.env
+
+# User-specific runtime files
+config.json
+saves/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Test/coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Cache
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# NOT ignored (intentional):
+# - data/phb/         → regras do PHB 5e, referência para responder dúvidas
+# - SPEC.md/PLAN.md   → contexto do projeto
+# - src/, tests/      → código-fonte
+# - .env.example      → template público (sem chaves reais)
+# - config.example.json → template público

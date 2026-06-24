@@ -1,0 +1,12 @@
+{
+  "provider": "minimax",
+  "model": "MiniMax-M3",
+  "base_url": "https://api.minimax.io/v1",
+  "temperature": 0.8,
+  "max_tokens": 2048,
+  "language": "pt-BR",
+  "narrative_detail": "medium",
+  "rules_strictness": "high",
+  "save_dir": "saves",
+  "auto_save_every_n_turns": 5
+}
