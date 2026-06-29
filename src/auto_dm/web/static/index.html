@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auto DM — Console</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Auto DM</h1>
+      <div id="user-info">
+        <span id="who"></span>
+        <button id="logout-btn" style="display:none">Sair</button>
+      </div>
+    </header>
+
+    <!-- Auth screen -->
+    <section id="auth-screen" class="screen">
+      <h2>Entrar</h2>
+      <div class="row">
+        <input id="auth-username" type="text" placeholder="Usuário" autocomplete="username" />
+        <input id="auth-password" type="password" placeholder="Senha" autocomplete="current-password" />
+      </div>
+      <div class="row">
+        <input id="auth-invite" type="text" placeholder="Código de convite (somente para cadastro)" autocomplete="off" />
+      </div>
+      <div class="row">
+        <button id="login-btn">Entrar</button>
+        <button id="signup-btn">Criar conta</button>
+      </div>
+      <div id="auth-msg" class="msg"></div>
+    </section>
+
+    <!-- New / load game screen -->
+    <section id="lobby-screen" class="screen" style="display:none">
+      <h2>Jogos salvos</h2>
+      <ul id="saves-list"></ul>
+      <div class="row">
+        <button id="wizard-btn">Criar novo personagem (wizard)</button>
+      </div>
+      <div class="row">
+        <input id="new-slug" type="text" placeholder="slug-do-save (ex: campanha-elfa)" />
+        <button id="new-game-btn">Criar jogo vazio</button>
+      </div>
+      <div id="lobby-msg" class="msg"></div>
+    </section>
+
+    <!-- Wizard screen (Phase 26c) -->
+    <section id="wizard-screen" class="screen" style="display:none">
+      <div id="wizard-progress" class="wizard-progress"></div>
+
+      <div id="wizard-step-1" class="wizard-step active">
+        <h2>1. Nome</h2>
+        <label>
+          <span class="lbl">Nome da campanha</span>
+          <input id="wz-campaign-name" type="text" placeholder="Crônicas da Aliança" />
+        </label>
+        <label>
+          <span class="lbl">Nome do personagem</span>
+          <input id="wz-char-name" type="text" placeholder="Aragorn" />
+        </label>
+      </div>
+
+      <div id="wizard-step-2" class="wizard-step">
+        <h2>2. Raça</h2>
+        <div id="wz-races" class="choices"></div>
+        <label id="wz-subrace-wrap" style="display:none">
+          <span class="lbl">Sub-raça</span>
+          <select id="wz-subrace"></select>
+        </label>
+      </div>
+
+      <div id="wizard-step-3" class="wizard-step">
+        <h2>3. Classe</h2>
+        <div id="wz-classes" class="choices"></div>
+      </div>
+
+      <div id="wizard-step-4" class="wizard-step">
+        <h2>4. Subclasse (opcional)</h2>
+        <div id="wz-subclasses" class="choices"></div>
+      </div>
+
+      <div id="wizard-step-5" class="wizard-step">
+        <h2>5. Background</h2>
+        <div id="wz-backgrounds" class="choices"></div>
+      </div>
+
+      <div id="wizard-step-6" class="wizard-step">
+        <h2>6. Alinhamento</h2>
+        <div id="wz-alignments" class="choices"></div>
+      </div>
+
+      <div id="wizard-step-7" class="wizard-step">
+        <h2>7. Nível inicial</h2>
+        <div id="wz-levels" class="choices"></div>
+      </div>
+
+      <div id="wizard-step-8" class="wizard-step">
+        <h2>8. Atributos</h2>
+        <div id="wz-stats-methods" class="choices"></div>
+        <div id="wz-stats-info" class="msg"></div>
+      </div>
+
+      <div id="wizard-step-9" class="wizard-step">
+        <h2>9. Perícias</h2>
+        <div id="wz-skills-info" class="msg"></div>
+        <div id="wz-skills" class="skills-grid"></div>
+      </div>
+
+      <div id="wizard-step-10" class="wizard-step">
+        <h2>10. Companheiros</h2>
+        <div id="wz-companions" class="checkbox-list"></div>
+      </div>
+
+      <div id="wizard-step-11" class="wizard-step">
+        <h2>11. Confirmar</h2>
+        <div id="wz-summary"></div>
+      </div>
+
+      <div class="wizard-nav">
+        <button id="wz-prev" class="secondary">← Voltar</button>
+        <div>
+          <span id="wz-step-counter" class="msg" style="display:inline-block;margin-right:1rem"></span>
+          <button id="wz-next">Próximo →</button>
+          <button id="wz-finish" style="display:none">Criar personagem!</button>
+        </div>
+      </div>
+      <div id="wizard-msg" class="msg"></div>
+    </section>
+
+    <!-- Game screen -->
+    <section id="game-screen" class="screen" style="display:none">
+      <div id="output" class="output"></div>
+      <div class="input-row">
+        <input id="cmd" type="text" placeholder="O que você faz?" autocomplete="off" />
+        <button id="send-btn">Enviar</button>
+      </div>
+      <div class="input-row">
+        <label>
+          <input id="stream-toggle" type="checkbox" />
+          <span>Modo streaming (narração tok-by-tok via SSE)</span>
+        </label>
+      </div>
+      <div class="hints">
+        Comandos: <code>/help</code> <code>/status</code>
+        <code>/look</code> <code>/inventory</code>
+        <code>/conditions</code> <code>/spells</code>
+        <code>/encounter &lt;monstro&gt;</code> <code>/save [slug]</code>
+        <code>/list</code> <code>/load &lt;slug&gt;</code>
+        <code>/quit</code>
+      </div>
+    </section>
+  </div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

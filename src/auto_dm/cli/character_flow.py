@@ -50,6 +50,7 @@ from auto_dm.phb import (
     get_classes,
     get_race,
     get_races,
+    get_subclasses_for,
 )
 from auto_dm.state.models import Character
 
@@ -82,6 +83,7 @@ def create_character_interactive(
 
     race_name, subrace = _prompt_race(inp, out)
     class_name = _prompt_class(inp, out)
+    subclass_name = _prompt_subclass(inp, out, class_name)
     background = _prompt_text(
         inp, out, "Background", default=_default_background(class_name),
     )
@@ -96,7 +98,7 @@ def create_character_interactive(
         CharacterBuilder()
         .with_name(name)
         .with_race(race_name, subrace=subrace)
-        .with_class(class_name)
+        .with_class(class_name, subclass=subclass_name)
         .with_background(background)
         .with_alignment(alignment)
         .with_level(level)
@@ -195,6 +197,25 @@ def _prompt_class(inp: InputFn, out: PrintFn) -> str:
     classes = [c.name for c in get_classes()]
     out(_class_table(classes))
     return _prompt_choice(inp, out, "Classe", classes)
+
+
+def _prompt_subclass(
+    inp: InputFn, out: PrintFn, class_name: str,
+) -> Optional[str]:
+    """Ask the user to pick a subclass (Phase 25b).
+
+    Returns ``None`` if the class has no subclasses. Many classes grant
+    subclass features at L1 (Cleric Domain, Paladin Oath, Sorcerer
+    Origin, Warlock Patron); others unlock at L3 but the choice is made
+    at character creation (the wizard prompts immediately).
+    """
+    subclasses = [s.name for s in get_subclasses_for(class_name)]
+    if not subclasses:
+        return None
+    out(f"\n[bold]Subclasse[/bold] ({class_name}) — escolha:")
+    for i, sub in enumerate(subclasses, 1):
+        out(f"  {i}) {sub}")
+    return _prompt_choice(inp, out, "Subclasse", subclasses)
 
 
 def _prompt_alignment(inp: InputFn, out: PrintFn) -> str:

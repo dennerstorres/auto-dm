@@ -273,8 +273,13 @@ class TestCompanionAgent:
 
 
 class TestRoster:
-    def test_four_companions(self):
-        assert set(list_companion_keys()) == {"thorgrim", "lyra", "mira", "vex"}
+    def test_twelve_companions(self):
+        # Phase 27: pool covers all 12 PHB classes.
+        assert set(list_companion_keys()) == {
+            "thorgrim", "lyra", "mira", "vex",
+            "garrick", "brom", "kael", "sage",
+            "maren", "eldra", "tobias", "dax",
+        }
 
     def test_thorgrim_is_dwarf_fighter(self):
         c = build_companion("thorgrim")
@@ -336,6 +341,111 @@ class TestRoster:
         # uuid4[:8] is very unlikely to collide for 4 short strings.
         ids = [c.id for c in companions]
         assert len(set(ids)) == len(ids)
+
+    def test_companion_blurbs_for_all_keys(self):
+        from auto_dm.companions import COMPANION_BLURBS
+
+        for key in list_companion_keys():
+            assert key in COMPANION_BLURBS, f"Missing blurb for {key!r}"
+            assert COMPANION_BLURBS[key].strip(), f"Empty blurb for {key!r}"
+
+    def test_paladin_garrick_has_no_spellcasting_at_l1(self):
+        # Half caster; spell slots only unlock at L2 per PHB p. 113.
+        c = build_companion("garrick")
+        assert c.class_ == "Paladin"
+        assert c.spellcasting is None
+
+    def test_each_companion_has_full_personality(self):
+        for key in list_companion_keys():
+            c = build_companion(key)
+            assert len(c.personality_traits) >= 2, key
+            assert len(c.ideals) >= 1, key
+            assert len(c.bonds) >= 1, key
+            assert len(c.flaws) >= 1, key
+
+    def test_caster_companions_have_spellcasting(self):
+        # Half caster (Garrick) excluded; everything else with a caster
+        # class must have a non-None spellcasting block.
+        caster_keys = {"mira", "kael", "sage", "eldra", "tobias", "dax"}
+        for key in caster_keys:
+            c = build_companion(key)
+            assert c.spellcasting is not None, key
+
+    def test_garrick_is_human_paladin(self):
+        c = build_companion("garrick")
+        assert c.name == "Garrick"
+        assert c.race == "Human"
+        assert c.class_ == "Paladin"
+        assert c.subclass == "Devotion"
+        assert c.alignment == "LG"
+        assert c.level == 1
+        assert c.armor_class >= 16  # chain mail + shield
+
+    def test_brom_is_half_orc_barbarian(self):
+        c = build_companion("brom")
+        assert c.name == "Brom"
+        assert "Half-Orc" in c.race
+        assert c.class_ == "Barbarian"
+        assert c.subclass == "Berserker"
+
+    def test_kael_is_wood_elf_wizard(self):
+        c = build_companion("kael")
+        assert c.name == "Kael"
+        assert "Elf" in c.race
+        assert c.class_ == "Wizard"
+        assert c.subclass == "Evocation"
+        assert c.spellcasting is not None
+        assert len(c.spellcasting.cantrips_known) == 3
+        assert len(c.spellcasting.spells_prepared) >= 1
+
+    def test_sage_is_half_elf_sorcerer_draconic(self):
+        c = build_companion("sage")
+        assert c.name == "Sage"
+        assert "Half-Elf" in c.race
+        assert c.class_ == "Sorcerer"
+        assert "Draconic" in (c.subclass or "")
+        assert c.spellcasting is not None
+        assert len(c.spellcasting.cantrips_known) == 4
+        assert len(c.spellcasting.spells_known) == 2
+
+    def test_maren_is_human_monk(self):
+        c = build_companion("maren")
+        assert c.name == "Maren"
+        assert c.race == "Human"
+        assert c.class_ == "Monk"
+        assert c.subclass == "Open Hand"
+        assert c.spellcasting is None  # Monk L1 has no slots
+
+    def test_eldra_is_forest_gnome_druid(self):
+        c = build_companion("eldra")
+        assert c.name == "Eldra"
+        assert "Gnome" in c.race
+        assert c.class_ == "Druid"
+        assert c.spellcasting is not None
+        assert len(c.spellcasting.cantrips_known) == 2
+        assert len(c.spellcasting.spells_prepared) >= 1
+
+    def test_tobias_is_dragonborn_bard(self):
+        c = build_companion("tobias")
+        assert c.name == "Tobias"
+        assert "Dragonborn" in c.race
+        assert c.class_ == "Bard"
+        assert c.subclass == "Lore"
+        assert c.spellcasting is not None
+        assert len(c.spellcasting.cantrips_known) == 2
+        assert len(c.spellcasting.spells_known) == 4
+
+    def test_dax_is_stout_halfling_warlock(self):
+        c = build_companion("dax")
+        assert c.name == "Dax"
+        assert "Halfling" in c.race
+        assert c.class_ == "Warlock"
+        assert c.subclass == "Fiend"
+        assert c.spellcasting is not None
+        assert len(c.spellcasting.cantrips_known) == 2
+        assert len(c.spellcasting.spells_known) == 2
+        # Warlock L1 = 1 pact slot at level 1.
+        assert c.spellcasting.spell_slots == {1: 1}
 
 
 # ---------------------------------------------------------------------------

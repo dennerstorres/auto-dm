@@ -24,6 +24,12 @@ from auto_dm.character.builder import (
     STAT_BLOCK_SIZE,
     STANDARD_ARRAY,
 )
+from auto_dm.character.level_up import (
+    apply_subclass_features,
+    features_gained_at_level,
+    has_subclass_feature,
+    list_subclass_features,
+)
 from auto_dm.character.spells import (
     SpellSelection,
     prepare_caster_spells,
@@ -36,6 +42,10 @@ __all__ = [
     "STANDARD_ARRAY",
     "STAT_BLOCK_SIZE",
     "SpellSelection",
+    "apply_subclass_features",
+    "features_gained_at_level",
+    "has_subclass_feature",
+    "list_subclass_features",
     "prepare_caster_spells",
     "select_cantrips",
 ]

@@ -20,8 +20,11 @@ from auto_dm.cli.character_flow import create_character_interactive
 from auto_dm.cli.rendering import (
     render_action_result,
     render_combat_status,
+    render_conditions,
+    render_inventory,
     render_narration,
     render_save_list,
+    render_spellbook,
 )
 from auto_dm.cli.setup import setup_new_game
 
@@ -31,7 +34,10 @@ __all__ = [
     "make_game_app",
     "render_action_result",
     "render_combat_status",
+    "render_conditions",
+    "render_inventory",
     "render_narration",
     "render_save_list",
+    "render_spellbook",
     "setup_new_game",
 ]

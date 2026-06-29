@@ -172,6 +172,9 @@ def attack_roll(
     if isinstance(attacker, Character) and weapon_item is not None:
         from auto_dm.engine.fighting_style import attack_bonus
         modifier += attack_bonus(attacker, weapon_item)
+    # Magic weapon bonus (Phase 25d): +1/+2/+3 to attack rolls.
+    if weapon_item is not None and weapon_item.magic_bonus:
+        modifier += weapon_item.magic_bonus
 
     # Condition-driven adv/disadvantage (PHB)
     cond_adv, cond_dis = apply_attack_modifiers(
@@ -195,7 +198,19 @@ def attack_roll(
     cover_bonus = cover_ac_bonus(target.cover)
     # Pending AC bonus from reactions like Shield
     shield_bonus = getattr(target, "pending_ac_bonus", 0)
-    effective_ac = target.armor_class + cover_bonus + shield_bonus
+    # Magic armor/shield bonus (Phase 25d): +1/+2/+3 from equipped
+    # armor or shield's magic_bonus. Stored at character creation OR
+    # set on items directly.
+    magic_armor_bonus = 0
+    target_equipped = getattr(target, "equipped", None)
+    if target_equipped is not None:
+        for slot_name in ("armor", "off_hand", "main_hand"):
+            slot = getattr(target_equipped, slot_name, None)
+            if slot is not None and getattr(slot, "magic_bonus", None):
+                magic_armor_bonus += slot.magic_bonus
+    effective_ac = (
+        target.armor_class + cover_bonus + shield_bonus + magic_armor_bonus
+    )
 
     # Roll
     result = roll_d20(
@@ -303,6 +318,9 @@ def damage_roll(
     if isinstance(attacker, Character):
         from auto_dm.engine.fighting_style import damage_bonus
         modifier += damage_bonus(attacker, weapon_item)
+    # Magic weapon bonus (Phase 25d): +1/+2/+3 to damage rolls.
+    if weapon_item is not None and weapon_item.magic_bonus:
+        modifier += weapon_item.magic_bonus
 
     # Fighting Style (Great Weapon Fighting: reroll 1/2 on dmg dice for 2H melee)
     if isinstance(attacker, Character) and attacker.fighting_style == "great_weapon_fighting":

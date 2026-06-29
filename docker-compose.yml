@@ -1,0 +1,56 @@
+# Auto DM — backend only.
+#
+# Postgres + Redis are assumed to already be running on this Docker
+# host (the user's existing infra). Override the URLs in the
+# ``environment`` block below if they live on different hosts.
+#
+# Run:
+#   docker compose up -d --build
+#   docker compose logs -f auto-dm
+#   docker compose down
+
+services:
+  auto-dm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: auto-dm:0.1.0
+    container_name: auto-dm
+    restart: unless-stopped
+    ports:
+      # Bind only to localhost; the public-facing nginx reverse proxy
+      # listens on 443 and proxies to this port via the Docker network.
+      - "127.0.0.1:4004:4004"
+    environment:
+      # --- Backend / persistence ---
+      ENVIRONMENT: "production"
+      LOG_LEVEL: "INFO"
+      # PostgreSQL — point at the existing container/host.
+      DATABASE_URL: "${DATABASE_URL:-postgresql+asyncpg://auto_dm:auto_dm@host.docker.internal:5432/auto_dm}"
+      # Redis — point at the existing container/host.
+      REDIS_URL: "${REDIS_URL:-redis://host.docker.internal:6379/0}"
+      # JWT — set JWT_SECRET in your .env (≥32 chars). Generate with:
+      #   openssl rand -hex 32
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set (≥32 chars)}"
+      JWT_EXPIRES_MINUTES: "10080"  # 7 days
+      SESSION_TTL_SECONDS: "86400"  # 24h
+      # --- CORS ---
+      # Comma-separated list of origins allowed to call the API.
+      # Include your Vercel frontend URL(s) and any local dev origins.
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:3000}"
+      # Invite-code gate (Phase 26e). Set in .env for production to
+      # require all signups to provide this code. Leave empty for dev.
+      INVITE_CODE: "${INVITE_CODE:-}"
+      # --- LLM provider (Minimax) ---
+      AUTO_DM_PROVIDER: "${AUTO_DM_PROVIDER:-minimax}"
+      AUTO_DM_API_KEY: "${AUTO_DM_API_KEY:?AUTO_DM_API_KEY must be set}"
+      AUTO_DM_BASE_URL: "${AUTO_DM_BASE_URL:-}"
+      AUTO_DM_MODEL: "${AUTO_DM_MODEL:-MiniMax-Text-01}"
+      AUTO_DM_TEMPERATURE: "${AUTO_DM_TEMPERATURE:-0.8}"
+      AUTO_DM_MAX_TOKENS: "${AUTO_DM_MAX_TOKENS:-2048}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx, os; r = httpx.get(f'http://localhost:{os.environ.get(\"PORT\", 4004)}/api/health', timeout=3); r.raise_for_status()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

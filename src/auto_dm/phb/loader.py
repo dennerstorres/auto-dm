@@ -14,28 +14,46 @@ from pathlib import Path
 
 from auto_dm.phb.models import (
     AbilityBonus,
+    Background,
     CharacterClass,
     ClassFeature,
     ClassProficiency,
+    GearCategory,
+    MagicItem,
+    MagicItemType,
+    Monster,
+    MonsterAction,
+    MonsterSize,
+    MonsterTrait,
+    MonsterType,
+    Mount,
     PHBArmor,
     PHBArmorCategory,
     PHBCondition,
     PHBDisease,
+    PHBEquipmentPack,
+    PHBGear,
     PHBLanguage,
     PHBPoison,
     PHBSpell,
     PHBSpellComponent,
     PHBSpellSchool,
+    PHBTool,
     PHBTrap,
     PHBWeapon,
     PHBWeaponCategory,
     Race,
+    Rarity,
     SpellcastingInfo,
     Subclass,
     Subrace,
+    ToolCategory,
     Trait,
+    Vehicle,
+    VehicleType,
 )
 from auto_dm.phb.parser import (
+    _clean_inline,
     find_tables,
     parse_cost_gp,
     parse_damage,
@@ -45,7 +63,7 @@ from auto_dm.phb.parser import (
     parse_weight_lb,
     split_sections,
 )
-from auto_dm.state.models import Ability
+from auto_dm.state.models import Ability, AbilityScores
 
 
 # ============================================================================
@@ -1100,3 +1118,1389 @@ def load_diseases(phb_root: Path) -> list[PHBDisease]:
             incubation=incubation,
         ))
     return diseases
+
+
+# ============================================================================
+# Monsters
+# ============================================================================
+
+
+# XP by Challenge Rating (DMG table — also reproduced at the end of
+# ``# Monster Statistics.md``). Covers CR 0 through 30.
+_XP_BY_CR: dict[float, int] = {
+    0: 10, 0.125: 25, 0.25: 50, 0.5: 100,
+    1: 200, 2: 450, 3: 700, 4: 1100, 5: 1800,
+    6: 2300, 7: 2900, 8: 3900, 9: 5000, 10: 5900,
+    11: 7200, 12: 8400, 13: 10000, 14: 11500, 15: 13000,
+    16: 15000, 17: 18000, 18: 20000, 19: 22000, 20: 25000,
+    21: 33000, 22: 41000, 23: 50000, 24: 62000, 25: 75000,
+    26: 90000, 27: 105000, 28: 120000, 29: 135000, 30: 155000,
+}
+
+
+def load_monsters(phb_root: Path) -> list[Monster]:
+    """Load all monster stat blocks from ``data/phb/Monsters/``.
+
+    Skips the ``# Monster Statistics.md`` intro file. The 318 stat-block files
+    follow the standard PHB format (name, italic tagline, ``**Field:**`` lines,
+    ``|STR DEX CON INT WIS CHA|`` table, traits, ``###### Actions``,
+    optional ``###### Reactions`` and ``###### Legendary Actions``).
+    """
+    monsters_dir = phb_root / "Monsters"
+    if not monsters_dir.exists():
+        return []
+
+    monsters: list[Monster] = []
+    for path in sorted(monsters_dir.glob("*.md")):
+        if path.name.startswith("#"):
+            continue
+        monster = parse_monster_file(path)
+        if monster is not None:
+            monsters.append(monster)
+    return monsters
+
+
+def parse_monster_file(path: Path) -> Monster | None:
+    """Parse one monster .md file into a Monster.
+
+    Returns None if the file is too malformed to recover from. Most fields have
+    defaults so partial parses still produce a usable Monster.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+        sections = split_sections(text)
+        if not sections:
+            return None
+
+        name = sections[0].title.strip()
+        body = sections[0].body
+
+        size, mtype, subtype, alignment = _parse_tagline(body)
+
+        fields = _parse_monster_fields(body)
+        ac_value, ac_desc = _parse_armor_class(fields.get("armor class", ""))
+        hp_avg, hp_dice = _parse_hp(fields.get("hit points", ""))
+        speed_modes = _parse_speed(fields.get("speed", ""))
+
+        abilities = _parse_ability_table(body)
+
+        saves = _parse_save_skills(fields.get("saving throws", ""), _SAVES_RE)
+        skills = _parse_save_skills(fields.get("skills", ""), _SKILLS_RE)
+
+        damage_res = _parse_damage_types(fields.get("damage resistances", ""))
+        damage_imm = _parse_damage_types(fields.get("damage immunities", ""))
+        damage_vuln = _parse_damage_types(fields.get("damage vulnerabilities", ""))
+
+        cond_imm = _parse_condition_immunities(fields.get("condition immunities", ""))
+
+        senses, passive_perception = _parse_senses(fields.get("senses", ""))
+        languages, languages_note = _parse_languages(fields.get("languages", ""))
+
+        cr_float, cr_text = _parse_challenge_text(fields.get("challenge", ""))
+        xp = _XP_BY_CR.get(cr_float, 0)
+
+        # Traits: ***Name***. desc — they live in sections[0].body before
+        # any ``######`` separator.
+        traits = parse_traits(body)
+        trait_models = [MonsterTrait(name=n, description=d) for n, d in traits]
+        legendary_resistances = _count_legendary_resistance(trait_models)
+
+        actions_section = next(
+            (s for s in sections if s.title.strip().lower() == "actions"), None
+        )
+        actions = _parse_actions(actions_section.body) if actions_section else []
+
+        reactions_section = next(
+            (s for s in sections if s.title.strip().lower() == "reactions"), None
+        )
+        reactions = _parse_actions(reactions_section.body) if reactions_section else []
+
+        legendary_section = next(
+            (s for s in sections if s.title.strip().lower() == "legendary actions"),
+            None,
+        )
+        if legendary_section:
+            legendary_actions, legendary_count = _parse_legendary_actions(
+                legendary_section.body
+            )
+        else:
+            legendary_actions, legendary_count = [], 0
+
+        return Monster(
+            name=name,
+            size=size,
+            type=mtype,
+            subtype=subtype,
+            alignment=alignment,
+            armor_class=ac_value,
+            armor_description=ac_desc,
+            hp_average=hp_avg,
+            hp_dice_formula=hp_dice,
+            speed_walk=speed_modes.get("walk", 0),
+            speed_burrow=speed_modes.get("burrow", 0),
+            speed_climb=speed_modes.get("climb", 0),
+            speed_fly=speed_modes.get("fly", 0),
+            speed_swim=speed_modes.get("swim", 0),
+            hover=bool(speed_modes.get("hover", False)),
+            abilities=abilities,
+            saves=saves,
+            skills=skills,
+            damage_resistances=damage_res,
+            damage_immunities=damage_imm,
+            damage_vulnerabilities=damage_vuln,
+            condition_immunities=cond_imm,
+            senses=senses,
+            passive_perception=passive_perception,
+            languages=languages,
+            languages_note=languages_note,
+            challenge_rating=cr_float,
+            challenge_rating_text=cr_text,
+            xp=xp,
+            traits=trait_models,
+            actions=actions,
+            reactions=reactions,
+            legendary_actions=legendary_actions,
+            legendary_actions_count=legendary_count,
+            legendary_resistances=legendary_resistances,
+            source_file=path.name,
+        )
+    except Exception:
+        # Defensive: never let one bad file kill the whole loader
+        return None
+
+
+# --- Parsing helpers ---------------------------------------------------------
+
+
+# *Size type (subtype), alignment*
+_TAGLINE_RE = re.compile(
+    r"\*([A-Z][a-z]+)\s+(\w+)(?:\s*\((\w[^)]*)\))?,\s*(.+?)\*"
+)
+
+
+def _parse_tagline(body: str) -> tuple[MonsterSize, MonsterType, Optional[str], str]:
+    """Extract size, type, optional subtype, and alignment from the tagline."""
+    m = _TAGLINE_RE.search(body)
+    if not m:
+        return MonsterSize.MEDIUM, MonsterType.HUMANOID, None, "unaligned"
+
+    size_str = m.group(1).lower()
+    type_str = m.group(2).lower()
+    subtype = m.group(3)
+    alignment = m.group(4).strip()
+
+    try:
+        size = MonsterSize(size_str.capitalize())
+    except ValueError:
+        size = MonsterSize.MEDIUM
+
+    try:
+        mtype = MonsterType(type_str)
+    except ValueError:
+        mtype = MonsterType.MONSTROSITY  # catch-all bucket
+
+    return size, mtype, subtype, alignment
+
+
+_AC_RE = re.compile(r"^\s*(\d+)\s*(?:\(([^)]+)\))?\s*$")
+_HP_RE = re.compile(r"^\s*(\d+)\s*\(([^)]+)\)\s*$")
+
+
+def _parse_armor_class(text: str) -> tuple[int, str]:
+    """``15 (leather armor, shield)`` -> (15, '(leather armor, shield)')."""
+    m = _AC_RE.match(text.strip())
+    if not m:
+        return 10, ""
+    desc = f"({m.group(2)})" if m.group(2) else ""
+    return int(m.group(1)), desc
+
+
+def _parse_hp(text: str) -> tuple[int, str]:
+    """``7 (2d6)`` -> (7, '2d6')."""
+    m = _HP_RE.match(text.strip())
+    if not m:
+        return 1, "1d4"
+    return int(m.group(1)), m.group(2).replace(" ", "")
+
+
+_SPEED_RE = re.compile(r"(?:(\w+)\s+)?(\d+)\s*ft\.", re.IGNORECASE)
+_HOVER_RE = re.compile(r"fly\s+\d+\s*ft\.\s*\(hover\)", re.IGNORECASE)
+
+
+def _parse_speed(text: str) -> dict[str, int | bool]:
+    """``40 ft., climb 40 ft., fly 80 ft. (hover)`` -> dict of modes."""
+    modes: dict[str, int | bool] = {"walk": 0}
+    hover = bool(_HOVER_RE.search(text))
+    for m in _SPEED_RE.finditer(text):
+        mode = (m.group(1) or "speed").lower()
+        if mode == "speed":
+            mode = "walk"
+        modes[mode] = int(m.group(2))
+    modes["hover"] = hover
+    return modes
+
+
+# | STR | DEX | CON | INT | WIS | CHA |  +  separator  +  values row
+_ABILITY_TABLE_RE = re.compile(
+    r"\|\s*STR\s*\|[^\n]+\|\s*CHA\s*\|\s*\n"
+    r"\|[^\n]+\|\s*\n"
+    r"\|\s*(\d+)\s*\([+-]?\d+\)\s*\|"
+    r"\s*(\d+)\s*\([+-]?\d+\)\s*\|"
+    r"\s*(\d+)\s*\([+-]?\d+\)\s*\|"
+    r"\s*(\d+)\s*\([+-]?\d+\)\s*\|"
+    r"\s*(\d+)\s*\([+-]?\d+\)\s*\|"
+    r"\s*(\d+)\s*\([+-]?\d+\)\s*\|",
+)
+
+
+# Monster stat-block fields use ``**Field** value`` (no colon), unlike class
+# or spell files which use ``**Field:** value``. This regex handles both.
+_MONSTER_FIELD_RE = re.compile(
+    r"^\*\*([^*\n]+)\*\*\s+(.+?)(?=\n\*\*|\n###### |\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def _parse_monster_fields(body: str) -> dict[str, str]:
+    """Parse ``**Field** value`` (or ``**Field:** value``) blocks from a monster body.
+
+    Unlike ``parse_fields`` (which expects the colon style used by class/spell
+    files), monster stat blocks omit the colon: ``**Armor Class** 15 (...)``.
+    Multi-line values are collapsed to a single line.
+    """
+    fields: dict[str, str] = {}
+    for m in _MONSTER_FIELD_RE.finditer(body):
+        key = m.group(1).strip().rstrip(":").lower()
+        value = re.sub(r"\s+", " ", m.group(2)).strip()
+        fields[key] = value
+    return fields
+
+
+def _parse_ability_table(body: str) -> AbilityScores:
+    """Parse the six-cell ``|STR...CHA|`` table row into AbilityScores."""
+    m = _ABILITY_TABLE_RE.search(body)
+    if not m:
+        return AbilityScores(
+            strength=10, dexterity=10, constitution=10,
+            intelligence=10, wisdom=10, charisma=10,
+        )
+    return AbilityScores(
+        strength=int(m.group(1)),
+        dexterity=int(m.group(2)),
+        constitution=int(m.group(3)),
+        intelligence=int(m.group(4)),
+        wisdom=int(m.group(5)),
+        charisma=int(m.group(6)),
+    )
+
+
+_SAVES_RE = re.compile(
+    r"(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)"
+    r"\s*\+?\s*(\d+)",
+    re.IGNORECASE,
+)
+
+_SKILLS_RE = re.compile(
+    r"(Acrobatics|Animal Handling|Arcana|Athletics|Deception|History|"
+    r"Insight|Intimidation|Investigation|Medicine|Nature|Perception|"
+    r"Performance|Persuasion|Religion|Sleight of Hand|Stealth|Survival)"
+    r"\s*\+?\s*(\d+)",
+    re.IGNORECASE,
+)
+
+
+def _parse_save_skills(text: str, pattern: re.Pattern[str]) -> dict[str, int]:
+    """Parse 'Dex +6, Con +13' or 'Stealth +6, Perception +13' into a dict."""
+    result: dict[str, int] = {}
+    for m in pattern.finditer(text):
+        result[m.group(1).lower()] = int(m.group(2))
+    return result
+
+
+def _parse_damage_types(text: str) -> list[str]:
+    """Parse ``fire`` or ``cold, lightning, necrotic`` into a list."""
+    if not text:
+        return []
+    # Split on semicolons first (separates clauses like
+    # ``poison; bludgeoning, piercing, and slashing from nonmagical attacks``).
+    types: list[str] = []
+    for clause in text.split(";"):
+        for p in re.split(r",|\band\b", clause):
+            p = p.strip().lower()
+            if p:
+                types.append(p)
+    return types
+
+
+_KNOWN_CONDITIONS = {
+    "blinded", "charmed", "deafened", "frightened", "grappled",
+    "incapacitated", "invisible", "paralyzed", "petrified", "poisoned",
+    "prone", "restrained", "stunned", "unconscious", "exhaustion",
+}
+
+
+def _parse_condition_immunities(text: str) -> list[str]:
+    """``charmed, exhaustion, frightened, paralyzed, poisoned`` -> list."""
+    if not text:
+        return []
+    found: list[str] = []
+    for part in re.split(r",|\band\b", text):
+        name = part.strip().lower()
+        if name in _KNOWN_CONDITIONS:
+            found.append(name)
+    return found
+
+
+_SENSES_RE = re.compile(r"([A-Za-z][\w\s]*?)\s+(\d+)\s*ft\.", re.IGNORECASE)
+_PP_RE = re.compile(r"passive\s+Perception\s+(\d+)", re.IGNORECASE)
+
+
+def _parse_senses(text: str) -> tuple[dict[str, int], int]:
+    """``darkvision 60 ft., passive Perception 9`` -> ({...}, 9)."""
+    senses: dict[str, int] = {}
+    for m in _SENSES_RE.finditer(text):
+        sense_name = m.group(1).strip().lower()
+        if sense_name in {"passive perception"}:
+            continue
+        senses[sense_name] = int(m.group(2))
+
+    pp_match = _PP_RE.search(text)
+    passive_perception = int(pp_match.group(1)) if pp_match else 10
+
+    return senses, passive_perception
+
+
+def _parse_languages(text: str) -> tuple[list[str], str]:
+    """``Common, Goblin`` -> (['Common', 'Goblin'], '').
+
+    ``Common plus up to five other languages`` -> (['Common'], 'plus up to five ...').
+    ``-`` or empty -> ([], '').
+    """
+    if not text or text.strip() in {"-", "—", "None"}:
+        return [], ""
+    note_match = re.search(r"\s+(plus|—|\(.*$).*", text, re.IGNORECASE)
+    if note_match:
+        note = note_match.group(0).strip()
+        lang_text = text[: note_match.start()]
+    else:
+        note = ""
+        lang_text = text
+    langs = [l.strip() for l in lang_text.split(",") if l.strip()]
+    return langs, note
+
+
+def _parse_challenge_text(text: str) -> tuple[float, str]:
+    """``1/4`` -> (0.25, '1/4'); ``17`` -> (17.0, '17')."""
+    m = re.match(r"\s*(\d+(?:/\d+)?)", text)
+    if not m:
+        return 0.0, "0"
+    cr_str = m.group(1)
+    if "/" in cr_str:
+        num, denom = cr_str.split("/")
+        return float(num) / float(denom), cr_str
+    return float(cr_str), cr_str
+
+
+def _count_legendary_resistance(traits: list[MonsterTrait]) -> int:
+    """Pull the X out of a ``Legendary Resistance (X/Day)`` trait."""
+    for t in traits:
+        if "legendary resistance" in t.name.lower():
+            m = re.search(r"\((\d+)/Day\)", t.name)
+            if m:
+                return int(m.group(1))
+    return 0
+
+
+# --- Action / legendary action parsing ---------------------------------------
+
+
+# ***Action Name***. description  (regular Actions section)
+_ACTION_RE = re.compile(
+    r"\*\*\*(.+?)\*\*\*\.\s*(.+?)(?=\n\*\*\*|\n### |\n## |\n###### |\Z)",
+    re.DOTALL,
+)
+
+# **Option Name**. description  (Legendary Actions options use bold-not-italic)
+_LEGENDARY_OPT_RE = re.compile(
+    r"\*\*(.+?)\*\*\.\s*(.+?)(?=\n\*\*|\n### |\n## |\n###### |\Z)",
+    re.DOTALL,
+)
+
+_LEGENDARY_COUNT_RE = re.compile(
+    r"can\s+take\s+(\d+)\s+legendary\s+actions", re.IGNORECASE
+)
+
+_RECHARGE_RE = re.compile(r"\(Recharge\s+(\d+-\d+)\)", re.IGNORECASE)
+_USAGES_RE = re.compile(r"\((\d+/Day)\)", re.IGNORECASE)
+_COST_RE = re.compile(r"\(Costs\s+(\d+)\s+Actions?\)", re.IGNORECASE)
+
+# *Melee Weapon Attack:* +4 to hit, reach 5 ft., one target.
+_ATTACK_TYPE_RE = re.compile(
+    r"\*?(Melee|Ranged)\s+(Weapon|Spell)\s+Attack:\*?\s*\+(\d+)\s+to\s+hit",
+    re.IGNORECASE,
+)
+_REACH_RE = re.compile(r"reach\s+(\d+)\s*ft", re.IGNORECASE)
+_RANGE_RE = re.compile(r"range\s+(\d+)/(\d+)\s*ft", re.IGNORECASE)
+
+# *Hit:* 5 (1d6+2) slashing damage.
+_HIT_DAMAGE_RE = re.compile(
+    r"\*?Hit:\*?\s*\d+\s*\((\d+d\d+(?:\s*[+\-]\s*\d+)?)\)\s+(\w+)\s+damage",
+    re.IGNORECASE,
+)
+# *Hit:* 1d6+2 slashing damage. (no average prefix)
+_HIT_DAMAGE_PLAIN_RE = re.compile(
+    r"\*?Hit:\*?\s*(\d+d\d+(?:\s*[+\-]\s*\d+)?)\s+(\w+)\s+damage",
+    re.IGNORECASE,
+)
+# "plus 7 (2d6) fire damage" — rider
+_ADDITIONAL_DAMAGE_RE = re.compile(
+    r"plus\s+\d+\s+\((\d+d\d+)\)\s+(\w+)\s+damage",
+    re.IGNORECASE,
+)
+
+
+def _parse_actions(body: str) -> list[MonsterAction]:
+    """Parse the Actions section body into a list of MonsterAction."""
+    actions: list[MonsterAction] = []
+    for m in _ACTION_RE.finditer(body):
+        raw_name = _strip_inline(m.group(1))
+        description = _collapse_ws(m.group(2))
+        actions.append(_build_action(raw_name, description))
+    return actions
+
+
+def _parse_legendary_actions(body: str) -> tuple[list[MonsterAction], int]:
+    """Parse the Legendary Actions section body.
+
+    Returns (actions, count). ``count`` is how many legendary actions can be
+    taken per round (e.g. ``can take 3 legendary actions`` -> 3). Defaults
+    to 0 if the section is present but malformed.
+    """
+    count_match = _LEGENDARY_COUNT_RE.search(body)
+    count = int(count_match.group(1)) if count_match else 0
+
+    actions: list[MonsterAction] = []
+    for m in _LEGENDARY_OPT_RE.finditer(body):
+        raw_name = _strip_inline(m.group(1))
+        description = _collapse_ws(m.group(2))
+        # Skip the section preamble — it has no name like that, but defend
+        # against accidentally matching the "can take 3 legendary actions"
+        # opener by checking for empty description.
+        if not raw_name or not description:
+            continue
+        actions.append(_build_action(raw_name, description))
+
+    return actions, count
+
+
+def _build_action(raw_name: str, description: str) -> MonsterAction:
+    """Construct a MonsterAction, parsing modifiers from the name and details
+    from the description body.
+    """
+    clean_name = raw_name
+    recharge: Optional[str] = None
+    usages: Optional[str] = None
+    cost: Optional[int] = None
+
+    m = _RECHARGE_RE.search(clean_name)
+    if m:
+        recharge = m.group(1)
+        clean_name = _RECHARGE_RE.sub("", clean_name)
+    m = _USAGES_RE.search(clean_name)
+    if m:
+        usages = m.group(1)
+        clean_name = _USAGES_RE.sub("", clean_name)
+    m = _COST_RE.search(clean_name)
+    if m:
+        cost = int(m.group(1))
+        clean_name = _COST_RE.sub("", clean_name)
+
+    # Tidy leftover parens / whitespace
+    clean_name = re.sub(r"\s+", " ", clean_name).strip().strip(".").strip()
+    if clean_name.endswith(")") and "(" not in clean_name:
+        clean_name = clean_name[:-1].strip()
+
+    # Attack details
+    attack_type: Optional[str] = None
+    attack_bonus: Optional[int] = None
+    reach_ft: Optional[int] = None
+    range_normal: Optional[int] = None
+    range_long: Optional[int] = None
+    damage_dice: Optional[str] = None
+    damage_type: Optional[str] = None
+    addl_dice: Optional[str] = None
+    addl_type: Optional[str] = None
+
+    m = _ATTACK_TYPE_RE.search(description)
+    if m:
+        attack_type = f"{m.group(1).lower()}_{m.group(2).lower()}"
+        attack_bonus = int(m.group(3))
+    m = _REACH_RE.search(description)
+    if m:
+        reach_ft = int(m.group(1))
+    m = _RANGE_RE.search(description)
+    if m:
+        range_normal = int(m.group(1))
+        range_long = int(m.group(2))
+
+    m = _HIT_DAMAGE_RE.search(description) or _HIT_DAMAGE_PLAIN_RE.search(description)
+    if m:
+        damage_dice = m.group(1).replace(" ", "")
+        damage_type = m.group(2).lower()
+    m = _ADDITIONAL_DAMAGE_RE.search(description)
+    if m:
+        addl_dice = m.group(1).replace(" ", "")
+        addl_type = m.group(2).lower()
+
+    return MonsterAction(
+        name=clean_name,
+        description=description,
+        recharge=recharge,
+        usages=usages,
+        cost=cost,
+        attack_type=attack_type,
+        attack_bonus=attack_bonus,
+        reach_ft=reach_ft,
+        range_normal_ft=range_normal,
+        range_long_ft=range_long,
+        damage_dice=damage_dice,
+        damage_type=damage_type,
+        additional_damage_dice=addl_dice,
+        additional_damage_type=addl_type,
+    )
+
+
+def _strip_inline(text: str) -> str:
+    """Remove residual markdown emphasis (** * __ _) from inline text."""
+    text = re.sub(r"\*\*\*(.+?)\*\*\*", r"\1", text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"\*(.+?)\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"_(.+?)_", r"\1", text)
+    return text.strip()
+
+
+def _collapse_ws(text: str) -> str:
+    """Collapse runs of whitespace/newlines into single spaces."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+# ============================================================================
+# Backgrounds (Phase 25c)
+# ============================================================================
+
+
+def load_backgrounds(phb_root: Path) -> list[Background]:
+    """Load all backgrounds from ``data/phb/Characterizations/Backgrounds.md``.
+
+    The file contains one ``## BackgroundName`` section per background, with
+    a narrative description, four ``**Field:**`` lines, and a single
+    ``### Feature: FeatureName`` block (parsed as a separate section by
+    ``split_sections``). Suggested Characteristics tables are skipped
+    (they're flavor, not mechanics).
+    """
+    path = phb_root / "Characterizations" / "Backgrounds.md"
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    sections = split_sections(text)
+
+    # Build a flat list of (level, title, body) for the whole file, and
+    # then group them: a ## background "owns" all subsequent ### sections
+    # until the next ## background.
+    backgrounds: list[Background] = []
+    current_bg_section = None  # type: ignore[assignment]
+    for section in sections:
+        if section.level == 2:
+            # If we have a current background, finalize it.
+            if current_bg_section is not None:
+                bg = _parse_background_section(
+                    current_bg_section["section"],
+                    current_bg_section["feature_section"],
+                )
+                if bg is not None:
+                    backgrounds.append(bg)
+            title = section.title.strip()
+            if title.lower() in {
+                "backgrounds", "customizing a background",
+                "proficiencies", "languages", "equipment",
+                "suggested characteristics",
+            }:
+                current_bg_section = None
+                continue
+            current_bg_section = {"section": section, "feature_section": None}
+        elif section.level == 3 and current_bg_section is not None:
+            if section.title.lower().startswith("feature:"):
+                current_bg_section["feature_section"] = section
+
+    # Finalize the last background.
+    if current_bg_section is not None:
+        bg = _parse_background_section(
+            current_bg_section["section"],
+            current_bg_section["feature_section"],
+        )
+        if bg is not None:
+            backgrounds.append(bg)
+    return backgrounds
+
+
+def _parse_background_section(
+    section, feature_section,
+) -> Background | None:
+    """Parse a single ``## Background Name`` section."""
+    name = section.title.strip()
+    body = section.body
+
+    # Description: lines BEFORE the first **Field:** line.
+    fields = parse_fields(body)
+    if not fields:
+        # No fields at all — malformed, skip.
+        return None
+
+    # Find where fields begin so we can split description from fields.
+    field_start = re.search(r"^\*\*[^*]+?:\*\*", body, re.MULTILINE)
+    if field_start:
+        desc_raw = body[: field_start.start()]
+        description = _first_paragraph(desc_raw)
+    else:
+        description = ""
+
+    # Skill proficiencies (comma-separated free-text names)
+    skills_raw = fields.get("skill proficiencies", "")
+    skill_profs = _parse_csv_list(skills_raw)
+
+    # Tool proficiencies (comma-separated free-text names)
+    tools_raw = fields.get("tool proficiencies", "")
+    tool_profs = _parse_csv_list(tools_raw)
+
+    # Languages: either "Two of your choice" / "Any one of your choice"
+    # or a specific comma-separated list. We keep the raw text so the
+    # wizard can honor the choice rule.
+    languages = fields.get("languages", "").strip()
+
+    # Equipment: free text
+    equipment = fields.get("equipment", "").strip()
+
+    # Feature: the ### section is passed in by the caller.
+    feature_name = ""
+    feature_description = ""
+    if feature_section is not None:
+        # Title is "Feature: Shelter of the Faithful"
+        m = re.match(r"^Feature:\s*(.+?)\s*$", feature_section.title, re.IGNORECASE)
+        if m:
+            feature_name = m.group(1).strip()
+        feature_description = _first_paragraph(feature_section.body)
+
+    return Background(
+        name=name,
+        description=description,
+        skill_proficiencies=skill_profs,
+        tool_proficiencies=tool_profs,
+        languages=languages,
+        equipment=equipment,
+        feature_name=feature_name,
+        feature_description=feature_description,
+    )
+
+
+def _parse_csv_list(text: str) -> list[str]:
+    """Parse a comma-separated list of free-text names."""
+    if not text:
+        return []
+    parts = [p.strip() for p in text.split(",")]
+    return [p for p in parts if p]
+
+
+# ============================================================================
+# Tools (Phase 25c)
+# ============================================================================
+
+
+def load_tools(phb_root: Path) -> list[PHBTool]:
+    """Load all tools from ``data/phb/Equipment/Tools.md``.
+
+    Parses the **Table- Tools** block (Item | Cost | Weight) and the
+    prose ``***Category***. description`` blocks. The first table column
+    uses italic ``*X*`` rows for category headers and ``~ X`` rows for
+    children of the current category; bare rows are standalone tools.
+    """
+    path = phb_root / "Equipment" / "Tools.md"
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+
+    # Parse prose descriptions: ***Category***. description
+    descriptions: dict[str, str] = {}
+    for cat_name, cat_desc in parse_traits(text):
+        descriptions[cat_name] = cat_desc
+
+    tools: list[PHBTool] = []
+    tables = find_tables(text)
+    for _title, tbl in tables:
+        # Look for the Tools table — Item | Cost | Weight
+        joined = " | ".join(tbl.headers).lower()
+        if "item" not in joined or "cost" not in joined or "weight" not in joined:
+            continue
+        current_cat = ToolCategory.OTHER
+        # Track whether the last row was a `~` (child) row; if so, the
+        # next standalone row marks the end of that subgroup and the
+        # rows that follow it are standalone KITs.
+        last_was_child = False
+        for row in tbl.rows:
+            if not row or all(c == "" for c in row):
+                continue
+            first_cell = row[0].strip()
+            if not first_cell:
+                continue
+            # Italic category header: "*Artisan's tools*"
+            if first_cell.startswith("*") and first_cell.endswith("*"):
+                cat_str = first_cell.strip("*").strip().lower()
+                if "artisan" in cat_str:
+                    current_cat = ToolCategory.ARTISAN
+                elif "gaming" in cat_str:
+                    current_cat = ToolCategory.GAMING_SET
+                elif "musical" in cat_str:
+                    current_cat = ToolCategory.MUSICAL_INSTRUMENT
+                elif "vehicle" in cat_str:
+                    current_cat = ToolCategory.VEHICLE
+                else:
+                    current_cat = ToolCategory.OTHER
+                last_was_child = False
+                continue
+            # Child row: "~ Alchemist's supplies"
+            if first_cell.startswith("~"):
+                name = first_cell.lstrip("~").strip()
+                last_was_child = True
+            else:
+                name = first_cell
+                # A standalone row after a child row (or after one of
+                # the categorized groups) is a KIT (Disguise, Forgery,
+                # Herbalism, Navigator's, Poisoner's, Thieves').
+                if last_was_child or current_cat in {
+                    ToolCategory.ARTISAN, ToolCategory.GAMING_SET,
+                    ToolCategory.MUSICAL_INSTRUMENT,
+                }:
+                    current_cat = ToolCategory.KIT
+                last_was_child = False
+            if not name:
+                continue
+            # Skip the Vehicles footnote row entirely (no cost/weight).
+            # Real vehicles live in Transportation.md (not yet loaded).
+            if name.lower().startswith("vehicles"):
+                continue
+            # Skip the Vehicles footnote row entirely (no cost/weight)
+            if current_cat == ToolCategory.VEHICLE:
+                continue
+            cost = parse_cost_gp(row[1]) if len(row) > 1 else 0.0
+            weight = parse_weight_lb(row[2]) if len(row) > 2 else 0.0
+            # Description: match the current category if the row belongs
+            # to a named category (Artisan's Tools / Musical Instrument
+            # etc.). Kits (Disguise, Thieves' tools, ...) get their own
+            # specific description.
+            description = _match_tool_description(name, descriptions)
+            tools.append(
+                PHBTool(
+                    name=name,
+                    category=current_cat,
+                    cost_gp=cost,
+                    weight=weight,
+                    description=description,
+                )
+            )
+    return tools
+
+
+def _match_tool_description(name: str, descriptions: dict[str, str]) -> str:
+    """Find the prose description for a tool name.
+
+    Matches the first category description whose name is contained in the
+    tool name (so "Alchemist's supplies" → "Artisan's Tools" prose), or
+    a direct key match for kits ("Disguise Kit", "Thieves' Tools", ...).
+    """
+    target = name.lower()
+    # Direct match wins (e.g. "Disguise Kit", "Thieves' Tools")
+    for key, desc in descriptions.items():
+        if key.lower() == target:
+            return desc
+    # Artisan's tools, gaming sets, musical instruments share category prose
+    # but get their description from the category name in the key.
+    artisan_keywords = {
+        "alchemist", "brewer", "calligrapher", "carpenter", "cartographer",
+        "cobbler", "cook", "glassblower", "jeweler", "leatherworker", "mason",
+        "painter", "potter", "smith", "tinker", "weaver", "woodcarver",
+    }
+    if any(k in target for k in artisan_keywords):
+        return descriptions.get("Artisan's Tools", "")
+    musical_keywords = {
+        "bagpipes", "drum", "dulcimer", "flute", "lute", "lyre", "horn",
+        "pan flute", "shawm", "viol",
+    }
+    if any(k in target for k in musical_keywords):
+        return descriptions.get("Musical Instrument", "")
+    if "dice" in target or "playing card" in target:
+        return descriptions.get("Gaming Set", "")
+    return ""
+
+
+# ============================================================================
+# Adventuring Gear (Phase 25c)
+# ============================================================================
+
+
+def load_gear(phb_root: Path) -> list[PHBGear]:
+    """Load all adventuring gear from ``data/phb/Equipment/Gear.md``.
+
+    Combines two sources:
+    1. The prose block at the top (``***Item***. description``) — items
+       with rules but no cost/weight table entry.
+    2. The **Table- Adventuring Gear** table — items with cost/weight.
+
+    Each item is unique by name; if a name appears in both, the table
+    row wins for cost/weight, and the prose description is preserved.
+    """
+    path = phb_root / "Equipment" / "Gear.md"
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+
+    # 1. Prose descriptions
+    prose_descriptions: dict[str, str] = {}
+    for item_name, desc in parse_traits(text):
+        # Normalize item names (strip trailing period etc.)
+        prose_descriptions[item_name.strip()] = desc
+
+    # 2. Table rows
+    gear_by_name: dict[str, PHBGear] = {}
+    tables = find_tables(text)
+    for _title, tbl in tables:
+        joined = " | ".join(tbl.headers).lower()
+        if "item" not in joined or "cost" not in joined or "weight" not in joined:
+            continue
+        current_cat = GearCategory.STANDARD
+        last_was_child = False
+        for row in tbl.rows:
+            if not row or all(c == "" for c in row):
+                continue
+            first_cell = row[0].strip()
+            if not first_cell:
+                continue
+            # Italic subgroup: "*Ammunition*", "*Arcane focus*", etc.
+            if first_cell.startswith("*") and first_cell.endswith("*"):
+                cat_str = first_cell.strip("*").strip().lower()
+                if "ammunition" in cat_str:
+                    current_cat = GearCategory.AMMUNITION
+                elif "arcane" in cat_str:
+                    current_cat = GearCategory.ARCANE_FOCUS
+                elif "druidic" in cat_str:
+                    current_cat = GearCategory.DRUIDIC_FOCUS
+                elif "holy" in cat_str:
+                    current_cat = GearCategory.HOLY_SYMBOL
+                else:
+                    current_cat = GearCategory.STANDARD
+                last_was_child = False
+                continue
+            # Child row: "~ Arrows (20)"
+            if first_cell.startswith("~"):
+                name = first_cell.lstrip("~").strip()
+                last_was_child = True
+            else:
+                name = first_cell
+                # Standalone row after a child row: end of subgroup,
+                # back to STANDARD.
+                if last_was_child and current_cat != GearCategory.STANDARD:
+                    current_cat = GearCategory.STANDARD
+                last_was_child = False
+            if not name:
+                continue
+            cost = parse_cost_gp(row[1]) if len(row) > 1 else 0.0
+            weight = parse_weight_lb(row[2]) if len(row) > 2 else 0.0
+            # Look up prose description (case-insensitive)
+            desc = ""
+            for k, v in prose_descriptions.items():
+                if k.lower() == name.lower():
+                    desc = v
+                    break
+            gear_by_name[name] = PHBGear(
+                name=name,
+                category=current_cat,
+                cost_gp=cost,
+                weight=weight,
+                description=desc,
+            )
+
+    # Add prose-only items (no table row) so they're still discoverable.
+    for name, desc in prose_descriptions.items():
+        if name not in gear_by_name and not _is_subitem(name):
+            gear_by_name[name] = PHBGear(
+                name=name, description=desc,
+            )
+
+    return list(gear_by_name.values())
+
+
+def _is_subitem(name: str) -> bool:
+    """Some prose entries are sub-items (e.g. "Quiver", "Lantern, Hooded")
+    that belong to a parent item. Skip them in the top-level gear list to
+    avoid duplicate-looking entries.
+    """
+    return False  # keep all for now; the wizard can filter
+
+
+# ============================================================================
+# Equipment Packs (Phase 25c)
+# ============================================================================
+
+
+def load_packs(phb_root: Path) -> list[PHBEquipmentPack]:
+    """Load equipment packs from ``data/phb/Equipment/Gear.md``.
+
+    Packs live in the ``**Equipment Packs**`` section, formatted as
+    ``***Pack Name (NN gp)***. Includes ...``. Returns one
+    :class:`PHBEquipmentPack` per pack, with cost parsed and contents
+    split into a list of item names.
+    """
+    path = phb_root / "Equipment" / "Gear.md"
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+
+    packs: list[PHBEquipmentPack] = []
+    # Find the "**Equipment Packs**" section so we don't capture the
+    # prose items above (which use the same ***X***. ... format).
+    marker = "**Equipment Packs**"
+    marker_idx = text.find(marker)
+    if marker_idx == -1:
+        return []
+    section_text = text[marker_idx:]
+
+    for raw_name, raw_desc in parse_traits(section_text):
+        # Raw name format: "Burglar's Pack (16 gp)"
+        m = re.match(r"^(.+?)\s*\((\d+(?:\.\d+)?)\s*gp\)\s*$", raw_name)
+        if not m:
+            continue
+        pack_name = m.group(1).strip()
+        cost_gp = float(m.group(2))
+        # Contents: text after "Includes ..." — split on ",", " and "
+        includes_m = re.search(r"Includes\s+(.+)", raw_desc, re.IGNORECASE | re.DOTALL)
+        contents: list[str] = []
+        if includes_m:
+            raw_items = includes_m.group(1)
+            # Drop trailing sentence after the first period that ends a sentence
+            raw_items = re.split(r"\.\s+", raw_items, maxsplit=1)[0]
+            # Split on commas / " and "
+            parts = re.split(r",|\band\b", raw_items)
+            contents = [_clean_inline(p).strip() for p in parts if p.strip()]
+        packs.append(
+            PHBEquipmentPack(
+                name=pack_name,
+                cost_gp=cost_gp,
+                contents=contents,
+                description=raw_desc,
+            )
+        )
+    return packs
+
+
+# ============================================================================
+# Magic Items (Phase 25d)
+# ============================================================================
+
+
+def load_magic_items(phb_root: Path) -> list[MagicItem]:
+    """Load all magic items from ``data/phb/Treasure/``.
+
+    Each item lives in its own .md file with the format:
+
+        ### Item Name
+        *Type, rarity (requires attunement)*
+        Description paragraphs...
+
+    Tagline parsing handles the common shapes:
+    - ``*Weapon (any sword), legendary*`` — no attunement
+    - ``*Ring, rare (requires attunement)*`` — attunement, any class
+    - ``*Weapon (any sword), legendary (requires attunement by a paladin)*`` — restricted
+    - ``*Potion, rarity varies*`` — uncommon default fallback
+    - Generic ``*Weapon (any), uncommon (+1), rare (+2), or very rare (+3)*`` — multi-rarity
+
+    Index files starting with ``#`` or ``##`` are skipped (chapter
+    intros, Sentient Magic, Artifacts).
+    """
+    treasure_dir = phb_root / "Treasure"
+    if not treasure_dir.exists():
+        return []
+
+    items: list[MagicItem] = []
+    for path in sorted(treasure_dir.glob("*.md")):
+        # Skip chapter intro files ("# Magic Items.md") and section
+        # files ("## Artifacts.md", "## Sentient Magic.md").
+        if path.name.startswith("#") or path.name.startswith("##"):
+            continue
+        item = _parse_magic_item_file(path)
+        if item is not None:
+            items.append(item)
+    return items
+
+
+def _parse_magic_item_file(path: Path) -> MagicItem | None:
+    """Parse a single magic item .md file."""
+    text = path.read_text(encoding="utf-8")
+    sections = split_sections(text)
+    if not sections:
+        return None
+    # Each file has one ### section with the item name as title.
+    section = sections[0]
+    name = section.title.strip()
+    body = section.body
+
+    # Tagline: first non-empty italic line in the body.
+    tagline = ""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("*") and stripped.endswith("*"):
+            tagline = stripped
+            break
+    if not tagline:
+        return None
+
+    item_type, rarity, attunement = _parse_magic_item_tagline(tagline)
+    if item_type is None or rarity is None:
+        return None
+
+    # Description: everything in the body EXCEPT the tagline line.
+    desc_lines = [
+        ln for ln in body.splitlines()
+        if ln.strip() != tagline
+    ]
+    description = _collapse_ws("\n".join(desc_lines))
+
+    return MagicItem(
+        name=name,
+        item_type=item_type,
+        rarity=rarity,
+        attunement_requirement=attunement,
+        tagline=tagline,
+        description=description,
+        source_file=str(path.relative_to(phb_root_for_path(path))),
+    )
+
+
+def _parse_magic_item_tagline(tagline: str) -> tuple[MagicItemType | None, Rarity | None, str]:
+    """Parse ``*Type, rarity (attunement)*`` into structured fields.
+
+    Returns ``(item_type, rarity, attunement_requirement)``. Either
+    ``item_type`` or ``rarity`` may be ``None`` if unparseable; the
+    caller should skip the item in that case.
+    """
+    # Strip leading/trailing asterisks.
+    raw = tagline.strip().lstrip("*").rstrip("*").strip()
+    if not raw:
+        return None, None, ""
+    # Split on commas. The first chunk is the type (with optional
+    # subtype in parens). The second chunk holds the rarity and the
+    # optional attunement clause.
+    parts = [p.strip() for p in raw.split(",")]
+    if len(parts) < 2:
+        return None, None, ""
+
+    type_str = parts[0].lower()
+    item_type = _classify_type(type_str)
+    if item_type is None:
+        return None, None, ""
+
+    # Second chunk may include "rarity (requires attunement ...)".
+    # Sometimes split into 2+ parts, e.g. "rare (requires attunement)",
+    # "rarity varies", "uncommon (+1), rare (+2), or very rare (+3)".
+    rest = " ".join(parts[1:]).strip()
+    rarity, attunement = _parse_rarity_and_attunement(rest)
+    if rarity is None:
+        return None, None, ""
+    return item_type, rarity, attunement
+
+
+def _classify_type(type_str: str) -> MagicItemType | None:
+    """Map the leading type word to a :class:`MagicItemType` enum."""
+    type_str = type_str.lower().strip()
+    if "weapon" in type_str:
+        return MagicItemType.WEAPON
+    if "armor" in type_str:
+        return MagicItemType.ARMOR
+    if "shield" in type_str:
+        return MagicItemType.SHIELD
+    if "potion" in type_str:
+        return MagicItemType.POTION
+    if "ring" in type_str:
+        return MagicItemType.RING
+    if "rod" in type_str:
+        return MagicItemType.ROD
+    if "scroll" in type_str:
+        return MagicItemType.SCROLL
+    if "staff" in type_str:
+        return MagicItemType.STAFF
+    if "wand" in type_str:
+        return MagicItemType.WAND
+    if "wondrous" in type_str:
+        return MagicItemType.WONDROUS
+    return None
+
+
+def _parse_rarity_and_attunement(rest: str) -> tuple[Rarity | None, str]:
+    """Extract rarity and attunement clause from the rest of the tagline.
+
+    Examples::
+
+        "rare" -> ("rare", "")
+        "uncommon (requires attunement)" -> ("uncommon", "by any class")
+        "legendary (requires attunement by a paladin)" -> ("legendary", "by a paladin")
+        "uncommon (+1), rare (+2), or very rare (+3)" -> ("uncommon", "")
+        "rarity varies" -> ("uncommon", "")  # default fallback
+    """
+    lower = rest.lower()
+    # Multi-rarity line: pick the lowest tier (+1 = uncommon) as default.
+    if "uncommon" in lower and ("rare" in lower or "+2" in lower):
+        rarity = Rarity.UNCOMMON
+    elif "very rare" in lower and ("+3" in lower or "very rare" in lower):
+        rarity = Rarity.VERY_RARE
+    elif "very rare" in lower:
+        rarity = Rarity.VERY_RARE
+    elif "legendary" in lower:
+        rarity = Rarity.LEGENDARY
+    elif "artifact" in lower:
+        rarity = Rarity.ARTIFACT
+    elif "uncommon" in lower:
+        # Must check AFTER "very rare" / "legendary" since none of
+        # those contain "uncommon" but plain "uncommon" must win
+        # over plain "rare" for "Weapon, uncommon" tags.
+        rarity = Rarity.UNCOMMON
+    elif "common" in lower:
+        # Only matches bare "common" (not "uncommon" since uncommon
+        # is checked first).
+        rarity = Rarity.COMMON
+    elif "rare" in lower:
+        rarity = Rarity.RARE
+    elif "rarity varies" in lower:
+        # Potion of Healing and similar — default to uncommon.
+        rarity = Rarity.UNCOMMON
+    else:
+        return None, ""
+
+    # Attunement: extract the parenthetical clause.
+    attunement = ""
+    m = re.search(r"\((requires\s+attunement[^)]*)\)", rest, re.IGNORECASE)
+    if m:
+        clause = m.group(1).strip()
+        # Strip the "requires attunement" prefix; keep the rest as
+        # the requirement ("by a paladin", "by a spellcaster", ...).
+        # If nothing follows, attunement is "by any class".
+        clause = re.sub(
+            r"^requires\s+attunement\s*", "", clause, flags=re.IGNORECASE,
+        ).strip()
+        attunement = clause if clause else "by any class"
+
+    return rarity, attunement
+
+
+def phb_root_for_path(path: Path) -> Path:
+    """Helper to compute the PHB root from a file path (best-effort).
+
+    Used by ``_parse_magic_item_file`` to record the relative source
+    file. Walks up until it finds the ``Treasure`` parent.
+    """
+    cur = path.parent
+    while cur.parent != cur:
+        if cur.name == "Treasure":
+            return cur.parent
+        cur = cur.parent
+    # Fallback: try a fixed number of levels up.
+    try:
+        return path.parents[2]
+    except IndexError:
+        return path.parent
+
+
+# ============================================================================
+# Mounts and Vehicles (Phase 25e)
+# ============================================================================
+
+
+def load_mounts(phb_root: Path) -> list[Mount]:
+    """Load mounts from the "Mounts and Other Animals" table in
+    ``data/phb/Equipment/Transportation.md``.
+
+    Each row has: name, cost, speed, carrying capacity.
+    """
+    text = _read_transportation(phb_root)
+    if text is None:
+        return []
+    mounts: list[Mount] = []
+    for title, table in find_tables(text):
+        if "mounts and other animals" not in title.lower():
+            continue
+        for row in table.rows:
+            # Skip empty rows
+            if not row or all(not cell.strip() for cell in row):
+                continue
+            if len(row) < 4:
+                continue
+            name = _clean_inline(row[0]).strip()
+            cost = parse_cost_gp(row[1])
+            speed = _parse_speed_ft(row[2])
+            capacity = _parse_capacity_lb(row[3])
+            if not name:
+                continue
+            mounts.append(
+                Mount(
+                    name=name,
+                    cost_gp=cost,
+                    speed_ft=speed,
+                    carrying_capacity_lb=capacity,
+                )
+            )
+    return mounts
+
+
+def load_vehicles(phb_root: Path) -> list[Vehicle]:
+    """Load vehicles from the two tables in Transportation.md:
+
+    - "Tack, Harness, and Drawn Vehicles" — land vehicles (Carriage,
+      Cart, Chariot, Sled, Wagon) and tack/saddles.
+    - "Waterborne Vehicles" — Galley, Keelboat, Longship, Rowboat,
+      Sailing ship, Warship.
+
+    Tack/saddles are loaded but tagged with empty ``weight_lb`` etc —
+    they're filtered by VehicleType if the caller wants only vehicles.
+    """
+    text = _read_transportation(phb_root)
+    if text is None:
+        return []
+    vehicles: list[Vehicle] = []
+    for title, table in find_tables(text):
+        title_lower = title.lower()
+        if "tack, harness" in title_lower or "drawn vehicles" in title_lower:
+            vehicles.extend(_parse_land_vehicle_table(table))
+        elif "waterborne" in title_lower:
+            vehicles.extend(_parse_water_vehicle_table(table))
+    return vehicles
+
+
+def _read_transportation(phb_root: Path) -> str | None:
+    path = phb_root / "Equipment" / "Transportation.md"
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def _parse_land_vehicle_table(table) -> list[Vehicle]:
+    """Parse the Tack/Harness/Drawn Vehicles table.
+
+    Rows have columns [Item, Cost, Weight]. Skip rows that look like
+    multipliers ("×4", "×2") and tack sub-rows (e.g. Saddle variants
+    indented with "~"). Tack items (Bit and bridle, Saddlebags, Feed,
+    Stabling, and the Barding multiplier row) load as land vehicles
+    with weight 0 / cost tracked, since they're not "vehicles" per se
+    but the PHB table groups them with drawn vehicles.
+    """
+    vehicles: list[Vehicle] = []
+    for row in table.rows:
+        if not row or all(not cell.strip() for cell in row):
+            continue
+        if len(row) < 3:
+            continue
+        name = _clean_inline(row[0]).strip()
+        cost_text = row[1].strip()
+        weight_text = row[2].strip()
+
+        # Skip multiplier / non-row entries (Barding: ×4 / ×2).
+        if cost_text.startswith("×") or weight_text.startswith("×"):
+            continue
+        # Skip saddle subgroup rows ("~ Exotic", "~ Military", ...).
+        if name.startswith("~"):
+            continue
+        if not name:
+            continue
+
+        cost = parse_cost_gp(cost_text)
+        weight = parse_weight_lb(weight_text)
+        vehicles.append(
+            Vehicle(
+                name=name,
+                vehicle_type=VehicleType.LAND,
+                cost_gp=cost,
+                weight_lb=weight,
+                speed_mph=0.0,
+            )
+        )
+    return vehicles
+
+
+def _parse_water_vehicle_table(table) -> list[Vehicle]:
+    """Parse the Waterborne Vehicles table.
+
+    Rows: [Item, Cost, Speed]. Speed is in mph (with optional Unicode
+    fractions like '1½ mph').
+    """
+    vehicles: list[Vehicle] = []
+    for row in table.rows:
+        if not row or all(not cell.strip() for cell in row):
+            continue
+        if len(row) < 3:
+            continue
+        name = _clean_inline(row[0]).strip()
+        cost_text = row[1].strip()
+        speed_text = row[2].strip()
+        if not name:
+            continue
+        vehicles.append(
+            Vehicle(
+                name=name,
+                vehicle_type=VehicleType.WATER,
+                cost_gp=parse_cost_gp(cost_text),
+                weight_lb=0.0,
+                speed_mph=_parse_mph(speed_text),
+            )
+        )
+    return vehicles
+
+
+# Speed / capacity parsers specific to Transportation.md
+_SPEED_FT_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*ft\.?$", re.IGNORECASE)
+_CAPACITY_LB_RE = re.compile(r"^([\d,]+)\s*lb\.?$", re.IGNORECASE)
+_MPH_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*mph\.?$", re.IGNORECASE)
+
+
+def _parse_speed_ft(text: str) -> int:
+    """Parse '50 ft.' or '40 ft.' to an int. Returns 0 if unparseable."""
+    m = _SPEED_FT_RE.match(text.strip())
+    if not m:
+        return 0
+    return int(float(m.group(1)))
+
+
+def _parse_capacity_lb(text: str) -> int:
+    """Parse '480 lb.' or '1,320 lb.' to an int (commas stripped)."""
+    m = _CAPACITY_LB_RE.match(text.strip())
+    if not m:
+        return 0
+    return int(m.group(1).replace(",", ""))
+
+
+def _parse_mph(text: str) -> float:
+    """Parse '4 mph' or '1½ mph' to a float (Unicode fraction aware)."""
+    text = text.strip()
+    # Strip optional 'mph' suffix.
+    text = re.sub(r"\s*mph\.?\s*$", "", text, flags=re.IGNORECASE).strip()
+    if not text:
+        return 0.0
+    # Unicode-fraction form (whole + fraction, e.g. "1½" = 1.5).
+    unicode_fracs = {
+        "½": 0.5, "¼": 0.25, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3,
+    }
+    m = re.match(r"^(\d+)([¼½¾⅓⅔])$", text)
+    if m:
+        return int(m.group(1)) + unicode_fracs[m.group(2)]
+    # Plain number (possibly decimal).
+    m = re.match(r"^(\d+(?:\.\d+)?)$", text)
+    if m:
+        return float(m.group(1))
+    return 0.0

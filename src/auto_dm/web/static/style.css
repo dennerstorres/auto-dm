@@ -1,0 +1,407 @@
+/* Auto DM — console UI (Phase 26). Dark, monospace, terminal feel. */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  background: #0c0e14;
+  color: #d4d4d4;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+#app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #2a2e39;
+  margin-bottom: 1rem;
+}
+
+header h1 {
+  font-size: 1.1rem;
+  color: #c89b3c;
+  letter-spacing: 0.05em;
+}
+
+#user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #888;
+}
+
+.screen {
+  background: #131720;
+  border: 1px solid #2a2e39;
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.screen + .screen {
+  margin-top: 1rem;
+}
+
+input[type="text"],
+input[type="password"] {
+  flex: 1;
+  background: #0c0e14;
+  border: 1px solid #2a2e39;
+  color: #d4d4d4;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input:focus {
+  outline: none;
+  border-color: #c89b3c;
+}
+
+button {
+  background: #c89b3c;
+  color: #0c0e14;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #d4ab4e;
+}
+
+button:disabled {
+  background: #555;
+  color: #888;
+  cursor: not-allowed;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.msg {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  min-height: 1.2em;
+}
+
+.msg.error {
+  color: #e06c75;
+}
+
+.msg.ok {
+  color: #98c379;
+}
+
+/* Output / game log */
+.output {
+  flex: 1;
+  overflow-y: auto;
+  background: #0a0c12;
+  border: 1px solid #2a2e39;
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+
+.entry {
+  margin-bottom: 0.5rem;
+}
+
+.entry .who {
+  color: #888;
+  font-size: 0.85em;
+  margin-right: 0.5rem;
+}
+
+.entry.narration .body {
+  color: #d4d4d4;
+}
+
+.entry.player .body {
+  color: #98c379;
+}
+
+.entry.system .body {
+  color: #888;
+  font-style: italic;
+}
+
+.entry.companion .body {
+  color: #c89b3c;
+}
+
+.input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.input-row input {
+  flex: 1;
+}
+
+.hints {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.hints code {
+  background: #1a1e28;
+  padding: 0.1rem 0.3rem;
+  border-radius: 2px;
+  color: #c89b3c;
+  margin-right: 0.3rem;
+}
+
+#saves-list {
+  list-style: none;
+  margin-bottom: 0.5rem;
+}
+
+#saves-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  border-bottom: 1px solid #1a1e28;
+}
+
+#saves-list li:hover {
+  background: #1a1e28;
+}
+
+#saves-list .slug {
+  font-weight: 600;
+  color: #c89b3c;
+}
+
+#saves-list .meta {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+#saves-list button {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+}
+
+/* ============================================================================
+   Wizard (Phase 26c)
+   ============================================================================ */
+
+.wizard-step {
+  display: none;
+}
+.wizard-step.active {
+  display: block;
+}
+
+.wizard-progress {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+.wizard-progress .dot {
+  flex: 1;
+  height: 4px;
+  background: #1a1e28;
+  border-radius: 2px;
+}
+.wizard-progress .dot.done {
+  background: #98c379;
+}
+.wizard-progress .dot.active {
+  background: #c89b3c;
+}
+
+.wizard-step h2 {
+  font-size: 1.05rem;
+  color: #c89b3c;
+  margin-bottom: 0.75rem;
+}
+
+.wizard-step label {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+.wizard-step label .lbl {
+  display: block;
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 0.25rem;
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+}
+
+.choice {
+  background: #1a1e28;
+  border: 1px solid #2a2e39;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: border-color 0.1s;
+}
+.choice:hover {
+  border-color: #c89b3c;
+}
+.choice.selected {
+  border-color: #c89b3c;
+  background: #2a2519;
+}
+.choice .name {
+  font-weight: 600;
+  color: #d4d4d4;
+  margin-bottom: 0.25rem;
+}
+.choice .desc {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.wizard-nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #1a1e28;
+}
+.wizard-nav button.secondary {
+  background: #2a2e39;
+  color: #d4d4d4;
+}
+.wizard-nav button.secondary:hover {
+  background: #3a3e49;
+}
+
+.summary-block {
+  background: #0a0c12;
+  border: 1px solid #2a2e39;
+  border-radius: 4px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+.summary-block .row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.summary-block .key {
+  color: #888;
+  width: 8em;
+  flex-shrink: 0;
+}
+.summary-block .val {
+  color: #d4d4d4;
+}
+
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.25rem 0.75rem;
+}
+.skills-grid label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.skills-grid label:hover {
+  background: #1a1e28;
+}
+.skills-grid input[type="checkbox"] {
+  margin: 0;
+}
+
+.checkbox-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.25rem 0.75rem;
+}
+.checkbox-list label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.checkbox-list label:hover {
+  background: #1a1e28;
+}
+.checkbox-list input {
+  margin: 0;
+}
+
+/* --- Phase 28: input-blocking + busy feedback --- */
+input[type="text"]:disabled,
+input[type="password"]:disabled {
+  background: #1a1e28;
+  color: #666;
+  cursor: not-allowed;
+}
+
+.typing-indicator {
+  color: #888;
+  font-style: italic;
+}
+.typing-indicator .body {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+.typing-indicator .dot {
+  width: 6px;
+  height: 6px;
+  background: #888;
+  border-radius: 50%;
+  display: inline-block;
+  animation: typing-bounce 1.2s infinite ease-in-out both;
+}
+.typing-indicator .dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-indicator .dot:nth-child(3) {
+  animation-delay: 0.30s;
+}
+
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%           { transform: translateY(-4px); opacity: 1; }
+}

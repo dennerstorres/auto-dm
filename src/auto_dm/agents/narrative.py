@@ -14,10 +14,11 @@ real CombatEngine.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+from auto_dm.agents.companion_turn import CompanionTurnResult
 from auto_dm.agents.dm import DMAgent, DMResponse
 from auto_dm.engine.combat_engine import CombatEngine
 from auto_dm.state.manager import StateManager
@@ -39,6 +40,9 @@ class NarrativeResult:
     action: Optional[Action] = None
     action_result: Optional[ActionResult] = None
     follow_up_narration: Optional[str] = None
+    # Phase 25h: companion turns that fired during this cycle (empty when
+    # the player isn't in combat, or when no companion had a turn yet).
+    companion_results: list[CompanionTurnResult] = field(default_factory=list)
 
     @property
     def has_action(self) -> bool:

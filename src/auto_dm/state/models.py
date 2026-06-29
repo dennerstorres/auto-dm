@@ -129,6 +129,10 @@ class Item(BaseModel):
     quantity: int = 1
     weapon: Optional[WeaponProperties] = None
     armor: Optional[ArmorProperties] = None
+    # Magic item fields (Phase 25d). Default to mundane.
+    magic_bonus: Optional[int] = None  # +1/+2/+3 for magic weapons/armor
+    requires_attunement: bool = False
+    rarity: Optional[str] = None  # "common"/"uncommon"/"rare"/"very_rare"/"legendary"
 
 
 class EquippedSlots(BaseModel):
@@ -249,6 +253,10 @@ class Character(BaseModel):
     subrace: Optional[str] = None
     class_: str = Field(alias="class")
     subclass: Optional[str] = None
+    # Names of subclass features the character has gained so far (PHB p. ?).
+    # Populated by ``character.level_up.apply_subclass_features`` when the
+    # character is built or levels up. Order is by acquisition.
+    subclass_features: list[str] = Field(default_factory=list)
     level: int
     background: str
     alignment: str
@@ -392,6 +400,13 @@ class Character(BaseModel):
     # allies within 30 ft (becomes 60 ft at L18). 0 = inactive.
     aura_of_protection_active: bool = False
     has_aura_of_protection: bool = False
+    # Paladin's Aura of Courage (PHB L10): self and allies in 10 ft
+    # (becomes 30 ft at L18) can't be frightened.
+    aura_of_courage_active: bool = False
+    # Barbarian's Feral Instinct (PHB L7): advantage on initiative
+    # rolls if not surprised; can act on the first round of combat
+    # even when surprised.
+    has_feral_instinct: bool = False
 
     # Bardic Inspiration die size (Bard L1): d6 / d8 / d10 / d12.
     # 0 = no bardic inspiration.
@@ -414,6 +429,74 @@ class Character(BaseModel):
 
     # Eldritch Invocations (Warlock L2+): list of invocation names.
     eldritch_invocations: list[str] = Field(default_factory=list)
+
+    # Mounted combat (PHB): True while riding a controlled mount. The
+    # mount_id points at a creature id (party Character or NPC) that
+    # the rider is mounted on. While mounted, melee attacks against
+    # creatures within 5 ft of the mount hit the mount instead of the
+    # rider (PHB p. 198 — the mount shares the rider's space).
+    is_mounted: bool = False
+    mount_id: Optional[str] = None
+
+    # ----------------------------------------------------------------
+    # Capstones & L17-L20 features (Phase 25g)
+    # ----------------------------------------------------------------
+
+    # Wizard L20: Signature Spells. Two spells of 3rd level or lower
+    # are always prepared (don't count against the prepared cap) and
+    # can each be cast once per short rest without expending a slot.
+    # ``signature_spell_names`` are the chosen spells; per-spell uses
+    # are tracked in ``signature_spell_uses_remaining`` (0 = spent).
+    has_signature_spells: bool = False
+    signature_spell_names: list[str] = Field(default_factory=list)
+    signature_spell_uses_remaining: dict[str, int] = Field(default_factory=dict)
+
+    # Sorcerer L20: Arcane Apotheosis. Sorcery point cap becomes 20
+    # (was 0 at L19). Recover all sorcery points on a short rest.
+    has_arcane_apotheosis: bool = False
+
+    # Druid L20: Archdruid. Can use Wild Shape to cast spells.
+    has_archdruid: bool = False
+
+    # Monk L20: Perfect Self. When spending 4 ki points, recover all
+    # expended ki. ``perfect_self_used`` toggles per short rest.
+    has_perfect_self: bool = False
+    perfect_self_used: bool = False
+
+    # Ranger L20: Foe Slayer. Add WIS modifier to attack roll AND
+    # damage roll against favored enemy, once per turn. Tracked by
+    # the foe_slayer_used_this_turn flag (cleared at turn start).
+    has_foe_slayer: bool = False
+    foe_slayer_used_this_turn: bool = False
+
+    # Rogue L20: Stroke of Luck. Once per short rest, turn a missed
+    # attack into a hit, or succeed on a failed ability check. Tracked
+    # by stroke_of_luck_uses_remaining (0 = expended).
+    has_stroke_of_luck: bool = False
+    stroke_of_luck_uses_remaining: int = 0
+
+    # Warlock L20: Eldritch Master. Once per long rest (sunlight), can
+    # refuel all expended Pact Magic slots. The flag is the gate; the
+    # eldritch_master_used flag tracks per-day consumption.
+    has_eldritch_master: bool = False
+    eldritch_master_used: bool = False
+
+    # Warlock L11+: Mystic Arcanum. Learns one spell of each level
+    # (6th at L11, 7th at L13, 8th at L15, 9th at L17) that can be cast
+    # once per long rest without using a slot. ``mystic_arcanum_known``
+    # maps slot_level -> spell_name. ``mystic_arcanum_uses`` tracks
+    # remaining casts (1 = available, 0 = expended).
+    mystic_arcanum_known: dict[int, str] = Field(default_factory=dict)
+    mystic_arcanum_uses: dict[int, int] = Field(default_factory=dict)
+
+    # Barbarian L20: Primal Champion. +4 STR/CON (max 24), weapon dmg
+    # die roll +2 (counts as +2 to damage).
+    has_primal_champion: bool = False
+
+    # Cleric L20: Divine Intervention Improvement. Calling Divine
+    # Intervention no longer expends the use. The cleric can call it
+    # on each long rest without consuming the daily use.
+    has_divine_intervention_improvement: bool = False
 
     # Meta
     is_player: bool = False  # True only for the human-controlled character
@@ -443,10 +526,24 @@ class NPC(BaseModel):
     resistances: list[str] = Field(default_factory=list)
     vulnerabilities: list[str] = Field(default_factory=list)
     immunities: list[str] = Field(default_factory=list)
+    # Condition immunities from the source stat block (e.g. a Lich is
+    # immune to charmed/exhaustion/frightened/paralyzed/poisoned). Stored
+    # as raw strings because "exhaustion" doesn't map to a Condition enum
+    # member — it's tracked via ``exhaustion_level`` instead.
+    condition_immunities: list[str] = Field(default_factory=list)
     active_effects: list[ActiveEffect] = Field(default_factory=list)
     actions: list[str] = Field(default_factory=list)  # attack names/descriptions
     is_hostile: bool = True
     challenge_rating: Optional[float] = None
+    # Mount NPC fields (Phase 25e). An NPC can serve as a mount for
+    # one rider; ``rider_id`` tracks who is currently mounted on it.
+    is_mount: bool = False
+    rider_id: Optional[str] = None
+    # Vehicle NPC: a vehicle-as-creature is treated as an NPC with
+    # vehicle flags. ``is_vehicle`` plus ``vehicle_type`` lets the
+    # engine apply vehicle-specific rules (cover, AC, etc.).
+    is_vehicle: bool = False
+    vehicle_type: Optional[str] = None  # "land" | "water"
 
 
 # ============================================================================
@@ -534,6 +631,8 @@ class ActionType(str, Enum):
     WILD_SHAPE = "wild_shape"  # Druid
     INDOMITABLE = "indomitable"  # Fighter
     STUNNING_STRIKE = "stunning_strike"  # Monk
+    MOUNT = "mount"  # Phase 25e: mount a creature / vehicle
+    DISMOUNT = "dismount"  # Phase 25e: dismount from current mount
 
 
 class Action(BaseModel):

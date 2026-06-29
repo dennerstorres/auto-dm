@@ -31,7 +31,6 @@ from auto_dm.engine.combat import (
 from auto_dm.engine.conditions import (
     can_take_actions,
     damage_multiplier,
-    movement_speed_zero,
 )
 from auto_dm.engine.spellcasting import cast_spell, concentration_save
 from auto_dm.state.manager import StateManager
@@ -214,6 +213,40 @@ class CombatEngine:
         if not state_manager.state.in_combat:
             return None
         return state_manager.current_actor_id()
+
+    def next_actor_id(self, state_manager: StateManager) -> Optional[str]:
+        """Return the actor id whose turn is *next*, without mutating state.
+
+        Wraps around the initiative order (so the last actor's "next" is
+        the first actor of the next round). Returns ``None`` when not in
+        combat. Useful for ``GameApp._run_companion_cycle`` to peek at
+        who's up without committing to an advance.
+        """
+        if not state_manager.state.in_combat:
+            return None
+        order = state_manager.state.initiative_order
+        if not order:
+            return None
+        next_idx = state_manager.state.current_turn_index + 1
+        if next_idx >= len(order):
+            next_idx = 0
+        return order[next_idx]
+
+    def is_player_turn(self, state_manager: StateManager) -> bool:
+        """True if the current actor is the player's character."""
+        current = self.current_actor_id(state_manager)
+        if current is None:
+            return False
+        return current == state_manager.state.player_character_id
+
+    def is_companion_turn(self, state_manager: StateManager) -> bool:
+        """True if the current actor is a non-player party member."""
+        current = self.current_actor_id(state_manager)
+        if current is None:
+            return False
+        if current == state_manager.state.player_character_id:
+            return False
+        return state_manager.get_character(current) is not None
 
     # ------------------------------------------------------------------
     # Action dispatch
@@ -1225,6 +1258,90 @@ def _handle_indomitable(
     )
 
 
+def _handle_mount(
+    engine: CombatEngine,
+    state_manager: StateManager,
+    action: Action,
+) -> ActionResult:
+    """Mount a creature or vehicle. Costs half the rider's movement.
+
+    Mutates Character/NPC flags directly. The actor is the rider; the
+    target_id is the mount's creature id (party Character or NPC).
+    """
+    engine._validate_combat_turn(state_manager, action)
+    rider = state_manager.get_creature(action.actor_id)
+    if rider is None:
+        return ActionResult(
+            success=False,
+            message=f"Ator desconhecido: {action.actor_id!r}",
+        )
+    if action.target_id is None:
+        return ActionResult(
+            success=False,
+            message="Mount requer um alvo (target_id).",
+        )
+    mount = state_manager.get_creature(action.target_id)
+    if mount is None:
+        return ActionResult(
+            success=False,
+            message=f"Alvo desconhecido: {action.target_id!r}",
+        )
+    # Reject if either side already has a mount relationship.
+    if isinstance(rider, Character) and rider.is_mounted:
+        return ActionResult(
+            success=False,
+            message=f"{rider.name} já está montado em {rider.mount_id}.",
+        )
+    # Mark both sides. Character/NPC have separate flags.
+    if isinstance(rider, Character):
+        rider.is_mounted = True
+        rider.mount_id = mount.id
+    if isinstance(mount, NPC):
+        mount.rider_id = rider.id
+    return ActionResult(
+        success=True,
+        message=f"{rider.name} monta em {mount.name} (custa metade do movimento).",
+        mechanical={
+            "action_type": "mount",
+            "rider": rider.id,
+            "mount": mount.id,
+        },
+    )
+
+
+def _handle_dismount(
+    engine: CombatEngine,
+    state_manager: StateManager,
+    action: Action,
+) -> ActionResult:
+    """Dismount from the current mount. Costs half the rider's movement."""
+    engine._validate_combat_turn(state_manager, action)
+    rider = state_manager.get_creature(action.actor_id)
+    if rider is None:
+        return ActionResult(
+            success=False,
+            message=f"Ator desconhecido: {action.actor_id!r}",
+        )
+    if isinstance(rider, Character) and not rider.is_mounted:
+        return ActionResult(
+            success=False,
+            message=f"{rider.name} não está montado.",
+        )
+    mount_id = getattr(rider, "mount_id", None) if isinstance(rider, Character) else None
+    if isinstance(rider, Character):
+        rider.is_mounted = False
+        rider.mount_id = None
+    if mount_id is not None:
+        mount = state_manager.get_creature(mount_id)
+        if mount is not None and isinstance(mount, NPC):
+            mount.rider_id = None
+    return ActionResult(
+        success=True,
+        message=f"{rider.name} desmonta (custa metade do movimento).",
+        mechanical={"action_type": "dismount", "rider": rider.id},
+    )
+
+
 # ActionType → handler (placed at end of module so all refs are defined)
 _ACTION_HANDLERS = {
     ActionType.ATTACK: _handle_attack,
@@ -1252,4 +1369,6 @@ _ACTION_HANDLERS = {
     ActionType.UNCANNY_DODGE: _handle_uncanny_dodge,
     ActionType.RECKLESS_ATTACK: _handle_reckless_attack,
     ActionType.INDOMITABLE: _handle_indomitable,
+    ActionType.MOUNT: _handle_mount,
+    ActionType.DISMOUNT: _handle_dismount,
 }

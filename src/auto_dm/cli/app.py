@@ -9,6 +9,13 @@ The :meth:`process_input` method takes a line of player input, runs
 it through the narrative loop, and returns a structured result. The
 caller is responsible for rendering and for driving the REPL. This
 separation makes the loop easy to test with scripted input.
+
+Phase 25h changes:
+  * ``process_input`` now also runs companion turns during combat,
+    so the player isn't the only one acting. The companion cycle
+    stops when initiative wraps back to the player or combat ends.
+  * New meta-commands: ``/encounter``, ``/look``, ``/inventory``,
+    ``/conditions``, ``/spells``.
 """
 from __future__ import annotations
 
@@ -19,6 +26,7 @@ from typing import Callable, Optional
 
 from auto_dm.agents import DMAgent, NarrativeResult, process_player_action
 from auto_dm.agents.companion import CompanionAgent
+from auto_dm.agents.companion_turn import CompanionTurnResult, run_companion_turn
 from auto_dm.companions import (
     COMPANION_FACTORIES,
     build_companion,
@@ -36,21 +44,30 @@ from auto_dm.persistence import (
     load_state,
     save_state,
 )
+from auto_dm.phb import get_monster
 from auto_dm.state.manager import StateManager
-from auto_dm.state.models import GameState
+from auto_dm.state.models import Character, GameState, NPC
+from auto_dm.state.monster_adapter import monster_to_npc, slugify_monster_id
 
 
 logger = logging.getLogger(__name__)
 
 
 # Meta-commands available in the REPL. Documented in the help string
-# returned by ``help_text()``.
+# returned by ``help_text()``. Phase 25h expands the set with encounter
+# spawning, look, inventory/conditions/spells inspection.
 META_COMMANDS = {
     "/help": "Show available commands",
     "/save [slug]": "Save the current game (uses campaign name as slot)",
     "/load <slug>": "Load a saved game (replaces current session)",
     "/list": "List available saves",
     "/status": "Show party + combat status",
+    "/encounter <mon1>, <mon2>, ...": "Spawn monsters (PHB) and start combat",
+    "/look": "Describe current location and visible creatures",
+    "/inventory [name]": "Show party member inventory (default: player)",
+    "/conditions [name]": "Show party member conditions (default: player)",
+    "/level-up [name]": "Advance a character one level (HP rolled automatically; use /asi after)",
+    "/spells [name]": "Show party member spellbook (default: player)",
     "/quit": "Exit the game",
 }
 
@@ -135,6 +152,11 @@ class GameApp:
 
         Returns a :class:`NarrativeResult` for normal play, or ``None``
         for meta-commands (which mutate state via side effects).
+
+        Phase 25h: when the player acts in combat, the companion cycle
+        runs after the player's turn until initiative wraps back to the
+        player (or combat ends). Companion turn results are stashed in
+        ``result.companion_results`` so the caller can render them.
         """
         stripped = line.strip()
         if not stripped:
@@ -155,6 +177,14 @@ class GameApp:
             self._dm_agent,
             combat_engine=self.combat_engine,
         )
+
+        # Companion cycle: only when we're still in combat and have a
+        # combat engine. Stops at the player's next turn (or end of combat).
+        if (
+            self.combat_engine is not None
+            and self.state_manager.state.in_combat
+        ):
+            result.companion_results = self._run_companion_cycle()
 
         # Auto-save cadence
         if (
@@ -183,6 +213,18 @@ class GameApp:
             from rich.console import Console
 
             Console().print(render_combat_status(self.state_manager))
+        elif cmd == "/encounter":
+            self._do_encounter(arg)
+        elif cmd == "/look":
+            self._do_look()
+        elif cmd == "/inventory":
+            self._do_inventory(arg.strip())
+        elif cmd == "/conditions":
+            self._do_conditions(arg.strip())
+        elif cmd == "/spells":
+            self._do_spells(arg.strip())
+        elif cmd == "/level-up":
+            self._do_level_up(arg.strip())
         elif cmd == "/quit":
             self._should_quit = True
             print("Até a próxima aventura!")
@@ -242,6 +284,243 @@ class GameApp:
             print("(nenhum save encontrado)")
             return
         Console().print(render_save_list(saves))
+
+    # ------------------------------------------------------------------
+    # Companion cycle (Phase 25h — the critical fix)
+    # ------------------------------------------------------------------
+
+    def _run_companion_cycle(self) -> list[CompanionTurnResult]:
+        """Run companion turns in initiative order until the player's
+        next turn (or end of combat).
+
+        The flow:
+            1. Advance past the player's turn (the player just acted).
+            2. Loop: if it's a companion's turn, dispatch via the LLM
+               agent and the combat engine. Skip NPC turns (enemies are
+               narrated by the DM, not resolved mechanically here).
+            3. Stop when initiative wraps back to the player or combat
+               ends (one side wiped out).
+
+        Returns the list of companion turn results (possibly empty).
+        Bounded by ``2 * len(initiative_order)`` iterations as a safety
+        net against pathological state (e.g. invalid ids in the order).
+        """
+        state = self.state_manager.state
+        if not state.in_combat or not state.initiative_order:
+            return []
+
+        # Advance past the player's turn.
+        if self.combat_engine is not None:
+            self.combat_engine.next_turn(self.state_manager)
+
+        results: list[CompanionTurnResult] = []
+        order = list(state.initiative_order)
+        max_iterations = max(1, len(order) * 2)
+        player_id = state.player_character_id
+
+        for _ in range(max_iterations):
+            if not self.state_manager.state.in_combat:
+                break
+            current_id = self.state_manager.current_actor_id()
+            if current_id is None:
+                break
+            if current_id == player_id:
+                # Initiative wrapped back to the player — stop.
+                break
+
+            # It's either a companion or an NPC. We only run companions.
+            current_char = self.state_manager.get_character(current_id)
+            agent = self._companion_agents.get(current_id)
+            if current_char is not None and agent is not None:
+                enemies = self._enemy_ids()
+                allies = self._ally_ids(exclude=current_id)
+                turn = run_companion_turn(
+                    self.state_manager,
+                    self.combat_engine,
+                    agent,
+                    enemies=enemies,
+                    allies=allies,
+                )
+                results.append(turn)
+                if not self.state_manager.state.in_combat:
+                    break
+            # Advance regardless (NPC turns are skipped but still count).
+            if self.combat_engine is not None:
+                self.combat_engine.next_turn(self.state_manager)
+
+        return results
+
+    def _enemy_ids(self) -> list[str]:
+        """IDs of currently-alive NPCs (enemies by default)."""
+        return [n.id for n in self.state_manager.state.npcs if n.hp_current > 0]
+
+    def _ally_ids(self, *, exclude: Optional[str] = None) -> list[str]:
+        """IDs of currently-alive party members, optionally excluding one."""
+        return [
+            c.id for c in self.state_manager.state.party
+            if c.hp_current > 0 and (exclude is None or c.id != exclude)
+        ]
+
+    # ------------------------------------------------------------------
+    # Meta-command handlers (Phase 25h)
+    # ------------------------------------------------------------------
+
+    def _find_party_member(self, name: str) -> Optional[Character]:
+        """Find a party member by name (case-insensitive, partial)."""
+        if not name:
+            return next(
+                (c for c in self.state_manager.state.party if c.is_player),
+                None,
+            )
+        needle = name.lower()
+        for c in self.state_manager.state.party:
+            if c.name.lower() == needle:
+                return c
+        for c in self.state_manager.state.party:
+            if needle in c.name.lower():
+                return c
+        return None
+
+    def _do_encounter(self, arg: str) -> None:
+        """``/encounter <name1>, <name2>, ...`` — spawn monsters and start combat."""
+        if not arg.strip():
+            print("Uso: /encounter <monstro1>, <monstro2>, ...")
+            print("Exemplo: /encounter Goblin, Goblin, Orc")
+            return
+        if self.combat_engine is None:
+            print("[Sem combat engine — não é possível iniciar encontro.]")
+            return
+        if self.state_manager.state.in_combat:
+            print("[Já estamos em combate. Encerre-o antes de iniciar outro encontro.]")
+            return
+
+        names = [n.strip() for n in arg.split(",") if n.strip()]
+        spawned: list[Character | NPC] = []
+        for idx, name in enumerate(names, start=1):
+            monster = get_monster(name)
+            if monster is None:
+                print(f"[Monstro '{name}' não encontrado no PHB.]")
+                continue
+            npc_id = f"{slugify_monster_id(monster.name)}_{idx}"
+            npc = monster_to_npc(monster, npc_id=npc_id)
+            spawned.append(npc)
+
+        if not spawned:
+            print("[Nenhum monstro válido. Encontro cancelado.]")
+            return
+
+        self.state_manager.state.npcs.extend(spawned)
+        order = self.combat_engine.start_combat(self.state_manager)
+        names_summary = ", ".join(n.name for n in spawned)
+        print(
+            f"[Encontro com {len(spawned)} criatura(s): {names_summary}. "
+            f"Combate iniciado! Ordem: {', '.join(order)}]"
+        )
+
+    def _do_look(self) -> None:
+        """``/look`` — describe current location and visible creatures."""
+        state = self.state_manager.state
+        print(f"\n[Local atual: {state.current_location}]")
+        if state.party:
+            print("  Party:")
+            for c in state.party:
+                marker = "▶" if c.id == state.player_character_id else " "
+                print(
+                    f"    {marker} {c.name} ({c.race} {c.class_} L{c.level}) — "
+                    f"HP {c.hp_current}/{c.hp_max}, AC {c.armor_class}"
+                )
+        if state.npcs:
+            print("  NPCs no local:")
+            for n in state.npcs:
+                print(
+                    f"    - {n.name} (CR {n.challenge_rating or '?'}) — "
+                    f"HP {n.hp_current}/{n.hp_max}, AC {n.armor_class}"
+                )
+        if not state.npcs:
+            print("  (nenhum NPC presente)")
+
+    def _do_inventory(self, name: str) -> None:
+        """``/inventory [name]`` — show a party member's inventory."""
+        member = self._find_party_member(name)
+        if member is None:
+            print(f"[Personagem '{name}' não encontrado na party.]")
+            return
+        from auto_dm.cli.rendering import render_inventory
+        from rich.console import Console
+
+        Console().print(render_inventory(member))
+
+    def _do_conditions(self, name: str) -> None:
+        """``/conditions [name]`` — show a party member's status."""
+        member = self._find_party_member(name)
+        if member is None:
+            print(f"[Personagem '{name}' não encontrado na party.]")
+            return
+        from auto_dm.cli.rendering import render_conditions
+        from rich.console import Console
+
+        Console().print(render_conditions(member))
+
+    def _do_spells(self, name: str) -> None:
+        """``/spells [name]`` — show a party member's spellbook."""
+        member = self._find_party_member(name)
+        if member is None:
+            print(f"[Personagem '{name}' não encontrado na party.]")
+            return
+        from auto_dm.cli.rendering import render_spellbook
+        from rich.console import Console
+
+        Console().print(render_spellbook(member))
+
+    def _do_level_up(self, name: str) -> None:
+        """``/level-up [name]`` — advance a party member one level.
+
+        Default target is the player character. Rolls hit dice, applies
+        proficiency-bonus and extra-attack updates, and reports which
+        (sub)class features became active.
+        """
+        member = self._find_party_member(name)
+        if member is None:
+            print(f"[Personagem '{name}' não encontrado na party.]")
+            return
+        if member.level >= 20:
+            print(f"[{member.name} já está no nível máximo (20).]")
+            return
+        from auto_dm.engine.progression import level_up, is_asi_level
+        from auto_dm.character.level_up import (
+            apply_class_features,
+            features_gained_at_class_level,
+        )
+
+        result = level_up(member)
+        new_features = apply_class_features(member, at_level=member.level)
+        # Also list any subclass features gained at this level.
+        sub_features = []
+        if member.subclass:
+            from auto_dm.phb import get_subclass as _gs
+            sub = _gs(member.class_, member.subclass)
+            if sub is not None:
+                sub_features = [
+                    f.name for f in sub.features
+                    if f.level == member.level
+                ]
+
+        print(
+            f"[level-up] {member.name} subiu de {result.old_level} -> "
+            f"{result.new_level}. HP +{result.hp_gained} (max {result.new_max_hp}). "
+            f"Proficiência +{result.new_proficiency_bonus}."
+        )
+        if result.new_extra_attacks > 0:
+            print(
+                f"  Extra Attack: {result.new_extra_attacks} ataques extras "
+                f"({1 + result.new_extra_attacks} totais por Attack)."
+            )
+        if result.asi_pending:
+            print(f"  ASI disponível! Use /asi para melhorar uma habilidade.")
+        if new_features:
+            print(f"  Features de classe: {', '.join(new_features)}.")
+        if sub_features:
+            print(f"  Features de subclasse: {', '.join(sub_features)}.")
 
 
 # ---------------------------------------------------------------------------

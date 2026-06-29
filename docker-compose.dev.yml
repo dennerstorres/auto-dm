@@ -1,0 +1,88 @@
+# Auto DM — local DEV stack.
+#
+# Brings up Postgres + Redis + the auto-dm backend in one go.
+# The frontend is served by the backend itself at http://localhost:4004/
+# (no need to spin up Vercel for local testing).
+#
+# Run:
+#   docker compose -f docker-compose.dev.yml up --build
+# Then open http://localhost:4004
+#
+# Tear down (keeps data volumes):
+#   docker compose -f docker-compose.dev.yml down
+# Tear down + wipe data:
+#   docker compose -f docker-compose.dev.yml down -v
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: auto-dm-postgres
+    environment:
+      POSTGRES_USER: auto_dm
+      POSTGRES_PASSWORD: auto_dm_dev
+      POSTGRES_DB: auto_dm
+    # Host-side port is 25432 (alt for Postgres) to avoid colliding
+    # with any local Postgres already running on the default 5432.
+    # The container-internal port stays 5432 — DATABASE_URL below
+    # uses the compose-network service name (`postgres`) so it hits
+    # the container port directly, not the host port.
+    ports:
+      - "127.0.0.1:25432:5432"
+    volumes:
+      - auto-dm-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auto_dm -d auto_dm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: auto-dm-redis
+    # Host-side port 26379 (alt for Redis) to avoid 6379 collisions.
+    # REDIS_URL uses the compose-network name `redis` so it skips the
+    # host port entirely.
+    ports:
+      - "127.0.0.1:26379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  auto-dm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: auto-dm:dev
+    container_name: auto-dm-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Backend exposed on 14004 (alt for 4004). If 14004 is also taken,
+    # edit the left-hand side of the mapping below — the container
+    # port (4004) only matters for the in-network DATABASE_URL / REDIS_URL.
+    ports:
+      - "127.0.0.1:14004:4004"
+    environment:
+      ENVIRONMENT: "development"
+      LOG_LEVEL: "INFO"
+      DATABASE_URL: "postgresql+asyncpg://auto_dm:auto_dm_dev@postgres:5432/auto_dm"
+      REDIS_URL: "redis://redis:6379/0"
+      JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in .env or inline (≥32 chars)}"
+      JWT_EXPIRES_MINUTES: "10080"
+      SESSION_TTL_SECONDS: "86400"
+      FRONTEND_URL: "http://localhost:14004"
+      # Invite-code gate (Phase 26e). Leave empty in dev for open signup;
+      # set a strong random string in production to require it.
+      INVITE_CODE: "${INVITE_CODE:-}"
+      AUTO_DM_PROVIDER: "${AUTO_DM_PROVIDER:-minimax}"
+      AUTO_DM_API_KEY: "${AUTO_DM_API_KEY:?Set AUTO_DM_API_KEY in .env}"
+      AUTO_DM_MODEL: "${AUTO_DM_MODEL:-MiniMax-Text-01}"
+      AUTO_DM_TEMPERATURE: "${AUTO_DM_TEMPERATURE:-0.8}"
+      AUTO_DM_MAX_TOKENS: "${AUTO_DM_MAX_TOKENS:-2048}"
+
+volumes:
+  auto-dm-pg:

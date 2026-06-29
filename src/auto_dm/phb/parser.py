@@ -277,19 +277,37 @@ def parse_cost_gp(text: str) -> float:
 
 
 def parse_weight_lb(text: str) -> float:
-    """Parse a PHB weight string ('10 lb.', '1/4 lb.', '-') to pounds.
+    """Parse a PHB weight string ('10 lb.', '1/4 lb.', '1½ lb.', '-') to pounds.
 
     Returns 0.0 for '-' or unparseable.
+
+    Supports Unicode fractions commonly used in the Adventuring Gear
+    table: '½' (1/2), '¼' (1/4), '¾' (3/4), '⅓' (1/3), '⅔' (2/3),
+    '⅛' (1/8), '⅜' (3/8), '⅝' (5/8), '⅞' (7/8).
     """
     text = text.strip().rstrip(".").lower()
     if text in {"", "-"}:
         return 0.0
     # Strip optional 'lb' or 'lbs' suffix
     text = re.sub(r"\s*lbs?\s*$", "", text).strip()
-    # Fraction
+
+    # Unicode fractions (whole + fraction, e.g. "1½" = 1.5)
+    unicode_fracs = {
+        "½": 0.5, "¼": 0.25, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3,
+        "⅛": 0.125, "⅜": 0.375, "⅝": 0.625, "⅞": 0.875,
+    }
+    m = re.match(r"^(\d+)([¼½¾⅓⅔⅛⅜⅝⅞])$", text)
+    if m:
+        return int(m.group(1)) + unicode_fracs[m.group(2)]
+    m = re.match(r"^([¼½¾⅓⅔⅛⅜⅝⅞])$", text)
+    if m:
+        return unicode_fracs[m.group(1)]
+
+    # ASCII fraction
     m = re.match(r"^(\d+)\s*/\s*(\d+)$", text)
     if m:
         return float(m.group(1)) / float(m.group(2))
+    # Whole number (possibly decimal)
     m = re.match(r"^(\d+(?:\.\d+)?)$", text)
     if m:
         return float(m.group(1))

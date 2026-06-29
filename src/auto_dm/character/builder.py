@@ -181,6 +181,7 @@ class CharacterBuilder:
         self._starting_armor: Optional[str] = None
         self._starting_weapon: Optional[str] = None
         self._starting_shield: bool = False
+        self._starting_pack: Optional[str] = None  # Phase 25c: gear pack
         self._spell_selection = None  # filled in spells.py
 
     # ----- Identity ----------------------------------------------------------
@@ -258,6 +259,18 @@ class CharacterBuilder:
 
     def with_shield(self, equipped: bool = True) -> "CharacterBuilder":
         self._starting_shield = equipped
+        return self
+
+    def with_starting_pack(self, pack_name: str) -> "CharacterBuilder":
+        """Override the class's starting equipment with a gear pack.
+
+        Example: ``.with_starting_pack("Explorer's Pack")`` adds the
+        pack's contents to the character's inventory. Only pack items
+        that resolve to known gear items are added (others are
+        silently skipped — the raw description is preserved on the
+        Character if needed).
+        """
+        self._starting_pack = pack_name.strip()
         return self
 
     def with_spell_selection(self, selection: SpellSelection) -> "CharacterBuilder":
@@ -347,6 +360,13 @@ class CharacterBuilder:
             equipped=equipped,
             spellcasting=spellcasting,
         )
+
+        # Populate subclass features acquired at or below the character's
+        # starting level (Phase 25b). For L1 characters of subclass-
+        # granting classes this populates things like Sorcerer's Draconic
+        # Resilience or Warlock's Dark One's Blessing (both L1).
+        from auto_dm.character.level_up import apply_subclass_features
+        apply_subclass_features(character, at_level=self._level)
 
         return CharacterDraft(
             character=character,
@@ -470,12 +490,44 @@ class CharacterBuilder:
         subrace: Optional[Subrace],
     ) -> Proficiencies:
         saves = list(char_class.proficiencies.saving_throws)
-        skills = [parse_skill_name(s) for s in self._skill_choices]
+        # Player-chosen skills (from with_skills) take priority.
+        chosen_skills = {parse_skill_name(s) for s in self._skill_choices}
+        # Phase 25c: pull skill proficiencies from the chosen background.
+        # If the player already picked the same skill, skip the duplicate
+        # (PHB rule: pick a different skill of the same kind instead).
+        bg_skills: list[Skill] = []
+        bg_tools: list[str] = []
+        bg_languages: list[str] = []
+        if self._background:
+            from auto_dm.phb import get_background
+            bg = get_background(self._background)
+            if bg is not None:
+                for raw_skill in bg.skill_proficiencies:
+                    try:
+                        sk = parse_skill_name(raw_skill)
+                    except ValueError:
+                        # "One of your choice" — wizard handles this
+                        # before calling build(); ignore here.
+                        continue
+                    if sk not in chosen_skills:
+                        bg_skills.append(sk)
+                bg_tools = list(bg.tool_proficiencies)
+                # Background languages: "Two of your choice" is left
+                # to the wizard. A specific comma-separated list is
+                # appended as-is (string list, not a typed enum).
+                if bg.languages and "choice" not in bg.languages.lower():
+                    bg_languages = [
+                        s.strip() for s in bg.languages.split(",")
+                        if s.strip()
+                    ]
+        skills = list(chosen_skills) + bg_skills
+        # Languages: race + background (deferred choice still empty)
+        languages = list(race.languages) + bg_languages
         return Proficiencies(
             saves=saves,
             skills=skills,
-            tools=[],
-            languages=list(race.languages),
+            tools=bg_tools,
+            languages=languages,
         )
 
     def _build_equipment(
@@ -518,6 +570,10 @@ class CharacterBuilder:
                 inventory.append(item)
                 equipment_log.append("off_hand: Shield")
 
+        # Gear pack (Phase 25c): add pack contents to inventory.
+        if self._starting_pack:
+            inventory.extend(self._build_pack_items())
+
         # Compute AC
         ac = self._compute_ac(abilities)
         if equipped.armor is not None and equipped.armor.armor is not None:
@@ -542,7 +598,53 @@ class CharacterBuilder:
             out.append(f"armor: {self._starting_armor}")
         if self._starting_shield:
             out.append("shield")
+        if self._starting_pack:
+            out.append(f"pack: {self._starting_pack}")
         return out
+
+    def _build_pack_items(self) -> list[Item]:
+        """Resolve a gear pack's contents to known PHB items.
+
+        Looks up each pack content against the gear table and weapons
+        table. Items that don't resolve (e.g. "alphabet soup") are
+        silently skipped; the pack description is preserved elsewhere
+        for narration.
+        """
+        from auto_dm.phb import get_gear_item, get_pack
+        from auto_dm.state.models import ItemType
+
+        pack = get_pack(self._starting_pack or "")
+        if pack is None:
+            return []
+        items: list[Item] = []
+        seen: set[str] = set()
+        for content_name in pack.contents:
+            # Strip leading articles ("a", "an") and quantity prefixes
+            cleaned = content_name.strip()
+            while cleaned.lower().startswith(("a ", "an ")):
+                cleaned = cleaned[2:] if cleaned.lower().startswith("a ") else cleaned[3:]
+            # Drop quantities in parens like "Arrows (20)" or "vial"
+            cleaned = re.sub(r"\s*\(.+?\)\s*$", "", cleaned).strip()
+            if not cleaned or cleaned.lower() in seen:
+                continue
+            # Try the gear table first.
+            gear = get_gear_item(cleaned)
+            if gear is not None:
+                items.append(Item(
+                    name=gear.name,
+                    type=ItemType.MISC,
+                    weight=gear.weight,
+                    value_gp=gear.cost_gp,
+                    description=gear.description,
+                ))
+                seen.add(cleaned.lower())
+                continue
+            # Fall back to the weapons table (e.g. "dagger" in some packs).
+            weapon = get_weapon(cleaned)
+            if weapon is not None:
+                items.append(_weapon_to_item(weapon))
+                seen.add(cleaned.lower())
+        return items
 
 
 # ============================================================================

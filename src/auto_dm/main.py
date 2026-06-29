@@ -200,7 +200,12 @@ def _run_repl(game: GameApp) -> int:
         except (EOFError, KeyboardInterrupt):
             console.print("\n[dim]Saindo...[/dim]")
             return 0
-        result = game.process_input(line)
+        if line.strip().startswith("/"):
+            # Meta-commands are instant — no spinner.
+            game.process_input(line)
+            continue
+        with console.status("[dim]Mestre está pensando...[/dim]", spinner="dots"):
+            result = game.process_input(line)
         if result is None:
             # Meta-command (already printed feedback)
             continue
@@ -224,6 +229,16 @@ def _render_narrative(result) -> None:
         console.print(render_narration(
             "Sistema", result.action_result.message, role="system",
         ))
+    # Companion turns (Phase 25h) — rendered after the player's turn.
+    for turn in result.companion_results:
+        if turn.intent:
+            console.print(render_narration(
+                turn.actor_name, turn.intent, role="companion",
+            ))
+        if turn.action_result is not None and turn.action_result.message:
+            console.print(render_narration(
+                "Sistema", turn.action_result.message, role="system",
+            ))
 
 
 if __name__ == "__main__":

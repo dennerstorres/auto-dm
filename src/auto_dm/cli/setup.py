@@ -26,8 +26,9 @@ from auto_dm.cli.character_flow import (
     create_character_interactive,
 )
 from auto_dm.companions import (
+    COMPANION_BLURBS,
     COMPANION_FACTORIES,
-    list_companion_keys,
+    roll_party_candidates,
 )
 from auto_dm.persistence import slugify
 from auto_dm.state.models import Character, GameState
@@ -51,18 +52,22 @@ def setup_new_game(
     campaign_name = _prompt_text(
         inp, out, "Nome da campanha", default="Crônicas da Aliança",
     )
-    chosen = _prompt_companions(inp, out)
+
+    # Build the player character FIRST so companion selection can use
+    # the player's class to roll a synergy-biased set of candidates
+    # (Phase 27). Before this, we built the player after companions.
+    out("\n[bold]Agora vamos criar seu personagem:[/bold]\n")
+    player = create_character_interactive(input_fn=inp, print_fn=out)
+
+    chosen = _prompt_companions(inp, out, player)
 
     out(Panel.fit(
         f"[bold]Resumo[/bold]\n"
         f"  Campanha: {campaign_name}\n"
+        f"  Personagem: {player.name} ({getattr(player, 'class_', '?')})\n"
         f"  Companheiros: {', '.join(chosen) if chosen else '(nenhum)'}",
         border_style="green",
     ))
-
-    # Build the player character
-    out("\n[bold]Agora vamos criar seu personagem:[/bold]\n")
-    player = create_character_interactive(input_fn=inp, print_fn=out)
 
     party: list[Character] = [player]
     for key in chosen:
@@ -101,44 +106,41 @@ def _prompt_text(
     return raw or default
 
 
-def _prompt_companions(inp: InputFn, out: PrintFn) -> list[str]:
-    keys = list_companion_keys()
-    descriptions = _companion_blurbs()
-    out("\n[bold]Companheiros pré-definidos[/bold] "
-        "(deixe vazio para aceitar todos):")
-    for i, key in enumerate(keys, 1):
-        out(f"  {i}) {key}: {descriptions.get(key, '')}")
+def _prompt_companions(inp: InputFn, out: PrintFn, player: Character) -> list[str]:
+    """Roll 4 synergy-biased candidates for ``player`` and let the user pick.
+
+    Phase 27: instead of listing all 12 companions from the roster, we
+    roll 4 candidates biased toward roles the player doesn't already
+    fill (see ``auto_dm.companions.selection.roll_party_candidates``).
+    The user still chooses any subset.
+    """
+    candidates = roll_party_candidates(player, k=4)
+    out("\n[bold]Companheiros sugeridos[/bold] "
+        "(escolha um subconjunto; deixe vazio para aceitar todos):")
+    for i, key in enumerate(candidates, 1):
+        out(f"  {i}) {key}: {COMPANION_BLURBS.get(key, '')}")
     out("  0) Nenhum (sozinho)")
     raw = inp(
         "  Escolha (ex: 1,3 ou 'todos' ou vazio) [todos]: "
     ).strip()
     if raw in ("", "todos", "all"):
-        return list(keys)
+        return list(candidates)
     if raw in ("0", "nenhum", "none"):
         return []
     chosen: list[str] = []
     for token in raw.replace(",", " ").split():
         if token.isdigit():
             idx = int(token) - 1
-            if 0 <= idx < len(keys):
-                chosen.append(keys[idx])
+            if 0 <= idx < len(candidates):
+                chosen.append(candidates[idx])
     # Preserve input order, dedupe
-    seen = set()
-    out_list = []
+    seen: set[str] = set()
+    out_list: list[str] = []
     for k in chosen:
         if k not in seen:
             seen.add(k)
             out_list.append(k)
     return out_list
-
-
-def _companion_blurbs() -> dict[str, str]:
-    return {
-        "thorgrim": "Anão da colina, fighter tanque. Leal e calado.",
-        "lyra": "Elfa alta, ranger. Mira certeira, cautelosa.",
-        "mira": "Halfling, clériga. Curandeira devota, otimista.",
-        "vex": "Half-elfa, ladina. Esperta, motivações próprias.",
-    }
 
 
 def _default_input(prompt: str) -> str:
