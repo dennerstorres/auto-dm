@@ -49,7 +49,9 @@ USER auto_dm
 EXPOSE 4004
 
 # Health check hits the unauthenticated /api/health endpoint.
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+# start-period=120s: PHB loader + DB/Redis init + schema migrations routinely take
+# 90s+ on homolog (first deploy pulls & indexes ~290 spells, 80 monsters, etc.).
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=120s \
     CMD python -c "import httpx, os; r = httpx.get(f'http://localhost:{os.environ.get(\"PORT\", 4004)}/api/health', timeout=3); r.raise_for_status()" || exit 1
 
 # uvicorn: --factory tells it to call ``create_app()`` to get the
