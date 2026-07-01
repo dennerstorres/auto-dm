@@ -7,10 +7,12 @@ provider-specific `extra_body` (e.g. MiniMax's `thinking` field).
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Optional
 
 from openai import OpenAI
 
 from auto_dm.llm.base import LLMConfig, Message
+from auto_dm.llm.usage import UsageReport
 from auto_dm.llm.utils import strip_thinking
 
 
@@ -68,26 +70,105 @@ class OpenAICompatibleProvider:
             kwargs["stream"] = True
         return kwargs
 
+    # -- usage helpers ----------------------------------------------------
+
+    def _report_from_usage(self, usage: object) -> Optional[UsageReport]:
+        """Build a :class:`UsageReport` from an OpenAI ``usage`` object.
+
+        Returns ``None`` when the payload is absent (the provider didn't
+        report usage); callers then fall back to the heuristic.
+        """
+        if usage is None:
+            return None
+        prompt = getattr(usage, "prompt_tokens", 0) or 0
+        completion = getattr(usage, "completion_tokens", 0) or 0
+        total = getattr(usage, "total_tokens", 0) or (prompt + completion)
+        if not (prompt or completion or total):
+            return None
+        return UsageReport(
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            total_tokens=total,
+            provider=self.name,
+            model=self.config.model,
+            source="api",
+        )
+
+    def _fallback_report(self, messages: list[Message], completion_chars: int) -> UsageReport:
+        return UsageReport(
+            prompt_tokens=self.count_tokens(messages),
+            completion_tokens=completion_chars // 3,
+            provider=self.name,
+            model=self.config.model,
+            source="fallback",
+        )
+
     # -- public API -------------------------------------------------------
 
-    def chat(self, messages: list[Message]) -> str:
+    def chat_with_usage(self, messages: list[Message]) -> tuple[str, UsageReport]:
+        """Single-shot completion that also returns real token usage.
+
+        Falls back to the chars//3 heuristic when the provider's response
+        carries no ``usage`` payload.
+        """
         response = self.client.chat.completions.create(
             **self._request_kwargs(messages, stream=False)
         )
-        content = response.choices[0].message.content
-        return strip_thinking(content)
+        content = strip_thinking(response.choices[0].message.content)
+        report = self._report_from_usage(getattr(response, "usage", None))
+        if report is None:
+            report = self._fallback_report(
+                messages, len(response.choices[0].message.content or "")
+            )
+        return content, report
+
+    def chat(self, messages: list[Message]) -> str:
+        """Single-shot completion (text only). Thin wrapper over
+        :meth:`chat_with_usage`, kept for the base :class:`LLMProvider`
+        protocol and the CLI."""
+        return self.chat_with_usage(messages)[0]
+
+    def iter_stream_with_usage(
+        self, messages: list[Message]
+    ) -> Iterator[tuple[str, Optional[UsageReport]]]:
+        """Stream tokens, attaching the real ``UsageReport`` at the end.
+
+        Asks the API for ``stream_options.include_usage`` so the final
+        chunk carries ``usage``. Some backends reject that option, so we
+        retry once without it. If no chunk reports usage, we emit a final
+        heuristic report (``source="fallback"``).
+        """
+        completion_chars = 0
+        report: Optional[UsageReport] = None
+        kwargs = self._request_kwargs(messages, stream=True)
+        kwargs["stream_options"] = {"include_usage": True}
+        try:
+            stream = self.client.chat.completions.create(**kwargs)
+        except Exception:
+            # Backend rejected stream_options — retry plain.
+            stream = self.client.chat.completions.create(
+                **self._request_kwargs(messages, stream=True)
+            )
+        for chunk in stream:
+            choices = getattr(chunk, "choices", None) or []
+            if choices:
+                delta = choices[0].delta
+                if delta and delta.content:
+                    completion_chars += len(delta.content)
+                    yield delta.content, None
+            # The usage-bearing chunk often has empty choices.
+            report = self._report_from_usage(getattr(chunk, "usage", None)) or report
+        if report is None:
+            report = self._fallback_report(messages, completion_chars)
+        yield "", report
 
     def stream(self, messages: list[Message]) -> Iterator[str]:
         # TODO: when extended thinking is on, the <think>...</think> may
         # span chunks. For now we yield raw chunks; the caller can join +
-        # strip if it needs clean text.
-        stream = self.client.chat.completions.create(
-            **self._request_kwargs(messages, stream=True)
-        )
-        for chunk in stream:
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
+        # strip if it needs clean text. Text-only protocol variant.
+        for tok, _ in self.iter_stream_with_usage(messages):
+            if tok:
+                yield tok
 
     def count_tokens(self, messages: list[Message]) -> int:
         # Rough approximation: ~3 chars per token for pt-BR mixed text.

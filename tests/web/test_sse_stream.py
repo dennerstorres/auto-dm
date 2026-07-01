@@ -133,10 +133,10 @@ async def test_stream_session_not_found(client, auth_token, app_instance):
 
 
 @pytest.mark.asyncio
-async def test_stream_emits_start_token_then_done(client, auth_token, app_instance):
+async def test_stream_emits_start_token_then_done(client, admin_token, app_instance):
     """End-to-end: tokens arrive in order, then done."""
     await _install_stub_provider(app_instance, tokens=["Você ", "vê ", "uma porta."])
-    token, user, headers = auth_token
+    token, user, headers = admin_token
     # Create a session.
     resp = await client.post(
         "/api/sessions",
@@ -164,10 +164,10 @@ async def test_stream_emits_start_token_then_done(client, auth_token, app_instan
 
 
 @pytest.mark.asyncio
-async def test_stream_handles_empty_tokens(client, auth_token, app_instance):
+async def test_stream_handles_empty_tokens(client, admin_token, app_instance):
     """Zero-token stream still emits start + done."""
     await _install_stub_provider(app_instance, tokens=[])
-    token, user, headers = auth_token
+    token, user, headers = admin_token
     resp = await client.post(
         "/api/sessions",
         json={"state": _empty_state()},
@@ -188,12 +188,12 @@ async def test_stream_handles_empty_tokens(client, auth_token, app_instance):
 
 
 @pytest.mark.asyncio
-async def test_stream_propagates_provider_error(client, auth_token, app_instance):
+async def test_stream_propagates_provider_error(client, admin_token, app_instance):
     """If the LLM raises mid-stream, we emit 'error' and close cleanly."""
     await _install_stub_provider(
         app_instance, tokens=["Você "], fail=RuntimeError("provider 500"),
     )
-    token, user, headers = auth_token
+    token, user, headers = admin_token
     resp = await client.post(
         "/api/sessions",
         json={"state": _empty_state()},

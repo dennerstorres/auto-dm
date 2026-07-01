@@ -17,11 +17,31 @@ Jogar D&D 5e solo, com a narrativa, NPCs, encounters e arbitragem de regras cond
 ## 2. Stack e princípios
 
 - **Linguagem:** Python 3.11+
-- **LLM:** abstração `LLMProvider` com adaptadores para **Claude, OpenAI, Gemini, GLM, Minimax**. Provider e modelo configuráveis via arquivo de config.
+- **LLM:** abstração `LLMProvider` com adaptadores para **Claude, OpenAI, Gemini, GLM, Minimax** (provider ativo: **Minimax**). Provider e modelo configuráveis via ambiente (`AUTO_DM_*`) + arquivo de config.
 - **Modelagem de estado:** Pydantic (validação em runtime, serialização pra JSON).
-- **Orquestração de agentes:** LangChain + LangGraph (companheiros como nós do grafo, DM como nó central).
-- **CLI:** Rich ou Textual (HP bars, painéis, log de combate colorido, replay de rolagens).
-- **Persistência:** JSON em `saves/`.
+- **Orquestração de agentes:** loop próprio de DM + companheiros (LangChain/LangGraph previstos mas não obrigatórios no MVP).
+- **Web backend:** FastAPI + uvicorn (auth, sessões, REST, SSE streaming).
+- **Frontend:** HTML/CSS/JS vanilla (sem build step), com wizard de criação de personagem no browser.
+- **Persistência:** **Postgres** (users + saves no web) + **Redis** (sessões ativas, TTL 24h); CLI standalone usa JSON em `saves/`.
+- **CLI:** Rich (HP bars, painéis, log de combate colorido, replay de rolagens) — alternativa ao web para headless/terminal.
+- **Deploy:** **Docker** (Dockerfile single-stage + `docker-compose.yml` prod / `docker-compose.dev.yml` dev com Postgres+Redis+backend).
+
+### Como rodar
+
+O projeto roda primariamente em Docker:
+
+```bash
+# Dev (sobe Postgres + Redis + backend, frontend em http://localhost:14004)
+cp .env.example .env          # setar JWT_SECRET + AUTO_DM_API_KEY
+docker compose -f docker-compose.dev.yml up --build
+
+# Prod (backend only; Postgres+Redis externos; bind 127.0.0.1:4004)
+docker compose up -d --build
+```
+
+Variáveis obrigatórias no `.env`: `JWT_SECRET` (≥32 chars),
+`AUTO_DM_API_KEY`, `DATABASE_URL`, `REDIS_URL`, `FRONTEND_URL`.
+Detalhes de deploy (nginx, TLS, Vercel, backups) em `DEPLOY.md`.
 
 ### Princípios inegociáveis
 
@@ -324,31 +344,41 @@ A cada turno do companheiro:
 
 ## 9. Persistência
 
-### `saves/<campaign_name>.json`
+O backend web persiste em **Postgres** (tabelas `User` + `Save`, com
+slug amigável e meta block) e usa **Redis** apenas para sessões ativas
+(TTL 24h). O CLI standalone mantém JSON em `saves/`.
+
+### Saves (Postgres / JSON)
 - Estado completo serializado (Pydantic → dict → JSON)
 - Versão do save (pra migração futura)
 - Timestamp
 
 ### Carregamento
-- Lista saves disponíveis
+- Lista saves disponíveis (`/list` ou `GET /api/saves`)
 - Jogador escolhe
 - Estado reconstruído em memória
 - Narrativa é repopulada via resumos (não o log inteiro)
+
+### Resiliência
+- Saves vivem no Postgres, não no Redis — perder Redis não perde
+  campanha, só derruba sessões ativas (que reautenticam).
+- Dump noturno do Postgres recomendado em produção (ver `DEPLOY.md`).
 
 ---
 
 ## 10. Critérios de "pronto" do v0.1
 
 Um jogador consegue:
-1. Instalar (`pip install -e .`)
-2. Configurar API key de um provider
-3. Criar um personagem nível 1
-4. Começar uma campanha com 2-3 companheiros IA
-5. Explorar uma cena narrada
-6. Entrar em combate, agir em vários turnos
-7. Companheiros IA agem autonomamente de forma crível
-8. Magias cantrip e nível 1 funcionam
-9. Salvar, fechar, abrir de novo e continuar de onde parou
+1. Subir o stack com Docker (`docker compose -f docker-compose.dev.yml up --build`)
+2. Criar conta (ou usar invite-code) e logar no browser
+3. Configurar API key de um provider (via `.env` `AUTO_DM_API_KEY`)
+4. Criar um personagem nível 1 pelo wizard no browser
+5. Começar uma campanha com 2-3 companheiros IA
+6. Explorar uma cena narrada
+7. Entrar em combate, agir em vários turnos
+8. Companheiros IA agem autonomamente de forma crível
+9. Magias cantrip e nível 1 funcionam
+10. Salvar, fechar, abrir de novo e continuar de onde parou
 
 ---
 

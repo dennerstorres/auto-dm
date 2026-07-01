@@ -25,6 +25,7 @@ from typing import Optional, Protocol
 
 from auto_dm.agents.prompts import DM_SYSTEM_PROMPT, build_dm_context_block
 from auto_dm.llm.base import Message
+from auto_dm.llm.usage import UsageReport, chat_with_usage, iter_stream_with_usage
 from auto_dm.state.manager import StateManager
 from auto_dm.state.models import Action, ActionType
 
@@ -55,11 +56,13 @@ class DMResponse:
         narration: The free-text narration (always present).
         action: The structured Action if the DM emitted one; None otherwise.
         raw_text: The full LLM response text, useful for debugging.
+        usage: Token-usage report for the underlying LLM call, if any.
     """
 
     narration: str
     action: Optional[Action] = None
     raw_text: str = ""
+    usage: Optional[UsageReport] = None
 
     @property
     def has_action(self) -> bool:
@@ -82,7 +85,9 @@ class _ProviderLike(Protocol):
 # ============================================================================
 
 
-def parse_dm_response(raw_text: str) -> DMResponse:
+def parse_dm_response(
+    raw_text: str, *, usage: Optional[UsageReport] = None
+) -> DMResponse:
     """Parse the LLM's raw output into a DMResponse.
 
     Splits out the optional ```action``` fenced JSON block. If no block
@@ -94,7 +99,7 @@ def parse_dm_response(raw_text: str) -> DMResponse:
     match = _ACTION_FENCE_RE.search(raw_text)
     if not match:
         # No action block — whole text is narration
-        return DMResponse(narration=raw_text.strip(), raw_text=raw_text)
+        return DMResponse(narration=raw_text.strip(), raw_text=raw_text, usage=usage)
 
     body = match.group("body")
     narration = (raw_text[: match.start()] + raw_text[match.end() :]).strip()
@@ -106,7 +111,7 @@ def parse_dm_response(raw_text: str) -> DMResponse:
         logger.warning("DM emitted a malformed action block: %s", exc)
         action = None
 
-    return DMResponse(narration=narration, action=action, raw_text=raw_text)
+    return DMResponse(narration=narration, action=action, raw_text=raw_text, usage=usage)
 
 
 def _dict_to_action(data: dict) -> Action:
@@ -180,10 +185,12 @@ class DMAgent:
 
         This is a single LLM round-trip. The narrative loop may chain
         multiple ``ask`` calls when the engine intervenes (e.g. combat).
+        The returned :class:`DMResponse` carries the token ``usage`` so
+        the web layer can bill/limit it.
         """
         messages = self._build_messages(player_input)
-        raw = self.provider.chat(messages)
-        return parse_dm_response(raw)
+        raw, usage = chat_with_usage(self.provider, messages)
+        return parse_dm_response(raw, usage=usage)
 
     def stream(self, player_input: str):
         """Yield narration tokens as they arrive (no action parsing).
@@ -191,8 +198,19 @@ class DMAgent:
         Provided for the CLI's streaming UX. Use ``ask`` when you need
         the structured Action.
         """
+        for tok, _ in self.stream_with_usage(player_input):
+            if tok:
+                yield tok
+
+    def stream_with_usage(self, player_input: str):
+        """Like :meth:`stream` but also yields a final ``UsageReport``.
+
+        Yields ``(token, None)`` for each chunk and one
+        ``("", UsageReport)`` at the end. The web/SSE layer uses this to
+        bill streamed turns; the CLI uses the text-only :meth:`stream`.
+        """
         messages = self._build_messages(player_input)
-        yield from self.provider.stream(messages)
+        yield from iter_stream_with_usage(self.provider, messages)
 
     # ----- Internals ---------------------------------------------------------
 

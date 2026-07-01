@@ -108,8 +108,20 @@ async def stream_dm_narration(
         """Run the sync generator in a worker thread; push tokens
         onto the asyncio queue via ``call_soon_threadsafe``."""
         try:
-            for tok in session.dm_agent.stream(player_input):
-                loop.call_soon_threadsafe(queue.put_nowait, ("token", tok))
+            for tok, usage in session.dm_agent.stream_with_usage(player_input):
+                if usage is not None:
+                    # Final marker: the report for this streamed turn.
+                    payload = {
+                        "prompt_tokens": usage.prompt_tokens,
+                        "completion_tokens": usage.completion_tokens,
+                        "total_tokens": usage.total_tokens,
+                        "source": usage.source,
+                    }
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait, ("usage", payload)
+                    )
+                elif tok:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("token", tok))
         except Exception as exc:  # pragma: no cover — exercised via tests
             logger.exception("DM stream failed")
             loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
@@ -142,6 +154,8 @@ async def stream_dm_narration(
                     kind, payload = queue.get_nowait()
                     if kind == "token":
                         yield {"type": "token", "data": payload}
+                    elif kind == "usage":
+                        yield {"type": "usage", "data": payload}
                     elif kind == "error":
                         yield {"type": "error", "data": payload}
                         return

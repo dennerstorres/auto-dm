@@ -97,3 +97,34 @@ async def auth_token(client: AsyncClient):
     assert resp.status_code == 201, resp.text
     data = resp.json()
     return data["token"], data["user"], {"Authorization": f"Bearer {data['token']}"}
+
+
+@pytest_asyncio.fixture
+async def admin_token(client: AsyncClient, app_instance):
+    """Create an admin user directly in the DB and log in.
+
+    Signup always creates ``role=user`` (never admin), so we insert the
+    admin row by hand and authenticate via /login. Returns
+    (token, user, headers).
+    """
+    from auto_dm.web.auth import hash_password
+    from auto_dm.web.db import get_session_factory
+    from auto_dm.web.models import User, UserRole
+
+    factory = get_session_factory()
+    async with factory() as session:
+        session.add(
+            User(
+                username="rootadmin",
+                password_hash=hash_password("adminpass1234"),
+                role=UserRole.ADMIN.value,
+            )
+        )
+        await session.commit()
+    resp = await client.post(
+        "/api/auth/login",
+        json={"username": "rootadmin", "password": "adminpass1234"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    return data["token"], data["user"], {"Authorization": f"Bearer {data['token']}"}

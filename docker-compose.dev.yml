@@ -78,6 +78,9 @@ services:
       # Invite-code gate (Phase 26e). Leave empty in dev for open signup;
       # set a strong random string in production to require it.
       INVITE_CODE: "${INVITE_CODE:-}"
+      # Admin seed (Phase 29). Set ADMIN_PASSWORD to seed the admin account.
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
       AUTO_DM_PROVIDER: "${AUTO_DM_PROVIDER:-minimax}"
       AUTO_DM_API_KEY: "${AUTO_DM_API_KEY:?Set AUTO_DM_API_KEY in .env}"
       AUTO_DM_MODEL: "${AUTO_DM_MODEL:-MiniMax-Text-01}"

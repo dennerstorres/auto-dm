@@ -240,18 +240,22 @@ auto_dm/
 
 ## Backlog pós-MVP
 
+> Nota: muita coisa deste backlog acabou entregue pós-MVP (níveis 1–20,
+> subclasses, magias até 9º círculo, **Web UI com FastAPI + Docker**).
+> Mantido aqui como registro histórico do planejamento original.
+
 - [ ] Mapa visual com tokens (TUI com `textual`?)
 - [ ] Geração dinâmica de NPCs com stat block
-- [ ] Magias de nível 3-5
-- [ ] Níveis 6-20
+- [x] Magias de nível 3-9 (entregue nas Fases 18/25g)
+- [x] Níveis 6-20 (entregue nas Fases 25f/25g)
 - [ ] Multiclasse
 - [ ] Feats
 - [ ] Voz (TTS dos NPCs)
-- [ ] Companion creation wizard
+- [x] Companion creation wizard + party roll (entregue na Fase 27)
 - [ ] Campanhas pré-escritas
 - [ ] Tabela de tesouros / loja
 - [ ] Tracking de tempo (turnos, dias, calendário)
-- [ ] Web UI (FastAPI + frontend leve)
+- [x] Web UI (FastAPI + frontend leve) — entregue nas Fases 26a–26e, roda em **Docker** (ver `DEPLOY.md`)
 
 ---
 

@@ -52,8 +52,8 @@ async def test_list_saves_requires_auth(client):
 
 
 @pytest.mark.asyncio
-async def test_create_session_persists_to_redis(client, auth_token):
-    token, user, headers = auth_token
+async def test_create_session_persists_to_redis(client, admin_token):
+    token, user, headers = admin_token
     resp = await client.post(
         "/api/sessions",
         json={"state": _empty_state()},
@@ -70,8 +70,8 @@ async def test_create_session_persists_to_redis(client, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_create_session_invalid_state_rejected(client, auth_token):
-    token, user, headers = auth_token
+async def test_create_session_invalid_state_rejected(client, admin_token):
+    token, user, headers = admin_token
     resp = await client.post(
         "/api/sessions",
         json={"state": {"not_a_real_field": "oops"}},
@@ -104,8 +104,8 @@ async def test_get_session_not_found(client, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_delete_session(client, auth_token):
-    token, user, headers = auth_token
+async def test_delete_session(client, admin_token):
+    token, user, headers = admin_token
     # Create one.
     resp = await client.post(
         "/api/sessions",
@@ -133,10 +133,10 @@ async def test_session_input_requires_session(client, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_session_input_empty_state_processes(client, auth_token):
+async def test_session_input_empty_state_processes(client, admin_token):
     """The DM agent will fail with no character; we expect 500 or
     a graceful error, but not 422 or 404."""
-    token, user, headers = auth_token
+    token, user, headers = admin_token
     resp = await client.post(
         "/api/sessions",
         json={"state": _empty_state()},
@@ -297,6 +297,101 @@ async def test_delete_save_not_found(client, auth_token):
         headers=headers,
     )
     assert resp.status_code == 404
+
+
+# ============================================================================
+# Archive / unarchive
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_new_save_is_not_archived(client, auth_token):
+    token, user, headers = auth_token
+    await client.post(
+        "/api/saves",
+        json={"slug": "fresh", "state": _empty_state()},
+        headers=headers,
+    )
+    resp = await client.get("/api/saves", headers=headers)
+    saves = resp.json()
+    assert len(saves) == 1
+    assert saves[0]["archived"] is False
+
+
+@pytest.mark.asyncio
+async def test_archive_hides_from_default_list(client, auth_token):
+    token, user, headers = auth_token
+    await client.post(
+        "/api/saves",
+        json={"slug": "to-archive", "state": _empty_state()},
+        headers=headers,
+    )
+    # Archive it.
+    resp = await client.post(
+        "/api/saves/to-archive/archive",
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["archived"] is True
+    # Default list no longer includes it.
+    active = (await client.get("/api/saves", headers=headers)).json()
+    assert active == []
+    # It shows up under ?archived=true.
+    archived = (
+        await client.get("/api/saves?archived=true", headers=headers)
+    ).json()
+    assert len(archived) == 1
+    assert archived[0]["slug"] == "to-archive"
+    assert archived[0]["archived"] is True
+
+
+@pytest.mark.asyncio
+async def test_unarchive_restores_to_default_list(client, auth_token):
+    token, user, headers = auth_token
+    await client.post(
+        "/api/saves",
+        json={"slug": "flip", "state": _empty_state()},
+        headers=headers,
+    )
+    await client.post("/api/saves/flip/archive", headers=headers)
+    resp = await client.post("/api/saves/flip/unarchive", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["archived"] is False
+    active = (await client.get("/api/saves", headers=headers)).json()
+    assert len(active) == 1
+    assert active[0]["slug"] == "flip"
+    archived = (
+        await client.get("/api/saves?archived=true", headers=headers)
+    ).json()
+    assert archived == []
+
+
+@pytest.mark.asyncio
+async def test_archive_not_found(client, auth_token):
+    token, user, headers = auth_token
+    resp = await client.post(
+        "/api/saves/ghost/archive",
+        headers=headers,
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_archived_save_is_still_loadable(client, auth_token):
+    token, user, headers = auth_token
+    await client.post(
+        "/api/saves",
+        json={"slug": "shelved", "state": _empty_state()},
+        headers=headers,
+    )
+    await client.post("/api/saves/shelved/archive", headers=headers)
+    # Archiving is non-destructive: the save can still hydrate a session.
+    resp = await client.post(
+        "/api/saves/shelved/load",
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["slug"] == "shelved"
 
 
 # ============================================================================

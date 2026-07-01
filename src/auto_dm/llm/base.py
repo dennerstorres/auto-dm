@@ -86,6 +86,14 @@ class LLMProvider(Protocol):
     - `chat()` for synchronous single-shot completion
     - `stream()` for token-by-token streaming
     - `count_tokens()` for budget estimation
+
+    Providers MAY additionally implement ``chat_with_usage`` /
+    ``iter_stream_with_usage`` (see :mod:`auto_dm.llm.usage`) to surface
+    real token usage from the API. The free helpers
+    :func:`auto_dm.llm.usage.chat_with_usage` and
+    :func:`auto_dm.llm.usage.iter_stream_with_usage` prefer those when
+    present and otherwise fall back to the chars//3 heuristic, so all
+    providers report *some* usage without being forced to implement it.
     """
 
     name: str

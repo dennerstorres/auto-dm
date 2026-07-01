@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auto_dm.web.config import get_settings
 from auto_dm.web.db import get_session
-from auto_dm.web.models import User
+from auto_dm.web.models import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -158,5 +158,27 @@ async def current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User no longer exists",
         )
+    # Soft-disable: an admin-deactivated account can't use authenticated
+    # routes even with a still-valid token (kills zombie sessions).
+    if not user.active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Conta desativada",
+        )
     request.state.user = user
+    return user
+
+
+async def require_admin(
+    user: Annotated[User, Depends(current_user)],
+) -> User:
+    """Dependency that ensures the current user has the ``admin`` role.
+
+    Raises 403 for regular users. Use on admin-only endpoints.
+    """
+    if user.role != UserRole.ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin required",
+        )
     return user

@@ -21,6 +21,11 @@
 const API_BASE = ""; // same origin (Vercel would be cross-origin, but
                     // for the dev server, same origin works)
 
+// Shown when the user hits their daily quota (429 from /input or /stream).
+const LIMIT_REACHED_MSG =
+  "Limite diário atingido. Volte amanhã ou peça ao administrador " +
+  "para aumentar sua cota.";
+
 // --- Auth state ---
 const TOKEN_KEY = "auto_dm_token";
 const USER_KEY = "auto_dm_user";
@@ -44,6 +49,14 @@ function setUser(u) {
   else localStorage.removeItem(USER_KEY);
 }
 
+// True when the logged-in user has the `admin` role. Drives the lobby
+// (cross-user save list + delete buttons), the read-only game view, and
+// the admin-only "Criar jogo vazio" advanced option.
+function isAdmin() {
+  const u = getUser();
+  return !!(u && u.role === "admin");
+}
+
 // --- Fetch wrapper ---
 async function api(path, opts = {}) {
   const headers = { "Content-Type": "application/json" };
@@ -57,11 +70,16 @@ async function api(path, opts = {}) {
   });
   if (!res.ok) {
     let detail = res.statusText;
+    let payload = null;
     try {
-      const j = await res.json();
-      detail = j.detail || JSON.stringify(j);
+      payload = await res.json();
+      // FastAPI HTTPException detail may be a dict (429 quota) or string.
+      detail = payload.detail || JSON.stringify(payload);
     } catch (_) {}
-    throw new Error(detail);
+    const err = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    err.status = res.status;
+    err.payload = payload;
+    throw err;
   }
   if (res.status === 204) return null;
   return res.json();
@@ -111,6 +129,9 @@ function clearLog() {
 // --- Current session state ---
 let currentSessionId = null;
 let currentSlug = null;
+// Read-only view (admin inspecting a save). When true, input is disabled
+// and sendInput() bails out — the admin can look but not play.
+let readOnlyMode = false;
 
 // --- Phase 28: input-blocking + busy feedback ---
 let busy = false;
@@ -126,6 +147,8 @@ function lockUi() {
 
 function unlockUi() {
   busy = false;
+  // In read-only (admin view) mode the inputs stay disabled.
+  if (readOnlyMode) return;
   document.getElementById("cmd").disabled = false;
   document.getElementById("send-btn").disabled = false;
   const toggle = document.getElementById("stream-toggle");
@@ -204,6 +227,7 @@ function doLogout() {
   setUser(null);
   currentSessionId = null;
   currentSlug = null;
+  readOnlyMode = false;
   document.getElementById("who").textContent = "";
   document.getElementById("logout-btn").style.display = "none";
   show("auth-screen");
@@ -211,37 +235,171 @@ function doLogout() {
 
 function afterLogin() {
   const u = getUser();
-  document.getElementById("who").textContent = u ? `Logado: ${u.username}` : "";
+  const tag = u && u.role === "admin" ? " (admin)" : "";
+  document.getElementById("who").textContent = u ? `Logado: ${u.username}${tag}` : "";
   document.getElementById("logout-btn").style.display = "";
   loadLobby();
 }
 
 // --- Lobby: list saves ---
+// Archived saves are opt-in: we only fetch ?archived=true and reveal the
+// section when the user toggles it on (state held in `showArchived`).
+let showArchived = false;
+
+// Admins list saves across all users (with owner); regular users list
+// only their own. The base path switches accordingly.
+const savesEndpoint = (archived) =>
+  isAdmin()
+    ? `/api/admin/saves${archived ? "?archived=true" : ""}`
+    : `/api/saves${archived ? "?archived=true" : ""}`;
+
 async function loadLobby() {
   show("lobby-screen");
+  // "Criar jogo vazio" (advanced option) is admin-only.
+  const advanced = document.querySelector(".lobby-advanced");
+  if (advanced) advanced.style.display = isAdmin() ? "" : "none";
+  // Admin panel entry is admin-only.
+  const adminBlock = document.querySelector(".lobby-admin");
+  if (adminBlock) adminBlock.style.display = isAdmin() ? "" : "none";
   const ul = document.getElementById("saves-list");
   ul.innerHTML = "";
   try {
-    const saves = await api("/api/saves");
-    if (saves.length === 0) {
+    const active = await api(savesEndpoint(false));
+    if (active.length === 0) {
       const li = document.createElement("li");
       li.innerHTML = '<span class="meta">Nenhum save ainda. Crie um novo jogo abaixo.</span>';
       ul.appendChild(li);
-      return;
-    }
-    for (const s of saves) {
-      const li = document.createElement("li");
-      const meta = document.createElement("span");
-      meta.innerHTML = `<span class="slug">${s.slug}</span> <span class="meta">${s.updated_at}</span>`;
-      const btn = document.createElement("button");
-      btn.textContent = "Carregar";
-      btn.onclick = () => loadSaveAsSession(s.slug);
-      li.appendChild(meta);
-      li.appendChild(btn);
-      ul.appendChild(li);
+    } else {
+      for (const s of active) ul.appendChild(renderSaveRow(s, { archived: false }));
     }
   } catch (e) {
     setMsg("lobby-msg", "Erro ao listar saves: " + e.message, "error");
+  }
+  // Archived section is rendered on demand by renderArchived().
+  await renderArchived();
+}
+
+// Show/hide the archived section. When showing, fetch ?archived=true.
+async function renderArchived() {
+  const wrap = document.getElementById("archived-wrap");
+  const ul = document.getElementById("archived-list");
+  const toggle = document.getElementById("archive-toggle");
+  ul.innerHTML = "";
+  if (!showArchived) {
+    wrap.style.display = "none";
+    if (toggle) toggle.textContent = "Mostrar arquivados";
+    return;
+  }
+  try {
+    const archived = await api(savesEndpoint(true));
+    for (const s of archived) ul.appendChild(renderSaveRow(s, { archived: true }));
+  } catch (e) {
+    setMsg("lobby-msg", "Erro ao listar arquivados: " + e.message, "error");
+  }
+  wrap.style.display = "";
+  if (toggle) toggle.textContent = "Ocultar arquivados";
+}
+
+async function toggleArchived() {
+  showArchived = !showArchived;
+  await renderArchived();
+}
+
+// Build a single <li> row for a save. Archived rows offer "Restaurar",
+// active rows offer "Arquivar"; both offer "Carregar". Admin rows also
+// show the owning username, a "Visualizar" (read-only) button instead of
+// "Carregar", and an "Excluir" button.
+function renderSaveRow(s, { archived }) {
+  const admin = isAdmin();
+  const li = document.createElement("li");
+  const meta = document.createElement("span");
+  const owner = admin && s.username ? ` · <span class="owner">@${s.username}</span> ` : "";
+  meta.innerHTML =
+    `<span class="slug">${s.slug}</span>${owner}<span class="meta">${s.updated_at}</span>`;
+
+  const loadBtn = document.createElement("button");
+  if (admin) {
+    loadBtn.textContent = "Visualizar";
+    loadBtn.onclick = () => viewSaveReadOnly(s.user_id, s.slug);
+  } else {
+    loadBtn.textContent = "Carregar";
+    loadBtn.onclick = () => loadSaveAsSession(s.slug);
+  }
+
+  const toggleBtn = document.createElement("button");
+  toggleBtn.className = "secondary";
+  if (archived) {
+    toggleBtn.textContent = "Restaurar";
+    toggleBtn.onclick = () => unarchiveSave(s.slug);
+  } else {
+    toggleBtn.textContent = "Arquivar";
+    toggleBtn.onclick = () => archiveSave(s.slug);
+  }
+
+  li.appendChild(meta);
+  li.appendChild(toggleBtn);
+  li.appendChild(loadBtn);
+
+  // Admin-only delete (works on archived and non-archived alike).
+  if (admin) {
+    const delBtn = document.createElement("button");
+    delBtn.className = "danger";
+    delBtn.textContent = "Excluir";
+    delBtn.onclick = () => deleteSaveAdmin(s.user_id, s.slug);
+    li.appendChild(delBtn);
+  }
+  return li;
+}
+
+// Admin read-only inspection of any user's save. Fetches a static
+// snapshot (no session, no LLM) and renders the narrative log with
+// input disabled.
+async function viewSaveReadOnly(userId, slug) {
+  try {
+    const res = await api(
+      `/api/admin/saves/${encodeURIComponent(userId)}/${encodeURIComponent(slug)}`,
+    );
+    enterGame({
+      readOnly: true,
+      narrativeLog: res.narrative_log || [],
+      ownerLabel: res.username ? `${res.username}/${slug}` : slug,
+    });
+  } catch (e) {
+    setMsg("lobby-msg", "Erro ao visualizar: " + e.message, "error");
+  }
+}
+
+async function deleteSaveAdmin(userId, slug) {
+  if (!confirm(`Excluir o save “${slug}” definitivamente?`)) return;
+  try {
+    await api(
+      `/api/admin/saves/${encodeURIComponent(userId)}/${encodeURIComponent(slug)}`,
+      { method: "DELETE" },
+    );
+    setMsg("lobby-msg", `“${slug}” excluído.`, "ok");
+    await loadLobby();
+  } catch (e) {
+    setMsg("lobby-msg", "Erro ao excluir: " + e.message, "error");
+  }
+}
+
+async function archiveSave(slug) {
+  try {
+    await api(`/api/saves/${encodeURIComponent(slug)}/archive`, { method: "POST" });
+    setMsg("lobby-msg", `“${slug}” arquivado.`, "ok");
+    await loadLobby();
+  } catch (e) {
+    setMsg("lobby-msg", "Erro ao arquivar: " + e.message, "error");
+  }
+}
+
+async function unarchiveSave(slug) {
+  try {
+    await api(`/api/saves/${encodeURIComponent(slug)}/unarchive`, { method: "POST" });
+    setMsg("lobby-msg", `“${slug}” restaurado.`, "ok");
+    await loadLobby();
+  } catch (e) {
+    setMsg("lobby-msg", "Erro ao restaurar: " + e.message, "error");
   }
 }
 
@@ -294,27 +452,74 @@ async function createEmptySession() {
 }
 
 // --- Game screen ---
-function enterGame() {
+// opts:
+//   readOnly     — admin inspecting a save; input disabled, narrative
+//                  log replayed from the snapshot, no session/LLM.
+//   narrativeLog — array of NarrativeEntry {role, speaker, content}.
+//   ownerLabel   — "<username>/<slug>" shown in the read-only banner.
+function enterGame(opts = {}) {
+  const { readOnly = false, narrativeLog = [], ownerLabel = "" } = opts;
+  readOnlyMode = readOnly;
   show("game-screen");
   clearLog();
+
+  if (readOnly) {
+    // Disable all input controls; lobby button stays usable.
+    document.getElementById("cmd").disabled = true;
+    document.getElementById("send-btn").disabled = true;
+    const toggle = document.getElementById("stream-toggle");
+    if (toggle) toggle.disabled = true;
+    appendLog(
+      "Sistema",
+      `Modo visualização (somente leitura — admin)${ownerLabel ? ` · ${ownerLabel}` : ""}.`,
+      "system",
+    );
+    renderNarrativeLog(narrativeLog);
+    if (narrativeLog.length === 0) {
+      appendLog("Sistema", "(sem histórico narrado neste save)", "system");
+    }
+    return;
+  }
+
   appendLog("Sistema",
     `Sessão iniciada${currentSlug ? ` (save: ${currentSlug})` : ""}.`,
     "system");
   if (currentSlug) {
     appendLog("Sistema",
-      "Personagem vazio — em breve o wizard de criação vai abrir automaticamente. " +
+      "Jogo vazio iniciado — sem personagem definido. " +
       "Por enquanto, digite algo para começar (a IA narrará mesmo sem personagem).",
       "system");
   }
 }
 
+// Render a GameState.narrative_log into the game output. Maps each
+// NarrativeEntry {role, speaker, content} onto the appendLog styling.
+function renderNarrativeLog(entries) {
+  for (const e of entries || []) {
+    const cls =
+      e.role === "player" ? "player"
+      : e.role === "companion" ? "companion"
+      : e.role === "dm" ? "narration"
+      : "system";
+    const who = e.speaker || (e.role === "dm" ? "DM" : "Sistema");
+    if (e.content) appendLog(who, e.content, cls);
+  }
+}
+
 async function sendInput() {
-  if (busy) return;
+  if (busy || readOnlyMode) return;
   const input = document.getElementById("cmd");
   const line = input.value.trim();
   if (!line || !currentSessionId) return;
   input.value = "";
   appendLog("Você", line, "player");
+  // Meta-commands (/quit /save /load /list /help) are handled locally
+  // and never reach the backend. clientCommand returns true when it
+  // consumed the line; otherwise we fall through and send it as input.
+  if (line.startsWith("/")) {
+    const handled = await clientCommand(line);
+    if (handled) return;
+  }
   lockUi();
   showTyping();
   const useStream = !!document.getElementById("stream-toggle")?.checked;
@@ -356,6 +561,10 @@ async function sendInputClassic(line) {
       }
     }
   } catch (e) {
+    if (e && e.status === 429) {
+      appendLog("Sistema", LIMIT_REACHED_MSG, "system");
+      return;
+    }
     appendLog("Erro", e.message, "system");
   }
 }
@@ -397,7 +606,11 @@ async function sendInputStream(line) {
         const j = await res.json();
         detail = j.detail || JSON.stringify(j);
       } catch (_) {}
-      b.textContent = `(erro ${res.status}: ${detail})`;
+      if (res.status === 429) {
+        b.textContent = LIMIT_REACHED_MSG;
+      } else {
+        b.textContent = `(erro ${res.status}: ${detail})`;
+      }
       return;
     }
     const reader = res.body.getReader();
@@ -439,6 +652,17 @@ async function sendInputStream(line) {
   }
 }
 
+// Leave the current game session and return to the saves list.
+// The active session stays in Redis (auto-saved on every input); the
+// persistent save is the source of truth, so dropping the in-memory
+// session id here is safe — the game can be reloaded from the lobby.
+function returnToLobby() {
+  appendLog("Sistema", "Voltando ao lobby...", "system");
+  currentSessionId = null;
+  readOnlyMode = false;
+  loadLobby();
+}
+
 // --- /command helpers (client-side) ---
 async function clientCommand(line) {
   // /quit, /save, /load, /list, /help — handled locally.
@@ -452,9 +676,7 @@ async function clientCommand(line) {
     return true;
   }
   if (cmd === "/quit") {
-    appendLog("Sistema", "Voltando ao lobby...", "system");
-    currentSessionId = null;
-    loadLobby();
+    returnToLobby();
     return true;
   }
   if (cmd === "/save") {
@@ -506,7 +728,24 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("logout-btn").onclick = doLogout;
   document.getElementById("new-game-btn").onclick = createEmptySession;
   document.getElementById("wizard-btn").onclick = openWizard;
+  document.getElementById("archive-toggle").onclick = toggleArchived;
   document.getElementById("send-btn").onclick = sendInput;
+  document.getElementById("lobby-btn").onclick = returnToLobby;
+  // Admin panel (Phase 30).
+  const adminBtn = document.getElementById("admin-panel-btn");
+  if (adminBtn) adminBtn.onclick = openAdminPanel;
+  const adminBack = document.getElementById("admin-back-btn");
+  if (adminBack) adminBack.onclick = returnToLobby;
+  const adminCreate = document.getElementById("admin-create-btn");
+  if (adminCreate) adminCreate.onclick = openCreateUserModal;
+  const adminRefresh = document.getElementById("admin-refresh-btn");
+  if (adminRefresh) adminRefresh.onclick = loadAdminPanel;
+  const adminQ = document.getElementById("admin-q");
+  if (adminQ) adminQ.oninput = renderAdminUsers;
+  const adminModalClose = document.getElementById("admin-modal-close");
+  if (adminModalClose) adminModalClose.onclick = closeAdminModal;
+  const adminDetailClose = document.getElementById("admin-detail-close");
+  if (adminDetailClose) adminDetailClose.onclick = closeAdminDetail;
   document.getElementById("wz-prev").onclick = wizardPrev;
   document.getElementById("wz-next").onclick = wizardNext;
   document.getElementById("wz-finish").onclick = wizardFinish;
@@ -532,6 +771,325 @@ document.addEventListener("DOMContentLoaded", () => {
     show("auth-screen");
   }
 });
+
+
+// ============================================================================
+// Admin panel (Phase 30) — user management, limits, cost, activity log
+// ============================================================================
+
+let adminUsers = []; // cache of GET /api/admin/users for client-side filtering
+
+async function openAdminPanel() {
+  if (!isAdmin()) return;
+  show("admin-panel-screen");
+  await loadAdminPanel();
+}
+
+async function loadAdminPanel() {
+  setMsg("admin-msg", "Carregando...", "");
+  try {
+    const [users, summary] = await Promise.all([
+      api("/api/admin/users"),
+      api("/api/admin/usage/summary"),
+    ]);
+    adminUsers = users || [];
+    renderAdminSummary(summary || {});
+    renderAdminUsers();
+    setMsg("admin-msg", "", "");
+  } catch (e) {
+    setMsg("admin-msg", "Erro ao carregar painel: " + e.message, "error");
+  }
+}
+
+function renderAdminSummary(s) {
+  const root = document.getElementById("admin-summary");
+  if (!root) return;
+  const cards = [
+    { label: "Custo (mês)", value: `$${Number(s.cost_usd || 0).toFixed(4)}` },
+    { label: "Tokens (mês)", value: Number(s.tokens || 0).toLocaleString("pt-BR") },
+    { label: "Usuários ativos", value: String(s.active_users ?? 0) },
+    { label: "Desativados", value: String(s.disabled_users ?? 0) },
+  ];
+  root.innerHTML = cards
+    .map(
+      (c) =>
+        `<div class="admin-card"><div class="admin-card-val">${c.value}</div>` +
+        `<div class="admin-card-lbl">${c.label}</div></div>`,
+    )
+    .join("");
+}
+
+function renderAdminUsers() {
+  const tbody = document.getElementById("admin-users-tbody");
+  if (!tbody) return;
+  const q = (document.getElementById("admin-q")?.value || "")
+    .toLowerCase()
+    .trim();
+  const rows = adminUsers.filter(
+    (u) => !q || u.username.toLowerCase().includes(q),
+  );
+  tbody.innerHTML = "";
+  for (const u of rows) {
+    const tr = document.createElement("tr");
+    const status = !u.active
+      ? '<span class="tag tag-off">desativado</span>'
+      : u.unlimited
+        ? '<span class="tag tag-unlim">ilimitado</span>'
+        : '<span class="tag tag-on">ativo</span>';
+    const limit = u.unlimited
+      ? "∞"
+      : u.daily_token_limit != null
+        ? u.daily_token_limit.toLocaleString("pt-BR")
+        : "(padrão)";
+    tr.innerHTML =
+      `<td><strong>${u.username}</strong><br><span class="meta">id ${u.id}</span></td>` +
+      `<td>${u.role}</td>` +
+      `<td>${status}</td>` +
+      `<td>${u.tokens_today.toLocaleString("pt-BR")} / ${limit}</td>` +
+      `<td>$${Number(u.cost_month || 0).toFixed(4)}</td>` +
+      `<td class="admin-actions"></td>`;
+    const actions = tr.querySelector(".admin-actions");
+    actions.appendChild(adminMiniBtn("Editar", () => openEditUserModal(u)));
+    actions.appendChild(adminMiniBtn("Senha", () => openResetPasswordModal(u)));
+    actions.appendChild(
+      adminMiniBtn(u.active ? "Desativar" : "Reativar", () => adminToggleActive(u)),
+    );
+    actions.appendChild(adminMiniBtn("Detalhes", () => loadUserDetail(u.id, u.username)));
+    actions.appendChild(
+      adminMiniBtn("Excluir", () => adminDeleteUser(u), "danger"),
+    );
+    tbody.appendChild(tr);
+  }
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="meta">Nenhum usuário.</td></tr>';
+  }
+}
+
+function adminMiniBtn(label, onclick, cls) {
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.className = "mini " + (cls || "secondary");
+  b.onclick = onclick;
+  return b;
+}
+
+// --- Modal plumbing ---
+
+function closeAdminModal() {
+  document.getElementById("admin-modal").style.display = "none";
+  document.getElementById("admin-modal-body").innerHTML = "";
+}
+
+function openCreateUserModal() {
+  document.getElementById("admin-modal-title").textContent = "Criar usuário";
+  const body = document.getElementById("admin-modal-body");
+  body.innerHTML =
+    labeled("Usuário", '<input id="mu-username" type="text" autocomplete="off" />') +
+    labeled("Senha", '<input id="mu-password" type="password" autocomplete="new-password" />') +
+    labeled(
+      "Role",
+      '<select id="mu-role"><option value="user">user</option><option value="admin">admin</option></select>',
+    ) +
+    `<div class="row"><button id="mu-submit">Criar</button></div>`;
+  document.getElementById("admin-modal").style.display = "";
+  document.getElementById("mu-submit").onclick = submitCreateUser;
+}
+
+async function submitCreateUser() {
+  const username = document.getElementById("mu-username").value.trim();
+  const password = document.getElementById("mu-password").value;
+  const role = document.getElementById("mu-role").value;
+  if (username.length < 3 || password.length < 8) {
+    setMsg("admin-msg", "Usuário ≥3 e senha ≥8 caracteres.", "error");
+    return;
+  }
+  try {
+    await api("/api/admin/users", {
+      method: "POST",
+      body: { username, password, role },
+    });
+    closeAdminModal();
+    await loadAdminPanel();
+    setMsg("admin-msg", `Usuário "${username}" criado.`, "ok");
+  } catch (e) {
+    setMsg("admin-msg", "Erro ao criar: " + e.message, "error");
+  }
+}
+
+function openEditUserModal(u) {
+  document.getElementById("admin-modal-title").textContent = `Editar ${u.username}`;
+  const body = document.getElementById("admin-modal-body");
+  const tokenPlaceholder = ""; // empty means "keep default"
+  body.innerHTML =
+    labeled(
+      "Limite diário de tokens (vazio = padrão)",
+      `<input id="eu-token-limit" type="number" min="0" value="${u.daily_token_limit ?? tokenPlaceholder}" />`,
+    ) +
+    labeled(
+      "Limite diário de minutos (vazio = padrão)",
+      `<input id="eu-min-limit" type="number" min="0" value="${u.daily_minutes_limit ?? tokenPlaceholder}" />`,
+    ) +
+    labeled(
+      "Ilimitado",
+      `<label><input id="eu-unlimited" type="checkbox" ${u.unlimited ? "checked" : ""} /> isento de quota</label>`,
+    ) +
+    labeled(
+      "Role",
+      `<select id="eu-role"><option value="user" ${u.role === "user" ? "selected" : ""}>user</option><option value="admin" ${u.role === "admin" ? "selected" : ""}>admin</option></select>`,
+    ) +
+    `<div class="row"><button id="eu-submit">Salvar</button></div>`;
+  document.getElementById("admin-modal").style.display = "";
+  document.getElementById("eu-submit").onclick = () => submitEditUser(u.id);
+}
+
+async function submitEditUser(id) {
+  const tokRaw = document.getElementById("eu-token-limit").value.trim();
+  const minRaw = document.getElementById("eu-min-limit").value.trim();
+  const unlimited = document.getElementById("eu-unlimited").checked;
+  const role = document.getElementById("eu-role").value;
+  const patch = { unlimited, role };
+  if (tokRaw !== "") patch.daily_token_limit = Number(tokRaw);
+  if (minRaw !== "") patch.daily_minutes_limit = Number(minRaw);
+  try {
+    await api(`/api/admin/users/${id}`, { method: "PATCH", body: patch });
+    closeAdminModal();
+    await loadAdminPanel();
+    setMsg("admin-msg", "Usuário atualizado.", "ok");
+  } catch (e) {
+    setMsg("admin-msg", "Erro ao atualizar: " + e.message, "error");
+  }
+}
+
+function openResetPasswordModal(u) {
+  document.getElementById("admin-modal-title").textContent = `Resetar senha — ${u.username}`;
+  const body = document.getElementById("admin-modal-body");
+  body.innerHTML =
+    labeled(
+      "Nova senha",
+      '<input id="rp-password" type="password" autocomplete="new-password" />',
+    ) +
+    `<div class="row"><button id="rp-submit">Resetar senha</button></div>`;
+  document.getElementById("admin-modal").style.display = "";
+  document.getElementById("rp-submit").onclick = () => submitResetPassword(u.id);
+}
+
+async function submitResetPassword(id) {
+  const password = document.getElementById("rp-password").value;
+  if (password.length < 8) {
+    setMsg("admin-msg", "Senha ≥8 caracteres.", "error");
+    return;
+  }
+  try {
+    await api(`/api/admin/users/${id}/reset-password`, {
+      method: "POST",
+      body: { new_password: password },
+    });
+    closeAdminModal();
+    setMsg("admin-msg", "Senha redefinida.", "ok");
+  } catch (e) {
+    setMsg("admin-msg", "Erro: " + e.message, "error");
+  }
+}
+
+async function adminToggleActive(u) {
+  const verb = u.active ? "desativar" : "reativar";
+  if (!confirm(`Confirmar ${verb} "${u.username}"?`)) return;
+  try {
+    await api(`/api/admin/users/${u.id}`, {
+      method: "PATCH",
+      body: { active: !u.active },
+    });
+    await loadAdminPanel();
+    setMsg("admin-msg", `"${u.username}" ${u.active ? "desativado" : "reativado"}.`, "ok");
+  } catch (e) {
+    setMsg("admin-msg", "Erro: " + e.message, "error");
+  }
+}
+
+async function adminDeleteUser(u) {
+  if (!confirm(`Excluir "${u.username}" (id ${u.id})? Isto apaga saves e histórico.`))
+    return;
+  if (!confirm(`Tem certeza? Esta ação é irreversível.`)) return;
+  try {
+    await api(`/api/admin/users/${u.id}`, { method: "DELETE" });
+    await loadAdminPanel();
+    setMsg("admin-msg", `"${u.username}" excluído.`, "ok");
+  } catch (e) {
+    setMsg("admin-msg", "Erro: " + e.message, "error");
+  }
+}
+
+function closeAdminDetail() {
+  document.getElementById("admin-detail").style.display = "none";
+}
+
+async function loadUserDetail(id, username) {
+  document.getElementById("admin-detail-title").textContent = `${username} — atividade`;
+  document.getElementById("admin-activity-list").innerHTML =
+    '<li class="meta">Carregando…</li>';
+  document.getElementById("admin-usage-list").innerHTML =
+    '<li class="meta">Carregando…</li>';
+  document.getElementById("admin-detail").style.display = "";
+  try {
+    const [activity, usage] = await Promise.all([
+      api(`/api/admin/users/${id}/activity?limit=50`),
+      api(`/api/admin/users/${id}/usage?days=30`),
+    ]);
+    renderUserActivity(activity.activity || []);
+    renderUserUsage(usage.series || []);
+  } catch (e) {
+    setMsg("admin-msg", "Erro ao carregar detalhes: " + e.message, "error");
+  }
+}
+
+const ACTIVITY_LABELS = {
+  login: "Login",
+  logout: "Logout",
+  signup: "Cadastro",
+  session_start: "Início de sessão",
+  limit_blocked: "Bloqueado por limite",
+  disabled: "Desativado",
+  reenabled: "Reativado",
+  password_reset: "Senha redefinida",
+  user_created: "Usuário criado",
+  user_deleted: "Usuário excluído",
+  limit_override: "Limite alterado",
+};
+
+function renderUserActivity(rows) {
+  const ul = document.getElementById("admin-activity-list");
+  ul.innerHTML = "";
+  if (rows.length === 0) {
+    ul.innerHTML = '<li class="meta">Sem registros.</li>';
+    return;
+  }
+  for (const r of rows) {
+    const li = document.createElement("li");
+    const label = ACTIVITY_LABELS[r.event_type] || r.event_type;
+    li.innerHTML = `<span class="meta">${r.created_at}</span> · ${label}` +
+      (r.meta ? ` <span class="meta">${JSON.stringify(r.meta)}</span>` : "");
+    ul.appendChild(li);
+  }
+}
+
+function renderUserUsage(series) {
+  const ul = document.getElementById("admin-usage-list");
+  ul.innerHTML = "";
+  const nonzero = series.filter((d) => d.tokens > 0);
+  if (nonzero.length === 0) {
+    ul.innerHTML = '<li class="meta">Sem uso registrado.</li>';
+    return;
+  }
+  for (const d of [...nonzero].reverse()) {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="meta">${d.date}</span> · ${d.tokens.toLocaleString("pt-BR")} tok · $${Number(d.cost || 0).toFixed(4)}`;
+    ul.appendChild(li);
+  }
+}
+
+function labeled(text, control) {
+  return `<label><span class="lbl">${text}</span>${control}</label>`;
+}
 
 
 // ============================================================================

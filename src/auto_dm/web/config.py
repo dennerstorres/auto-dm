@@ -67,10 +67,44 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- Admin seed ---
+    admin_username: str = Field(
+        default="admin",
+        description="Username of the single seeded admin account (created at startup).",
+    )
+    admin_password: Optional[str] = Field(
+        default=None,
+        description=(
+            "Password for the seeded admin account. If unset, no admin is "
+            "created at startup. Set ADMIN_PASSWORD in production."
+        ),
+    )
+
     # --- Sessions ---
     session_ttl_seconds: int = Field(
         default=60 * 60 * 24,  # 24h
         description="TTL for active game sessions in Redis.",
+    )
+
+    # --- Usage limits + pricing (Phase 30) ------------------------------
+    # Global defaults used when a User has no per-user limit set (NULL).
+    # Enforced hard: once a user hits the cap, LLM calls return 429 until
+    # the next UTC midnight (unless the user is flagged ``unlimited``).
+    default_daily_token_limit: int = Field(
+        default=200_000,
+        description="Default daily token cap per user (used when per-user limit is NULL).",
+    )
+    default_daily_minutes_limit: int = Field(
+        default=120,
+        description="Default daily active-minutes cap per user (NULL → this).",
+    )
+    # Token pricing in USD per 1k tokens — used to compute cost_usd on
+    # each UsageEvent. Adjust to match your provider's actual rates.
+    token_price_per_1k_input_usd: float = Field(
+        default=0.001, description="USD per 1k input (prompt) tokens.",
+    )
+    token_price_per_1k_output_usd: float = Field(
+        default=0.002, description="USD per 1k output (completion) tokens.",
     )
 
     # --- CORS ---

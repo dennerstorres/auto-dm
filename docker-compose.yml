@@ -41,6 +41,12 @@ services:
       # Invite-code gate (Phase 26e). Set in .env for production to
       # require all signups to provide this code. Leave empty for dev.
       INVITE_CODE: "${INVITE_CODE:-}"
+      # --- Admin seed (Phase 29) ---
+      # Seeds the single admin account at startup. Leave ADMIN_PASSWORD
+      # empty to skip seeding (no admin login). ADMIN_USERNAME defaults
+      # to "admin".
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
       # --- LLM provider (Minimax) ---
       AUTO_DM_PROVIDER: "${AUTO_DM_PROVIDER:-minimax}"
       AUTO_DM_API_KEY: "${AUTO_DM_API_KEY:?AUTO_DM_API_KEY must be set}"

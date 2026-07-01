@@ -21,6 +21,7 @@ from typing import Optional
 from auto_dm.agents.companion_turn import CompanionTurnResult
 from auto_dm.agents.dm import DMAgent, DMResponse
 from auto_dm.engine.combat_engine import CombatEngine
+from auto_dm.llm.usage import UsageReport
 from auto_dm.state.manager import StateManager
 from auto_dm.state.models import Action, ActionResult, ActionType, NarrativeEntry
 
@@ -43,6 +44,10 @@ class NarrativeResult:
     # Phase 25h: companion turns that fired during this cycle (empty when
     # the player isn't in combat, or when no companion had a turn yet).
     companion_results: list[CompanionTurnResult] = field(default_factory=list)
+    # Phase 30: token-usage reports for every LLM call this turn (DM
+    # narration + follow-up + any companion turns). The web layer
+    # persists one UsageEvent per entry for billing/limits.
+    usages: list[UsageReport] = field(default_factory=list)
 
     @property
     def has_action(self) -> bool:
@@ -82,6 +87,8 @@ def process_player_action(
         narration=dm_response.narration,
         action=dm_response.action,
     )
+    if dm_response.usage is not None:
+        result.usages.append(dm_response.usage)
 
     if dm_response.action is None:
         return result
@@ -101,8 +108,10 @@ def process_player_action(
         follow_up = _narrate_action_result(
             state_manager, dm_agent, dm_response.action, action_result
         )
-        if follow_up:
-            result.follow_up_narration = follow_up
+        if follow_up.narration:
+            result.follow_up_narration = follow_up.narration
+        if follow_up.usage is not None:
+            result.usages.append(follow_up.usage)
 
     return result
 
@@ -246,8 +255,12 @@ def _narrate_action_result(
     dm_agent: DMAgent,
     action: Action,
     result: ActionResult,
-) -> Optional[str]:
-    """Second DM round-trip: ask the DM to narrate the action result."""
+) -> DMResponse:
+    """Second DM round-trip: ask the DM to narrate the action result.
+
+    Returns the full :class:`DMResponse` (narration + usage) so the
+    caller can bill the second LLM call too.
+    """
     prompt = (
         f"A ação {action.action_type.value} que você acabou de anunciar "
         f"produziu o seguinte resultado mecânico:\n\n"
@@ -259,7 +272,7 @@ def _narrate_action_result(
     )
     follow_up = dm_agent.ask(prompt)
     _log_dm(state_manager, follow_up)
-    return follow_up.narration or None
+    return follow_up
 
 
 # ============================================================================

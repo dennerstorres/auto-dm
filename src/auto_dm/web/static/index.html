@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Auto DM — Console</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=33" />
 </head>
 <body>
   <div id="app">
@@ -38,12 +38,49 @@
       <h2>Jogos salvos</h2>
       <ul id="saves-list"></ul>
       <div class="row">
-        <button id="wizard-btn">Criar novo personagem (wizard)</button>
+        <button id="archive-toggle" class="secondary">Mostrar arquivados</button>
       </div>
-      <div class="row">
-        <input id="new-slug" type="text" placeholder="slug-do-save (ex: campanha-elfa)" />
-        <button id="new-game-btn">Criar jogo vazio</button>
+      <div id="archived-wrap" style="display:none">
+        <h3 class="archived-title">Arquivados</h3>
+        <ul id="archived-list"></ul>
       </div>
+      <hr class="lobby-divider" />
+
+      <div class="lobby-cta">
+        <h3>Começar um novo jogo</h3>
+        <p class="lobby-hint">
+          Crie seu personagem e inicie a campanha em poucos passos guiados.
+          Esta é a forma recomendada de começar.
+        </p>
+        <div class="row">
+          <button id="wizard-btn">Criar novo personagem (assistente)</button>
+        </div>
+      </div>
+
+      <details class="lobby-advanced">
+        <summary>Opções avançadas</summary>
+        <p class="lobby-hint">
+          Criar um jogo vazio (sem personagem) a partir de um slug.
+          Útil para testes ou para iniciar do zero manualmente — a maioria
+          dos jogadores deve usar o assistente acima.
+        </p>
+        <div class="row">
+          <input id="new-slug" type="text" placeholder="slug-do-save (ex: campanha-elfa)" />
+          <button id="new-game-btn" class="secondary">Criar jogo vazio</button>
+        </div>
+      </details>
+
+      <div class="lobby-admin" style="display:none">
+        <hr class="lobby-divider" />
+        <h3>Administração</h3>
+        <p class="lobby-hint">
+          Gerencie usuários, limites de uso, custo e atividade.
+        </p>
+        <div class="row">
+          <button id="admin-panel-btn" class="secondary">Painel admin →</button>
+        </div>
+      </div>
+
       <div id="lobby-msg" class="msg"></div>
     </section>
 
@@ -132,6 +169,9 @@
 
     <!-- Game screen -->
     <section id="game-screen" class="screen" style="display:none">
+      <div class="game-top">
+        <button id="lobby-btn" class="secondary">← Voltar ao lobby</button>
+      </div>
       <div id="output" class="output"></div>
       <div class="input-row">
         <input id="cmd" type="text" placeholder="O que você faz?" autocomplete="off" />
@@ -152,8 +192,72 @@
         <code>/quit</code>
       </div>
     </section>
+
+    <!-- Admin panel (Phase 30) -->
+    <section id="admin-panel-screen" class="screen" style="display:none">
+      <div class="game-top">
+        <button id="admin-back-btn" class="secondary">← Voltar ao lobby</button>
+        <h2 style="margin-left:1rem">Painel administrativo</h2>
+      </div>
+
+      <div id="admin-summary" class="admin-cards"></div>
+
+      <div class="row">
+        <input id="admin-q" type="text" placeholder="Filtrar por usuário…" autocomplete="off" />
+        <button id="admin-create-btn">+ Criar usuário</button>
+        <button id="admin-refresh-btn" class="secondary">Atualizar</button>
+      </div>
+
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Tokens hoje / limite</th>
+              <th>Custo (mês)</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="admin-users-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="admin-msg" class="msg"></div>
+
+      <!-- User detail drawer (activity + usage) -->
+      <div id="admin-detail" style="display:none">
+        <hr class="lobby-divider" />
+        <div class="row">
+          <h3 id="admin-detail-title">Atividade</h3>
+          <button id="admin-detail-close" class="secondary">Fechar</button>
+        </div>
+        <div class="admin-detail-grid">
+          <div>
+            <h4>Atividade recente</h4>
+            <ul id="admin-activity-list" class="admin-list"></ul>
+          </div>
+          <div>
+            <h4>Uso (30 dias)</h4>
+            <ul id="admin-usage-list" class="admin-list"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modals -->
+    <div id="admin-modal" class="modal" style="display:none">
+      <div class="modal-card">
+        <div class="row">
+          <h3 id="admin-modal-title">Usuário</h3>
+          <button id="admin-modal-close" class="secondary">×</button>
+        </div>
+        <div id="admin-modal-body"></div>
+      </div>
+    </div>
   </div>
 
-  <script src="/app.js" type="module"></script>
+  <script src="/app.js?v=33" type="module"></script>
 </body>
 </html>

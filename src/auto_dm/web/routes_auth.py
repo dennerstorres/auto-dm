@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auto_dm.web.activity import log_activity
 from auto_dm.web.auth import (
     create_access_token,
     current_user,
@@ -32,7 +33,7 @@ from auto_dm.web.auth import (
 )
 from auto_dm.web.config import get_settings
 from auto_dm.web.db import get_session
-from auto_dm.web.models import User
+from auto_dm.web.models import ActivityType, User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ class LoginRequest(BaseModel):
 class UserOut(BaseModel):
     id: int
     username: str
+    role: str
     created_at: str
 
     model_config = {"from_attributes": True}
@@ -69,6 +71,7 @@ class UserOut(BaseModel):
         return cls(
             id=user.id,
             username=user.username,
+            role=user.role,
             created_at=user.created_at.isoformat() if user.created_at else "",
         )
 
@@ -115,6 +118,8 @@ async def signup(
     user = User(
         username=body.username,
         password_hash=hash_password(body.password),
+        # Role is hardcoded — signup can never create an admin.
+        role=UserRole.USER.value,
     )
     session.add(user)
     try:
@@ -128,6 +133,7 @@ async def signup(
         )
     await session.refresh(user)
     token = create_access_token(user.id, user.username)
+    await log_activity(session, user_id=user.id, event=ActivityType.SIGNUP)
     return TokenResponse(
         token=token,
         user=UserOut.from_user(user),
@@ -151,8 +157,15 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
+    # Disabled accounts get the same generic error (anti-enumeration).
+    if not user.active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
     settings = get_settings()
     token = create_access_token(user.id, user.username)
+    await log_activity(session, user_id=user.id, event=ActivityType.LOGIN)
     return TokenResponse(
         token=token,
         user=UserOut.from_user(user),

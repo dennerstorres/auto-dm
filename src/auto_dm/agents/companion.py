@@ -27,6 +27,7 @@ from auto_dm.agents.prompts import (
     build_companion_identity_block,
 )
 from auto_dm.llm.base import Message
+from auto_dm.llm.usage import UsageReport, chat_with_usage
 from auto_dm.state.manager import StateManager
 from auto_dm.state.models import Action, Character
 
@@ -53,6 +54,7 @@ class CompanionDecision:
     intent: str
     action: Optional[Action] = None
     raw_text: str = ""
+    usage: Optional[UsageReport] = None
 
     @property
     def has_action(self) -> bool:
@@ -73,7 +75,9 @@ class _ProviderLike(Protocol):
 # ============================================================================
 
 
-def parse_companion_response(raw_text: str, *, default_actor_id: str) -> CompanionDecision:
+def parse_companion_response(
+    raw_text: str, *, default_actor_id: str, usage: Optional[UsageReport] = None
+) -> CompanionDecision:
     """Parse the LLM output into a CompanionDecision.
 
     Same fence/regex as the DM parser, but the action's ``actor_id`` is
@@ -83,7 +87,7 @@ def parse_companion_response(raw_text: str, *, default_actor_id: str) -> Compani
     raw_text = raw_text or ""
     match = _ACTION_FENCE_RE.search(raw_text)
     if not match:
-        return CompanionDecision(intent=raw_text.strip(), raw_text=raw_text)
+        return CompanionDecision(intent=raw_text.strip(), raw_text=raw_text, usage=usage)
 
     body = match.group("body")
     intent = (raw_text[: match.start()] + raw_text[match.end() :]).strip()
@@ -99,7 +103,7 @@ def parse_companion_response(raw_text: str, *, default_actor_id: str) -> Compani
         logger.warning("Companion emitted a malformed action block: %s", exc)
         action = None
 
-    return CompanionDecision(intent=intent, action=action, raw_text=raw_text)
+    return CompanionDecision(intent=intent, action=action, raw_text=raw_text, usage=usage)
 
 
 # ============================================================================
@@ -136,8 +140,10 @@ class CompanionAgent:
         ("Your turn in combat. Enemies: goblin_a, goblin_b...").
         """
         messages = self._build_messages(situation)
-        raw = self.provider.chat(messages)
-        return parse_companion_response(raw, default_actor_id=self.character.id)
+        raw, usage = chat_with_usage(self.provider, messages)
+        return parse_companion_response(
+            raw, default_actor_id=self.character.id, usage=usage
+        )
 
     def decide_in_combat(
         self, enemies: list[str], *, allies: list[str] | None = None

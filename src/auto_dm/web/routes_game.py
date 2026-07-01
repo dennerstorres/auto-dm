@@ -8,9 +8,12 @@ Endpoints (all require Authorization: Bearer <token>):
 - POST   /api/sessions/{sid}/input     → send a player input line, returns NarrativeResult
 - DELETE /api/sessions/{sid}           → discard a session
 
-- GET    /api/saves                    → list persisted saves for the user
+- GET    /api/saves                    → list persisted saves for the user (active only)
+- GET    /api/saves?archived=true      → list archived saves only
 - POST   /api/saves                    → create or update a save (auto-called after input)
 - POST   /api/saves/{slug}/load        → hydrate a session from a save
+- POST   /api/saves/{slug}/archive     → hide a save from the default list
+- POST   /api/saves/{slug}/unarchive   → restore an archived save
 - DELETE /api/saves/{slug}             → delete a save
 
 The 24h Redis TTL on active sessions is refreshed on every input.
@@ -29,12 +32,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auto_dm.agents import process_player_action
+from auto_dm.llm.usage import UsageReport
 from auto_dm.state.models import GameState
-from auto_dm.web.auth import current_user
+from auto_dm.web.activity import log_activity
+from auto_dm.web.auth import current_user, require_admin
+from auto_dm.web.config import get_settings
 from auto_dm.web.db import get_session
-from auto_dm.web.models import Save, User
+from auto_dm.web.limits import check_quota
+from auto_dm.web.models import ActivityType, Save, User
 from auto_dm.web.sessions import SessionManager
 from auto_dm.web.sse import format_sse, stream_dm_narration
+from auto_dm.web.usage import persist_usage_events
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +84,7 @@ class SaveOut(BaseModel):
     slug: str
     updated_at: str
     created_at: str
+    archived: bool = False
 
     @classmethod
     def from_save(cls, save: Save) -> "SaveOut":
@@ -83,6 +92,7 @@ class SaveOut(BaseModel):
             slug=save.slug,
             updated_at=save.updated_at.isoformat() if save.updated_at else "",
             created_at=save.created_at.isoformat() if save.created_at else "",
+            archived=bool(save.archived),
         )
 
 
@@ -109,10 +119,14 @@ def get_session_manager() -> SessionManager:
 @router.post("/sessions", response_model=SessionCreated, status_code=status.HTTP_201_CREATED)
 async def create_session(
     body: CreateSessionRequest,
-    user: Annotated[User, Depends(current_user)],
+    user: Annotated[User, Depends(require_admin)],
     sm: Annotated[SessionManager, Depends(get_session_manager)],
 ) -> SessionCreated:
-    """Create a new active game session from a GameState payload."""
+    """Create a new active game session from a GameState payload.
+
+    Admin only — used by the "Criar jogo vazio" advanced option. Regular
+    users create games through the character wizard (``/sessions/with-character``).
+    """
     try:
         state = GameState.model_validate(body.state)
     except Exception as exc:
@@ -159,11 +173,13 @@ async def session_input(
     body: InputRequest,
     user: Annotated[User, Depends(current_user)],
     sm: Annotated[SessionManager, Depends(get_session_manager)],
+    db: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     """Send a player input line to a session.
 
     Returns the ``NarrativeResult`` (narration, action, action_result,
     follow_up, error). The session state is auto-persisted to Redis.
+    Enforces the daily quota (429 when exceeded) and records token usage.
     """
     sess = await sm.get(user.id, session_id)
     if sess is None:
@@ -171,6 +187,17 @@ async def session_input(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found or expired",
         )
+    # Quota check before any LLM call.
+    settings = get_settings()
+    exceeded = await check_quota(db, user, settings)
+    if exceeded is not None:
+        await log_activity(
+            db,
+            user_id=user.id,
+            event=ActivityType.LIMIT_BLOCKED,
+            meta={"endpoint": "input", **{k: exceeded[k] for k in ("used", "limit", "unit")}},
+        )
+        raise HTTPException(status_code=429, detail=exceeded)
     try:
         result = process_player_action(
             sess.state_manager,
@@ -186,6 +213,21 @@ async def session_input(
         )
     # Persist state to Redis.
     await sm.save(sess)
+    # Record token usage (best-effort; never fails the turn).
+    usages: list[UsageReport] = list(getattr(result, "usages", []) or [])
+    if usages:
+        try:
+            await persist_usage_events(
+                db,
+                user_id=user.id,
+                endpoint=f"/api/sessions/{session_id}/input",
+                reports=usages,
+                settings=settings,
+                session_id=session_id,
+                kind="player",
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to persist usage events")
     # NarrativeResult is a dataclass; convert to dict.
     out = {
         "narration": getattr(result, "narration", None),
@@ -218,6 +260,7 @@ async def session_stream(
     body: StreamRequest,
     user: Annotated[User, Depends(current_user)],
     sm: Annotated[SessionManager, Depends(get_session_manager)],
+    db: Annotated[AsyncSession, Depends(get_session)],
 ) -> StreamingResponse:
     """Stream the DM narration for a player input via Server-Sent Events.
 
@@ -226,6 +269,7 @@ async def session_stream(
 
     - ``{"type": "start"}``                              — on open
     - ``{"type": "token", "data": "<chunk>"}``           — as the LLM yields
+    - ``{"type": "usage", "data": {...}}``               — token counts (pre-done)
     - ``{"type": "done", "data": "<state-json>"}``       — stream complete
     - ``{"type": "error", "data": "<msg>"}``             — on failure
 
@@ -239,12 +283,28 @@ async def session_stream(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found or expired",
         )
+    # Quota check before opening the stream (can't abort mid-stream).
+    settings = get_settings()
+    exceeded = await check_quota(db, user, settings)
+    if exceeded is not None:
+        await log_activity(
+            db,
+            user_id=user.id,
+            event=ActivityType.LIMIT_BLOCKED,
+            meta={"endpoint": "stream", **{k: exceeded[k] for k in ("used", "limit", "unit")}},
+        )
+        raise HTTPException(status_code=429, detail=exceeded)
+
+    user_id = user.id
 
     async def _event_generator():
         # Send a `start` event immediately so the client knows the
         # connection is live even before the first token arrives.
         yield format_sse({"type": "start", "data": session_id})
+        usage_payload: dict | None = None
         async for event in stream_dm_narration(sess, body.line):
+            if event.get("type") == "usage":
+                usage_payload = event.get("data")
             yield format_sse(event)
         # Best-effort state refresh — the LLM doesn't mutate the
         # state during stream(), but the TTL on Redis should be
@@ -253,6 +313,40 @@ async def session_stream(
             await sm.save(sess)
         except Exception as exc:  # pragma: no cover
             logger.warning("Failed to refresh SSE session state: %s", exc)
+        # Persist the streamed turn's usage (best-effort).
+        if usage_payload:
+            try:
+                report = UsageReport(
+                    prompt_tokens=int(usage_payload.get("prompt_tokens", 0)),
+                    completion_tokens=int(usage_payload.get("completion_tokens", 0)),
+                    total_tokens=int(
+                        usage_payload.get("total_tokens")
+                        or (
+                            int(usage_payload.get("prompt_tokens", 0))
+                            + int(usage_payload.get("completion_tokens", 0))
+                        )
+                    ),
+                    provider=getattr(sess.dm_agent.provider, "name", "") or "",
+                    model=getattr(
+                        getattr(sess.dm_agent.provider, "config", None), "model", ""
+                    )
+                    or "",
+                    source=usage_payload.get("source", "fallback"),
+                )
+                from auto_dm.web.db import get_session_factory
+
+                async with get_session_factory()() as usage_db:
+                    await persist_usage_events(
+                        usage_db,
+                        user_id=user_id,
+                        endpoint=f"/api/sessions/{session_id}/stream",
+                        reports=[report],
+                        settings=get_settings(),
+                        session_id=session_id,
+                        kind="player",
+                    )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to persist streamed usage")
 
     return StreamingResponse(
         _event_generator(),
@@ -274,10 +368,18 @@ async def session_stream(
 async def list_saves(
     user: Annotated[User, Depends(current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    archived: bool = False,
 ) -> list[SaveOut]:
-    """List persistent saves for the current user."""
+    """List persistent saves for the current user.
+
+    By default only active (non-archived) saves are returned. Pass
+    ``?archived=true`` to list archived saves instead — handy for a
+    separate "Arquivados" section in the lobby.
+    """
     result = await session.execute(
-        select(Save).where(Save.user_id == user.id).order_by(Save.updated_at.desc())
+        select(Save)
+        .where(Save.user_id == user.id, Save.archived == archived)
+        .order_by(Save.updated_at.desc())
     )
     saves = result.scalars().all()
     return [SaveOut.from_save(s) for s in saves]
@@ -364,3 +466,45 @@ async def delete_save(
         )
     await session.delete(save)
     await session.commit()
+
+
+async def _set_save_archived(
+    slug: str,
+    user: User,
+    session: AsyncSession,
+    archived: bool,
+) -> SaveOut:
+    """Flip the archived flag on a save. Shared by archive/unarchive."""
+    result = await session.execute(
+        select(Save).where(Save.user_id == user.id, Save.slug == slug)
+    )
+    save = result.scalar_one_or_none()
+    if save is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Save {slug!r} not found",
+        )
+    save.archived = archived
+    await session.commit()
+    await session.refresh(save)
+    return SaveOut.from_save(save)
+
+
+@router.post("/saves/{slug}/archive", response_model=SaveOut)
+async def archive_save(
+    slug: str,
+    user: Annotated[User, Depends(current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SaveOut:
+    """Hide a save from the default lobby list without deleting it."""
+    return await _set_save_archived(slug, user, session, archived=True)
+
+
+@router.post("/saves/{slug}/unarchive", response_model=SaveOut)
+async def unarchive_save(
+    slug: str,
+    user: Annotated[User, Depends(current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SaveOut:
+    """Restore an archived save back to the default lobby list."""
+    return await _set_save_archived(slug, user, session, archived=False)

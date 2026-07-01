@@ -162,6 +162,12 @@ button:disabled {
   gap: 0.5rem;
 }
 
+.game-top {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 0.5rem;
+}
+
 .input-row input {
   flex: 1;
 }
@@ -185,31 +191,107 @@ button:disabled {
   margin-bottom: 0.5rem;
 }
 
-#saves-list li {
+#saves-list li,
+#archived-list li {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0.5rem;
   border-bottom: 1px solid #1a1e28;
+  gap: 0.5rem;
 }
 
-#saves-list li:hover {
+#saves-list li:hover,
+#archived-list li:hover {
   background: #1a1e28;
 }
 
-#saves-list .slug {
+#saves-list .slug,
+#archived-list .slug {
   font-weight: 600;
   color: #c89b3c;
 }
 
-#saves-list .meta {
+#saves-list .meta,
+#archived-list .meta {
   font-size: 0.8rem;
   color: #888;
 }
 
-#saves-list button {
+#saves-list button,
+#archived-list button {
   font-size: 0.8rem;
   padding: 0.25rem 0.5rem;
+}
+
+.archived-title {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: #888;
+  font-weight: 600;
+}
+
+#archived-wrap {
+  margin-top: 0.5rem;
+}
+
+/* ============================================================================
+   Lobby CTA (Phase 28)
+   ========================================================================== */
+.lobby-divider {
+  border: none;
+  border-top: 1px solid #1a1e28;
+  margin: 1.25rem 0;
+}
+
+.lobby-cta {
+  padding: 0.75rem 0;
+}
+
+.lobby-cta h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+  color: #e8e8e8;
+}
+
+.lobby-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #9aa0ac;
+}
+
+.lobby-cta #wizard-btn {
+  font-size: 1rem;
+  padding: 0.6rem 1rem;
+}
+
+.lobby-advanced {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #1a1e28;
+  border-radius: 4px;
+  background: #12151c;
+}
+
+.lobby-advanced > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #9aa0ac;
+  font-weight: 600;
+  list-style: none;
+}
+
+.lobby-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.lobby-advanced[open] > summary {
+  margin-bottom: 0.5rem;
+}
+
+.lobby-advanced .lobby-hint {
+  margin-bottom: 0.5rem;
 }
 
 /* ============================================================================
@@ -404,4 +486,141 @@ input[type="password"]:disabled {
 @keyframes typing-bounce {
   0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
   40%           { transform: translateY(-4px); opacity: 1; }
+}
+
+/* Admin: owner tag on save rows + danger (delete) button */
+.slug-row .owner,
+#saves-list .owner,
+#archived-list .owner {
+  color: #8ab4f8;
+  font-weight: 600;
+}
+button.danger {
+  background: #b3261e;
+  color: #fff;
+}
+button.danger:hover {
+  background: #c0392b;
+}
+
+/* ============================================================ */
+/* Phase 30 — Admin panel                                       */
+/* ============================================================ */
+.admin-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+.admin-card {
+  background: #131720;
+  border: 1px solid #2a2e39;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+.admin-card-val {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #c89b3c;
+}
+.admin-card-lbl {
+  color: #888;
+  font-size: 0.8rem;
+  margin-top: 0.15rem;
+}
+.admin-table-wrap {
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid #2a2e39;
+  vertical-align: top;
+}
+.admin-table th {
+  color: #888;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+button.mini {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.78rem;
+  border-radius: 4px;
+}
+.tag {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.tag-on    { background: #1f3d2a; color: #98c379; }
+.tag-off   { background: #3d1f24; color: #e06c75; }
+.tag-unlim { background: #3d341f; color: #c89b3c; }
+
+/* Modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.modal-card {
+  background: #131720;
+  border: 1px solid #2a2e39;
+  border-radius: 8px;
+  padding: 1rem;
+  width: min(420px, 92vw);
+}
+.modal-card label {
+  display: block;
+  margin: 0.5rem 0;
+}
+.modal-card .lbl {
+  display: block;
+  color: #888;
+  font-size: 0.8rem;
+  margin-bottom: 0.2rem;
+}
+.modal-card input,
+.modal-card select {
+  width: 100%;
+}
+
+/* Detail drawer */
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+@media (max-width: 640px) {
+  .admin-detail-grid { grid-template-columns: 1fr; }
+}
+.admin-list {
+  list-style: none;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+.admin-list li {
+  padding: 0.3rem 0;
+  border-bottom: 1px solid #1f2330;
 }

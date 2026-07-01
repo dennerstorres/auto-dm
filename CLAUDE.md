@@ -29,23 +29,55 @@ src/auto_dm/
 ├── llm/          # abstração de providers (Protocol + adapters)
 ├── engine/       # motor de regras (Python puro, SEM LLM)
 ├── state/        # modelos Pydantic (Character, GameState, Action...)
-├── phb/          # loader do PHB (parser, models, lookup)
+├── phb/          # loader do SRD 5.1 (parser, models, lookup)
 ├── character/    # CharacterBuilder + spell selection
 ├── agents/       # DM agent + companion agents
-├── companions/   # pre-defined companion roster
-├── persistence/  # save/load JSON
+├── companions/   # pre-defined companion roster + party roll/synergy
+├── persistence/  # save/load JSON (CLI)
+├── web/          # backend FastAPI (auth, sessões, REST, SSE) + static/
 └── cli/          # interface de linha de comando
 ```
 
+Raiz do repo: `Dockerfile`, `docker-compose.yml` (prod), `docker-compose.dev.yml`
+(dev com Postgres+Redis+backend), `DEPLOY.md` (deploy completo).
+
 ## Comandos úteis
+
+### Rodar o projeto (Docker — forma principal)
+
+```bash
+# Dev: sobe Postgres + Redis + backend; frontend em http://localhost:14004
+cp .env.example .env          # preencher JWT_SECRET (≥32) e AUTO_DM_API_KEY
+docker compose -f docker-compose.dev.yml up --build
+
+# Prod: backend only (Postgres+Redis externos), bind 127.0.0.1:4004
+docker compose up -d --build
+docker compose logs -f auto-dm
+
+# Tear down
+docker compose -f docker-compose.dev.yml down      # dev (mantém volume)
+docker compose -f docker-compose.dev.yml down -v   # dev + apaga dados
+docker compose down                                # prod
+```
+
+Variáveis via `.env` (compose interpola `${VAR}`): `JWT_SECRET`,
+`AUTO_DM_API_KEY`/`AUTO_DM_PROVIDER`/`AUTO_DM_MODEL`,
+`DATABASE_URL`, `REDIS_URL`, `FRONTEND_URL`, `INVITE_CODE`. Detalhes de
+deploy (nginx, TLS, Vercel, backups) em `DEPLOY.md`.
+
+### Desenvolvimento local (sem Docker)
 
 ```bash
 pip install -e ".[dev]"   # instalar em modo dev
 pytest                     # rodar testes
 ruff check .               # lint
-auto-dm                    # rodar o jogo
+auto-dm                    # rodar o jogo pela CLI (terminal/headless)
 auto-dm --help             # opções CLI
 ```
+
+> **Provider ativo é Minimax** — o adapter é carregado do ambiente via
+> `LLMConfig.from_env(prefix="AUTO_DM_")`. Não há adapter novo pra
+> implementar; CLI/web ambos leem as mesmas vars `AUTO_DM_*`.
 
 ## Regras para Claude Code
 
@@ -103,3 +135,6 @@ auto-dm --help             # opções CLI
 - ✅ Fase 28 — Input-blocking + busy feedback (CLI + web). `src/auto_dm/main.py::_run_repl` envolve `game.process_input` em `Console.status("dots", "Mestre está pensando...")` para linhas não-meta (meta-comandos `/...` continuam instantâneos — detectados por prefixo `/` antes do `with`); `src/auto_dm/web/static/app.js` ganha flag module-level `let busy` + helpers `lockUi()` / `unlockUi()` / `showTyping()` / `hideTyping()` que gateiam `#cmd`, `#send-btn`, `#stream-toggle` e protegem o keydown handler do Enter; `try/finally` em `sendInput` garante unlock em qualquer code path (success, HTTPException, network failure, malformed response); typing indicator = `<div class="typing-indicator">` com 3 dots animados via CSS `@keyframes typing-bounce` (stagger 0.15s) appended em `#output` abaixo da linha do jogador, removido pelo `hideTyping()` no `finally`; stream path perde o `sendBtn.disabled` inline (agora via `lockUi()` herdado do `sendInput`); `style.css` ganha `input:disabled` (cursor not-allowed, bg `#1a1e28`) e o bloco `.typing-indicator` (mantém `button:disabled` separado — diferentes tratamentos visuais); sem mudanças server-side (per-session lock deferido — fora de escopo desta fase, documentado como limitação aceitável pra multi-tab race); wizard, lobby e auth screens não tocados; **1584 testes passando** (0 novos automatizados — sem JS test runner; verificação manual via checklist na plan).
 
 **1584 testes passando** (1553 anteriores + 12 novos por companion + 14 selection + 4 wizard roll endpoint + 1 atualização de assertion).
+
+- ✅ Fase 29 — User roles (admin/user) + recursos de admin. `models.py::UserRole` enum (`USER`/`ADMIN`) + `User.role` (default `'user'`, `server_default='user'`); migração idempotente `server.py::_ensure_user_role` (mesmo padrão de `_ensure_save_columns`) roda no `lifespan`; seed do admin único no startup via `server.py::_seed_admin(settings)` — cria `User(role=admin)` com `ADMIN_USERNAME` (default `admin`) + `ADMIN_PASSWORD` se definida (sem senha, loga WARNING e pula), idempotente (não duplica); `config.py::Settings.admin_username/admin_password`; `auth.py::require_admin` dependency (403 se `role != admin`); `UserOut.role` exposto em signup/login/me; `signup` sempre cria `role=user` (não aceita role no body — sem escalonamento); `routes_game.py::POST /api/sessions` (Criar jogo vazio) agora `Depends(require_admin)`; novo `routes_admin.py` (router `/api/admin`, todas via `require_admin`): `GET /saves?archived=` lista saves de **todos** usuários com username (joinedload Save.user), `GET /saves/{user_id}/{slug}` retorna snapshot read-only `state`+`narrative_log` (sem criar sessão, sem LLM), `DELETE /saves/{user_id}/{slug}` exclui save de qualquer usuário (archived ou não); frontend `app.js::isAdmin()` gateia UI — lobby admin busca `/api/admin/saves` com tag `@username` por linha + botão "Excluir" (danger, confirm) por save, "Visualizar" abre jogo **read-only** (`viewSaveReadOnly` → `enterGame({readOnly, narrativeLog})` que renderiza `renderNarrativeLog` desabilitando `#cmd`/`#send-btn`/`#stream-toggle` e respeitado por `unlockUi`/`sendInput`/`returnToLobby`); "Opções avançadas"/"Criar jogo vazio" ocultos para `user`; header mostra `(admin)`; `index.html`/`style.css` cache bump v32 + `.owner`/`button.danger`. **88 testes web passando** (69 anteriores + 19 novos em `test_admin_roles.py` cobrindo role no UserOut, signup anti-escalation, `/api/sessions` 403 p/ user, rotas admin 401/403/200, listagem cross-user com dono, inspect narrative_log read-only em archived/não, delete cross-user, seed admin create/skip/idempotent, `_ensure_user_role` idempotente); 6 testes existentes em `test_routes_game.py`/`test_sse_stream.py` migrados de `auth_token` → `admin_token` (criação de sessão agora exige admin).
+- ✅ Fase 30 — Painel admin: gestão de usuários, limites de uso, custo e atividade. **Captura real de usage**: novo `llm/usage.py` com `UsageReport` (prompt/completion/total/provider/model/source `"api"|"fallback"`) + helpers `chat_with_usage`/`iter_stream_with_usage` (preferem método nativo do provider, senão fallback chars//3 marcado `source="fallback"`); `openai_compatible.py` ganha `chat_with_usage` (lê `response.usage`), `iter_stream_with_usage` (com `stream_options={"include_usage":True}`, retry sem ele se rejeitado, fallback no fim) e `chat()`/`stream()` viram wrappers — Protocol base **intacto** (CLI não quebra); `DMResponse`/`CompanionDecision` ganham campo `usage`, `DMAgent.stream_with_usage` exposto, `NarrativeResult.usages` acumula 1-2 chamadas DM (companion turn fora do path web); `sse.py::_producer` itera `stream_with_usage` e emite evento SSE `{"type":"usage"}` antes do `done`. **Modelo de dados**: `User` ganha `daily_token_limit`/`daily_minutes_limit` (NULL→default global), `unlimited`, `active`, `disabled_reason`; novas tabelas `usage_events` (id/user_id CASCADE/session_id/endpoint/kind/provider/model/source/prompt/completion/total_tokens/cost_usd NUMERIC(12,8)/created_at) e `activity_log` (id/user_id CASCADE/event_type/meta JSON/created_at) + enums `UsageKind`/`ActivityType`; `config.py` defaults `default_daily_token_limit=200_000`, `default_daily_minutes_limit=120`, `token_price_per_1k_input_usd=0.001`, `token_price_per_1k_output_usd=0.002`. **Helpers**: `web/usage.py` (dialect-aware: `compute_cost`, `usage_today`, `minutes_today` via `date_trunc`/`strftime`, `cost_this_month`, `usage_by_day`, `persist_usage_events`), `web/limits.py::check_quota` (None se ok; isento se `unlimited` ou role admin; 429-detail `{detail,used,limit,unit,reset_at}` com reset à meia-noite UTC), `web/activity.py::log_activity` (best-effort). **Migrações idempotentes** `server.py::_ensure_user_limits` (5 colunas em `users`, defaults dialect-aware) + `_ensure_usage_tables` (`CREATE TABLE IF NOT EXISTS` JSONB/TEXT) rodam no `lifespan` após `_ensure_user_role`. **Endpoints admin** (`routes_admin.py`, todos `require_admin`): `GET/POST /api/admin/users`, `GET/PATCH/DELETE /api/admin/users/{id}`, `POST .../reset-password`, `GET .../activity`, `GET .../usage?days=`, `GET /api/admin/usage/summary` (custo/tokens do mês, top 5, contagem ativos/desativados); proteções: não desativar/demover/excluir a si nem o **último admin ativo** (409). **Auth hooks**: `current_user` barra `active=False` (403 "Conta desativada" — mata sessões zumbis); `login` barragem genérica 401 p/ inativo (anti-enumeration) + `ActivityLog(login)`; `signup` loga `signup`. **Enforcement**: `routes_game.py::session_input`/`session_stream` chamam `check_quota` **antes** do LLM (429 + `ActivityLog(limit_blocked)`) e persistem `UsageEvent` depois (1 por chamada DM no input; report do evento `usage` no stream). **Frontend**: nova `#admin-panel-screen` (`index.html`) com dashboard (cards custo/tokens/ativos), tabela de usuários (status tags ativo/desativado/ilimitado, tokens hoje/limite, custo mês), modais Criar/Editar/Resetar senha, drawer Atividade+Uso; botão "Painel admin" no lobby (`isAdmin()`); `api()` anexa `err.status` p/ distinguir 429 → mensagem pt-BR "Limite diário atingido..." em `#output` (input + stream); cache bump v33; CSS `.admin-table`/`.admin-card`/`.modal`/`.tag`. **1640 testes passando** (1608 anteriores + 8 `test_provider_usage` + 16 `test_admin_users` + 8 `test_usage_limits` cobrindo captura API/fallback, stream com/sem usage, propagação agent→narrative, `usage_today`/`check_quota` unit, 429 no `/input`, persistência `usage_events`, admin isento, override `unlimited`, CRUD users 201/409/404, proteções self/último-admin, reset-password + login, soft-disable 401 genérico + `current_user` 403, activity log login).
