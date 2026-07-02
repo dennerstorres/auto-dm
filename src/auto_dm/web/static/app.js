@@ -422,7 +422,7 @@ async function createEmptySession() {
   // Full character creation is in 26c (wizard).
   const state = {
     campaign_name: slug,
-    current_location: "Taverna do Javali Dourado",
+    current_location: "",
     party: [],
     npcs: [],
     initiative_order: [],
@@ -445,20 +445,20 @@ async function createEmptySession() {
       method: "POST",
       body: { slug, state: res.state },
     });
-    enterGame();
+    enterGame({ empty: true });
   } catch (e) {
     setMsg("lobby-msg", "Erro: " + e.message, "error");
   }
 }
-
-// --- Game screen ---
 // opts:
 //   readOnly     — admin inspecting a save; input disabled, narrative
 //                  log replayed from the snapshot, no session/LLM.
 //   narrativeLog — array of NarrativeEntry {role, speaker, content}.
 //   ownerLabel   — "<username>/<slug>" shown in the read-only banner.
+//   empty        — true for the admin "empty game" path (no character);
+//                  shows the manual-start hint instead of auto-opening.
 function enterGame(opts = {}) {
-  const { readOnly = false, narrativeLog = [], ownerLabel = "" } = opts;
+  const { readOnly = false, narrativeLog = [], ownerLabel = "", empty = false } = opts;
   readOnlyMode = readOnly;
   show("game-screen");
   clearLog();
@@ -484,11 +484,142 @@ function enterGame(opts = {}) {
   appendLog("Sistema",
     `Sessão iniciada${currentSlug ? ` (save: ${currentSlug})` : ""}.`,
     "system");
-  if (currentSlug) {
+  if (empty) {
     appendLog("Sistema",
       "Jogo vazio iniciado — sem personagem definido. " +
       "Por enquanto, digite algo para começar (a IA narrará mesmo sem personagem).",
       "system");
+  }
+}
+
+// Persist the current GameState to the user's save (Postgres). Best-effort.
+async function persistSave(state) {
+  if (!currentSlug || !state) return;
+  try {
+    await api("/api/saves", {
+      method: "POST",
+      body: { slug: currentSlug, state },
+    });
+  } catch (_) {
+    /* best-effort; the session state in Redis is still authoritative */
+  }
+}
+
+// Auto-generate the campaign opening narration right after a fresh game
+// is created, so the player sees the first scene without typing anything.
+// Respects the streaming toggle. Idempotent on the backend (a re-call on
+// an already-opened game just returns the existing narration).
+async function playOpening() {
+  if (readOnlyMode || !currentSessionId) return;
+  const useStream = !!document.getElementById("stream-toggle")?.checked;
+  lockUi();
+  showTyping();
+  try {
+    if (useStream) {
+      await playOpeningStream();
+    } else {
+      await playOpeningClassic();
+    }
+  } finally {
+    unlockUi();
+    hideTyping();
+  }
+}
+
+async function playOpeningClassic() {
+  try {
+    const res = await api(`/api/sessions/${currentSessionId}/opening`, {
+      method: "POST",
+    });
+    if (res.narration) appendLog("DM", res.narration, "narration");
+    if (res.state) await persistSave(res.state);
+  } catch (e) {
+    if (e && e.status === 429) {
+      appendLog("Sistema", LIMIT_REACHED_MSG, "system");
+      return;
+    }
+    appendLog("Erro", "Não foi possível gerar a abertura: " + e.message, "system");
+  }
+}
+
+// Streamed opening (mirrors sendInputStream, but POSTs to /opening/stream
+// with no player line and renders into a fresh DM entry).
+async function playOpeningStream() {
+  const out = output();
+  const entry = document.createElement("div");
+  entry.className = "entry narration";
+  const w = document.createElement("span");
+  w.className = "who";
+  w.textContent = "DM";
+  const b = document.createElement("span");
+  b.className = "body";
+  b.textContent = "";
+  entry.appendChild(w);
+  entry.appendChild(b);
+  out.appendChild(entry);
+  out.scrollTop = out.scrollHeight;
+
+  let finalState = null;
+  try {
+    const tok = getToken();
+    const res = await fetch(`/api/sessions/${currentSessionId}/opening/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
+      },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const j = await res.json();
+        detail = j.detail || JSON.stringify(j);
+      } catch (_) {}
+      b.textContent = res.status === 429 ? LIMIT_REACHED_MSG : `(erro ${res.status}: ${detail})`;
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const dataLines = raw
+          .split("\n")
+          .filter((l) => l.startsWith("data:"))
+          .map((l) => l.slice(5).trim());
+        if (!dataLines.length) continue;
+        try {
+          const evt = JSON.parse(dataLines.join("\n"));
+          if (evt.type === "token") {
+            b.textContent = (b.textContent || "") + (evt.data || "");
+            out.scrollTop = out.scrollHeight;
+          } else if (evt.type === "error") {
+            b.textContent += `\n[erro: ${evt.data}]`;
+          } else if (evt.type === "done") {
+            finalState = evt.data;
+          }
+        } catch (_) {
+          /* not JSON; ignore */
+        }
+      }
+    }
+  } catch (e) {
+    b.textContent = (b.textContent || "") + `\n[falha: ${e.message}]`;
+  }
+  // The `done` payload is the serialized GameState (a JSON string).
+  if (finalState) {
+    let st = null;
+    try {
+      st = typeof finalState === "string" ? JSON.parse(finalState) : finalState;
+    } catch (_) {}
+    if (st) await persistSave(st);
   }
 }
 
@@ -1560,6 +1691,8 @@ async function wizardFinish() {
     appendLog("Sistema",
       `Campanha "${res.slug}" criada com personagem ${wizardState.name}!`,
       "system");
+    // Kick off the opening narration automatically (no player input needed).
+    playOpening();
   } catch (e) {
     setMsg("wizard-msg", "Erro: " + e.message, "error");
   } finally {

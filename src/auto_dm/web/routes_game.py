@@ -31,7 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auto_dm.agents import process_player_action
+from auto_dm.agents import generate_opening, process_player_action
 from auto_dm.llm.usage import UsageReport
 from auto_dm.state.models import GameState
 from auto_dm.web.activity import log_activity
@@ -41,7 +41,7 @@ from auto_dm.web.db import get_session
 from auto_dm.web.limits import check_quota
 from auto_dm.web.models import ActivityType, Save, User
 from auto_dm.web.sessions import SessionManager
-from auto_dm.web.sse import format_sse, stream_dm_narration
+from auto_dm.web.sse import format_sse, stream_dm_narration, stream_dm_opening
 from auto_dm.web.usage import persist_usage_events
 
 logger = logging.getLogger(__name__)
@@ -354,6 +354,185 @@ async def session_stream(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",  # nginx: disable buffering
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.post("/sessions/{session_id}/opening")
+async def session_opening(
+    session_id: str,
+    user: Annotated[User, Depends(current_user)],
+    sm: Annotated[SessionManager, Depends(get_session_manager)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """Generate (or return) the campaign opening narration.
+
+    Called by the frontend right after entering a freshly-created game,
+    so the player sees the first scene without typing anything. The DM
+    also picks the starting location and records it via a ``move``
+    action, which is applied to ``state.current_location``.
+
+    Idempotent: if ``narrative_log`` already holds an entry (e.g. a
+    loaded save), the opening was already generated and the existing
+    first DM narration is returned without an LLM call.
+
+    Enforces the daily quota (429 when exceeded) and records token usage
+    with ``kind="opening"``.
+    """
+    sess = await sm.get(user.id, session_id)
+    if sess is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+    # Already opened (e.g. loaded save) — return the existing narration.
+    existing_dm = next(
+        (e for e in sess.state.narrative_log if e.role == "dm"), None
+    )
+    if existing_dm is not None:
+        return {
+            "session_id": session_id,
+            "narration": existing_dm.content,
+            "state": sess.state.model_dump(mode="json"),
+        }
+    # Quota check before the LLM call.
+    settings = get_settings()
+    exceeded = await check_quota(db, user, settings)
+    if exceeded is not None:
+        await log_activity(
+            db,
+            user_id=user.id,
+            event=ActivityType.LIMIT_BLOCKED,
+            meta={
+                "endpoint": "opening",
+                **{k: exceeded[k] for k in ("used", "limit", "unit")},
+            },
+        )
+        raise HTTPException(status_code=429, detail=exceeded)
+    try:
+        result = generate_opening(sess.state_manager, sess.dm_agent)
+    except Exception as exc:
+        logger.exception("generate_opening failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Game error: {exc}",
+        )
+    await sm.save(sess)
+    usages: list[UsageReport] = list(getattr(result, "usages", []) or [])
+    if usages:
+        try:
+            await persist_usage_events(
+                db,
+                user_id=user.id,
+                endpoint=f"/api/sessions/{session_id}/opening",
+                reports=usages,
+                settings=settings,
+                session_id=session_id,
+                kind="opening",
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to persist opening usage events")
+    return {
+        "session_id": session_id,
+        "narration": result.narration,
+        "state": sess.state.model_dump(mode="json"),
+    }
+
+
+@router.post("/sessions/{session_id}/opening/stream")
+async def session_opening_stream(
+    session_id: str,
+    user: Annotated[User, Depends(current_user)],
+    sm: Annotated[SessionManager, Depends(get_session_manager)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> StreamingResponse:
+    """Stream the campaign opening narration via Server-Sent Events.
+
+    Same event sequence as ``POST /api/sessions/{sid}/stream``:
+    ``start`` → ``token``* → ``usage`` → ``done``. The ``done`` payload
+    is the final ``GameState`` JSON with the chosen ``current_location``
+    applied and the opening appended to ``narrative_log``.
+
+    Idempotent: if the opening was already generated, emits ``start``
+    then ``done`` with the existing state (no LLM call).
+    """
+    sess = await sm.get(user.id, session_id)
+    if sess is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+    settings = get_settings()
+    # Only enforce quota when we'll actually call the LLM.
+    will_call_llm = not sess.state.narrative_log
+    if will_call_llm:
+        exceeded = await check_quota(db, user, settings)
+        if exceeded is not None:
+            await log_activity(
+                db,
+                user_id=user.id,
+                event=ActivityType.LIMIT_BLOCKED,
+                meta={
+                    "endpoint": "opening/stream",
+                    **{k: exceeded[k] for k in ("used", "limit", "unit")},
+                },
+            )
+            raise HTTPException(status_code=429, detail=exceeded)
+
+    user_id = user.id
+
+    async def _event_generator():
+        yield format_sse({"type": "start", "data": session_id})
+        usage_payload: dict | None = None
+        async for event in stream_dm_opening(sess):
+            if event.get("type") == "usage":
+                usage_payload = event.get("data")
+            yield format_sse(event)
+        try:
+            await sm.save(sess)
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Failed to refresh opening SSE session state: %s", exc)
+        if usage_payload and will_call_llm:
+            try:
+                report = UsageReport(
+                    prompt_tokens=int(usage_payload.get("prompt_tokens", 0)),
+                    completion_tokens=int(usage_payload.get("completion_tokens", 0)),
+                    total_tokens=int(
+                        usage_payload.get("total_tokens")
+                        or (
+                            int(usage_payload.get("prompt_tokens", 0))
+                            + int(usage_payload.get("completion_tokens", 0))
+                        )
+                    ),
+                    provider=getattr(sess.dm_agent.provider, "name", "") or "",
+                    model=getattr(
+                        getattr(sess.dm_agent.provider, "config", None), "model", ""
+                    )
+                    or "",
+                    source=usage_payload.get("source", "fallback"),
+                )
+                from auto_dm.web.db import get_session_factory
+
+                async with get_session_factory()() as usage_db:
+                    await persist_usage_events(
+                        usage_db,
+                        user_id=user_id,
+                        endpoint=f"/api/sessions/{session_id}/opening/stream",
+                        reports=[report],
+                        settings=get_settings(),
+                        session_id=session_id,
+                        kind="opening",
+                    )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to persist streamed opening usage")
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
         },
     )

@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import threading
+from datetime import datetime, timezone
 from typing import AsyncIterator, Optional
 
 import jwt
@@ -30,6 +31,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from auto_dm.agents.dm import parse_dm_response
+from auto_dm.state.models import NarrativeEntry
 from auto_dm.web.auth import decode_access_token
 from auto_dm.web.models import User
 from auto_dm.web.sessions import WebSession
@@ -165,6 +168,112 @@ async def stream_dm_narration(
         # Client disconnected — let the producer thread keep running
         # (daemon=True) and bail out quietly.
         logger.info("SSE client cancelled")
+        raise
+
+
+async def stream_dm_opening(
+    session: WebSession,
+) -> AsyncIterator[dict]:
+    """Stream the campaign opening narration (no player input).
+
+    Like :func:`stream_dm_narration`, but driven by the DM's opening
+    trigger. Because the normal stream path does not parse action
+    blocks, this producer **accumulates the full text** and, once the
+    stream finishes:
+
+    1. Parses the ``move`` action block (if any) to extract the chosen
+       ``destination`` and sets ``session.state.current_location``.
+    2. Appends the opening narration to ``narrative_log`` as a
+       ``role="dm"`` entry (no player line is ever logged).
+
+    The ``done`` event therefore carries the updated state (location +
+    narrative log). Idempotent: if the narrative log already holds an
+    entry, the opening was already generated and this is a no-op that
+    just re-emits the existing state.
+    """
+    # Idempotency: a loaded save already has narration.
+    if session.state.narrative_log:
+        yield {"type": "done", "data": session.state.model_dump_json()}
+        return
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    done_event = asyncio.Event()
+    full_text: list[str] = []
+
+    def _producer() -> None:
+        try:
+            for tok, usage in session.dm_agent.stream_opening_with_usage():
+                if usage is not None:
+                    payload = {
+                        "prompt_tokens": usage.prompt_tokens,
+                        "completion_tokens": usage.completion_tokens,
+                        "total_tokens": usage.total_tokens,
+                        "source": usage.source,
+                    }
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait, ("usage", payload)
+                    )
+                elif tok:
+                    full_text.append(tok)
+                    loop.call_soon_threadsafe(queue.put_nowait, ("token", tok))
+            # Stream finished — parse the opening, mutate state.
+            parsed = parse_dm_response("".join(full_text))
+            action = parsed.action
+            if (
+                action is not None
+                and getattr(action, "action_type", None) is not None
+                and action.action_type.value == "move"
+            ):
+                destination = (action.params or {}).get("destination")
+                if destination:
+                    session.state.current_location = destination
+            if parsed.narration:
+                session.state_manager.append_narrative(
+                    NarrativeEntry(
+                        timestamp=datetime.now(timezone.utc),
+                        role="dm",
+                        speaker="DM",
+                        content=parsed.narration,
+                    )
+                )
+        except Exception as exc:  # pragma: no cover — exercised via tests
+            logger.exception("DM opening stream failed")
+            loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
+        finally:
+            loop.call_soon_threadsafe(done_event.set)
+
+    thread = threading.Thread(target=_producer, name="dm-opening-stream", daemon=True)
+    thread.start()
+
+    try:
+        while True:
+            getter = asyncio.create_task(queue.get())
+            waiter = asyncio.create_task(done_event.wait())
+            done, pending = await asyncio.wait(
+                {getter, waiter}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            if getter in done:
+                kind, payload = getter.result()
+                yield {"type": kind, "data": payload}
+                if kind in ("error",):
+                    return
+            if done_event.is_set():
+                while not queue.empty():
+                    kind, payload = queue.get_nowait()
+                    if kind == "token":
+                        yield {"type": "token", "data": payload}
+                    elif kind == "usage":
+                        yield {"type": "usage", "data": payload}
+                    elif kind == "error":
+                        yield {"type": "error", "data": payload}
+                        return
+                yield {"type": "done", "data": session.state.model_dump_json()}
+                return
+    except asyncio.CancelledError:
+        logger.info("SSE opening client cancelled")
         raise
 
 

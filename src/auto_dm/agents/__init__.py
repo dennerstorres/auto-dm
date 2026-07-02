@@ -31,7 +31,7 @@ from auto_dm.agents.companion_turn import (
     run_companion_turn,
 )
 from auto_dm.agents.dm import DMAgent, DMResponse, parse_dm_response
-from auto_dm.agents.narrative import process_player_action, NarrativeResult
+from auto_dm.agents.narrative import generate_opening, process_player_action, NarrativeResult
 
 __all__ = [
     # Prompts
@@ -53,5 +53,6 @@ __all__ = [
     "run_companion_turn",
     # Loop
     "process_player_action",
+    "generate_opening",
     "NarrativeResult",
 ]

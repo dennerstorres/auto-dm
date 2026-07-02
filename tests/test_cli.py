@@ -453,3 +453,61 @@ class TestMakeGameApp:
             saves_dir=tmp_path / "saves",
         )
         assert "p1" not in app._companion_agents
+
+
+# ---------------------------------------------------------------------------
+# Campaign opening narration (auto-generated before first player input)
+# ---------------------------------------------------------------------------
+
+
+class TestOpeningNarration:
+    def _make_app(self, tmp_path, scripted):
+        from auto_dm.state.manager import StateManager as _SM
+
+        state = _make_state()
+        state.current_location = ""  # the DM picks
+        app = GameApp(
+            state_manager=_SM(state),
+            provider_factory=lambda: FakeProvider(scripted),
+            saves_dir=tmp_path / "saves",
+            auto_save_every_n_turns=5,
+        )
+        app.initialize()
+        return app
+
+    def test_generate_opening_logs_dm_and_sets_location(self, tmp_path):
+        opening = (
+            "Você acorda numa estrada poeirenta.\n"
+            "```action\n"
+            '{"action_type": "move", "actor_id": "p1", '
+            '"params": {"destination": "Estrada do Norte"}}\n'
+            "```"
+        )
+        app = self._make_app(tmp_path, [opening])
+        before = len(app.state_manager.state.narrative_log)
+        result = app.generate_opening()
+        # Exactly one new log entry, role=dm (never player).
+        assert len(app.state_manager.state.narrative_log) == before + 1
+        entry = app.state_manager.state.narrative_log[-1]
+        assert entry.role == "dm"
+        assert not any(e.role == "player" for e in app.state_manager.state.narrative_log[before:])
+        assert result.narration == entry.content
+        # The chosen location was applied.
+        assert app.state_manager.state.current_location == "Estrada do Norte"
+
+    def test_generate_opening_is_idempotent_when_log_nonempty(self, tmp_path):
+        """A loaded save already has narration; opening is a no-op."""
+        app = self._make_app(tmp_path, [])
+        # Simulate an already-loaded game with narration in the log.
+        app.state_manager.append_narrative(
+            __import__("auto_dm.state.models", fromlist=["NarrativeEntry"]).NarrativeEntry(
+                timestamp=datetime.now(timezone.utc),
+                role="dm",
+                speaker="DM",
+                content="Narração existente.",
+            )
+        )
+        before = len(app.state_manager.state.narrative_log)
+        result = app.generate_opening()
+        assert result.narration == ""
+        assert len(app.state_manager.state.narrative_log) == before

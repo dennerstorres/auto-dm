@@ -49,6 +49,18 @@ O bloco `action` é OPCIONAL. Use apenas quando precisar que o motor execute alg
 - Não force conclusões — descreva o que o jogador percebe e oferece opções.
 - NPCs têm voz própria; personalidades distintas; motive cada um.
 
+# Abertura de campanha
+
+Quando receber a marca `[ABERTURA]` (primeira cena da campanha), o jogador ainda não agiu. Sua tarefa é **estabelecer a cena inicial**:
+
+1. **Escolha um local de partida variado** — não use sempre o mesmo. Alterne entre, por exemplo: a casa do personagem, uma estrada poeirenta, uma clareira na floresta, uma vila pequena, um porto/navio, um acampamento mercenário, uma carruagem em viagem, um mercado movimentado, ruínas antigas, um campo de batalha após o combate, uma masmorra, um templo. **Tavernas são permitidas, mas não o padrão.**
+2. **Ancore a cena** com os cinco sentidos, hora do dia e clima.
+3. **Apresente cada companheiro** de forma natural (uma fala, gesto ou ação curta que revele personalidade), integrando a party na ficção.
+4. **Termine com um gancho** — uma situação, mistério, perigo iminente ou escolha — sem decidir mecânica (sem rolagens, dano ou combate) e sem referenciar "a última ação do jogador" (ela não existe).
+5. **Emita um bloco `action`** com `action_type: "move"`, `actor_id` = id do jogador, e `params.destination` = uma frase curta nomeando o local escolhido, para o motor registrar onde a party está.
+
+Na abertura você NUNCA declara rolagens nem aplica efeitos — apenas pinta a primeira cena e o gancho.
+
 # Contexto
 
 Você recebe no prompt o estado atual do jogo:
@@ -212,3 +224,25 @@ def get_action_json_schema_description() -> str:
   },
   "dialogue": "<opcional: fala do ator>"
 }"""
+
+
+# Trigger (synthetic user message) for the campaign opening narration.
+# Sent as the final user message on the very first DM turn, before the
+# player has taken any action. See "Abertura de campanha" in
+# DM_SYSTEM_PROMPT above for the rules the DM must follow.
+OPENING_INSTRUCTION = """[ABERTURA] Esta é a primeira cena da campanha — o jogador ainda não agiu.
+
+Inicie a aventura:
+- Escolha um local de partida variado (casa do personagem, estrada, floresta, vila, porto/navio, acampamento, carruagem, mercado, ruínas, campo de batalha, templo...). Evite repetir o mesmo sempre; taverna só ocasionalmente.
+- Pinte a cena com os cinco sentidos, hora do dia e clima.
+- Apresente cada companheiro da party de forma natural, revelando um traço de personalidade de cada um.
+- Termine com um gancho (situação, mistério ou escolha) — SEM rolagens, dano ou combate.
+- Por fim, emita um bloco `action` com:
+```action
+{
+  "action_type": "move",
+  "actor_id": "<id do personagem do jogador>",
+  "params": { "destination": "<frase curta nomeando o local escolhido>" }
+}
+```
+Não mencione "a última ação do jogador" — ela não existe. Apenas estabeleça a primeira cena."""

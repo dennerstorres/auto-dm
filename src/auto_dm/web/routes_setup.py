@@ -388,7 +388,8 @@ async def create_session_with_character(
     state = GameState(
         campaign_name=body.campaign_name,
         started_at=datetime.now(timezone.utc),
-        current_location="Taverna da Aliança",
+        # current_location intentionally left empty (default "") — the DM
+        # chooses the starting scene during the opening narration.
         party=[player, *chosen_companions],
         npcs=[],
         player_character_id=player.id,

@@ -79,7 +79,8 @@ def setup_new_game(
     state = GameState(
         campaign_name=campaign_name,
         started_at=datetime.now(tz=timezone.utc),
-        current_location="Taverna da Aliança",
+        # current_location intentionally left empty (default "") — the DM
+        # chooses the starting scene during the opening narration.
         party=party,
         npcs=[],
         player_character_id=player.id,

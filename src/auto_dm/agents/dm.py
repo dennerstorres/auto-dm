@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional, Protocol
 
-from auto_dm.agents.prompts import DM_SYSTEM_PROMPT, build_dm_context_block
+from auto_dm.agents.prompts import DM_SYSTEM_PROMPT, OPENING_INSTRUCTION, build_dm_context_block
 from auto_dm.llm.base import Message
 from auto_dm.llm.usage import UsageReport, chat_with_usage, iter_stream_with_usage
 from auto_dm.state.manager import StateManager
@@ -210,6 +210,31 @@ class DMAgent:
         bill streamed turns; the CLI uses the text-only :meth:`stream`.
         """
         messages = self._build_messages(player_input)
+        yield from iter_stream_with_usage(self.provider, messages)
+
+    def generate_opening(self) -> DMResponse:
+        """Generate the campaign opening narration (no player input).
+
+        Used on the very first DM turn, before the player has acted.
+        Sends the :data:`OPENING_INSTRUCTION` trigger as the final user
+        message so the DM establishes the scene, chooses a starting
+        location, and emits a ``move`` action to record it. The result
+        is parsed like any other response (narration + optional action).
+        """
+        messages = self._build_messages(OPENING_INSTRUCTION)
+        raw, usage = chat_with_usage(self.provider, messages)
+        return parse_dm_response(raw, usage=usage)
+
+    def stream_opening_with_usage(self):
+        """Stream the opening narration token-by-token.
+
+        Like :meth:`stream_with_usage` but driven by the
+        :data:`OPENING_INSTRUCTION` trigger instead of player input.
+        Action parsing is the caller's responsibility (the stream only
+        yields text); the web opening-SSE producer accumulates the full
+        text and parses the ``move`` block at the end.
+        """
+        messages = self._build_messages(OPENING_INSTRUCTION)
         yield from iter_stream_with_usage(self.provider, messages)
 
     # ----- Internals ---------------------------------------------------------

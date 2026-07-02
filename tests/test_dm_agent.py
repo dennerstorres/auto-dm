@@ -13,10 +13,12 @@ from auto_dm.agents import (
     DM_SYSTEM_PROMPT,
     DMAgent,
     build_dm_context_block,
+    generate_opening,
     get_action_json_schema_description,
     parse_dm_response,
     process_player_action,
 )
+from auto_dm.agents.prompts import OPENING_INSTRUCTION
 from auto_dm.llm.base import LLMConfig, Message
 from auto_dm.state.manager import StateManager
 from auto_dm.state.models import (
@@ -734,3 +736,107 @@ class TestIntegration:
         second_call_messages = provider.calls[1]
         contents = " ".join(m.content for m in second_call_messages)
         assert "primeira" in contents
+
+
+# ============================================================================
+# Campaign opening narration (no player input)
+# ============================================================================
+
+
+class TestOpeningNarration:
+    """The opening is generated before the player acts, so the DM must
+    establish the scene and choose a starting location on its own."""
+
+    def test_generate_opening_uses_opening_trigger_as_last_user_message(self, state):
+        provider = FakeProvider(scripted=["Uma névoa cobre o campo."])
+        agent = DMAgent(provider=provider, state_manager=state)
+        agent.generate_opening()
+        messages = provider.calls[0]
+        last_user = [m for m in messages if m.role == "user"][-1]
+        assert last_user.content == OPENING_INSTRUCTION
+
+    def test_generate_opening_returns_parsed_response(self, state):
+        provider = FakeProvider(
+            scripted=[
+                dm_response(
+                    "Você acorda numa estrada poeirenta.",
+                    {
+                        "action_type": "move",
+                        "actor_id": "p1",
+                        "params": {"destination": "Estrada do Norte"},
+                    },
+                )
+            ]
+        )
+        agent = DMAgent(provider=provider, state_manager=state)
+        resp = agent.generate_opening()
+        assert "estrada poeirenta" in resp.narration
+        assert resp.action is not None
+        assert resp.action.action_type == ActionType.MOVE
+        assert resp.action.params["destination"] == "Estrada do Norte"
+
+    def test_narrative_generate_opening_logs_dm_only(self, state):
+        provider = FakeProvider(
+            scripted=[
+                dm_response(
+                    "O porto ferve de activity ao amanhecer.",
+                    {
+                        "action_type": "move",
+                        "actor_id": "p1",
+                        "params": {"destination": "Porto de Saltmarsh"},
+                    },
+                )
+            ]
+        )
+        agent = DMAgent(provider=provider, state_manager=state)
+        before = len(state.state.narrative_log)
+        result = generate_opening(state, agent)
+        # Exactly one new entry, and it's a DM entry — never a player line.
+        assert len(state.state.narrative_log) == before + 1
+        entry = state.state.narrative_log[-1]
+        assert entry.role == "dm"
+        assert entry.speaker == "DM"
+        assert "porto" in entry.content
+        assert not any(e.role == "player" for e in state.state.narrative_log[before:])
+        assert result.narration == entry.content
+
+    def test_narrative_generate_opening_applies_chosen_location(self, state):
+        # Start with no defined location — the DM picks it.
+        state.state.current_location = ""
+        provider = FakeProvider(
+            scripted=[
+                dm_response(
+                    "Fumaça sobe do acampamento mercenário.",
+                    {
+                        "action_type": "move",
+                        "actor_id": "p1",
+                        "params": {"destination": "Acampamento Mercenário"},
+                    },
+                )
+            ]
+        )
+        agent = DMAgent(provider=provider, state_manager=state)
+        generate_opening(state, agent)
+        assert state.state.current_location == "Acampamento Mercenário"
+
+    def test_narrative_generate_opening_without_move_keeps_location(self, state):
+        # If the DM forgets the move action, we just log the narration;
+        # current_location is left unchanged (no crash).
+        state.state.current_location = ""
+        provider = FakeProvider(scripted=["Uma vila adormecida."])
+        agent = DMAgent(provider=provider, state_manager=state)
+        result = generate_opening(state, agent)
+        assert result.action is None
+        assert state.state.current_location == ""
+        assert state.state.narrative_log[-1].role == "dm"
+
+    def test_stream_opening_with_usage_uses_trigger(self, state):
+        # The streaming variant must also drive off the opening trigger.
+        # FakeProvider.stream yields a single chunk.
+        provider = FakeProvider(scripted=["Token a token."])
+        agent = DMAgent(provider=provider, state_manager=state)
+        chunks = list(agent.stream_opening_with_usage())
+        # Last message sent to the provider is the opening trigger.
+        last_user = [m for m in provider.calls[0] if m.role == "user"][-1]
+        assert last_user.content == OPENING_INSTRUCTION
+        assert any(c for c, _ in chunks)

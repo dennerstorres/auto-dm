@@ -116,8 +116,43 @@ def process_player_action(
     return result
 
 
-# ============================================================================
-# Dispatch (skeleton — full engine integration is Phase 7)
+def generate_opening(
+    state_manager: StateManager,
+    dm_agent: DMAgent,
+) -> NarrativeResult:
+    """Generate the campaign opening narration (no player input).
+
+    Runs on the very first DM turn, before the player has acted. Unlike
+    :func:`process_player_action`, this does **not** log a player line —
+    only the DM's opening narration is recorded (role ``dm``). The DM is
+    instructed (via :data:`OPENING_INSTRUCTION`) to choose a starting
+    location and emit a ``move`` action whose ``params.destination`` we
+    apply to ``state.current_location`` so the chosen scene persists.
+
+    The opening is pure narration — no rolls, damage, or combat — so we
+    do not dispatch the action through the engine; we only read the
+    ``destination`` from the ``move`` action to set the world location.
+
+    Returns a :class:`NarrativeResult` shaped like a normal turn so the
+    CLI/web layers can render and bill it uniformly.
+    """
+    dm_response = dm_agent.generate_opening()
+    _log_dm(state_manager, dm_response)
+
+    result = NarrativeResult(
+        narration=dm_response.narration,
+        action=dm_response.action,
+    )
+    if dm_response.usage is not None:
+        result.usages.append(dm_response.usage)
+
+    # Apply the chosen starting location if the DM emitted a move action.
+    if dm_response.action is not None and dm_response.action.action_type == ActionType.MOVE:
+        destination = (dm_response.action.params or {}).get("destination")
+        if destination:
+            state_manager.state.current_location = destination
+
+    return result
 # ============================================================================
 
 

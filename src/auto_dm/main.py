@@ -190,10 +190,16 @@ def main(
 
 def _run_repl(game: GameApp) -> int:
     """Drive the read-eval-print loop until the user quits."""
-    console.print(
-        f"[bold]{game.state_manager.state.campaign_name}[/bold]\n"
-        f"Local: {game.state_manager.state.current_location}\n"
-    )
+    console.print(f"[bold]{game.state_manager.state.campaign_name}[/bold]\n")
+    # Opening narration: generate the first scene automatically so the
+    # player knows where they are before having to type anything. The
+    # DM also picks the starting location, which is now reflected below.
+    with console.status("[dim]O mestre prepara a primeira cena...[/dim]", spinner="dots"):
+        opening = game.generate_opening()
+    if game.state_manager.state.current_location:
+        console.print(f"[dim]Local: {game.state_manager.state.current_location}[/dim]\n")
+    if opening.narration:
+        _render_narrative(opening)
     while not game.should_quit:
         try:
             line = input("> ")

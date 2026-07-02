@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from auto_dm.agents import DMAgent, NarrativeResult, process_player_action
+from auto_dm.agents import DMAgent, NarrativeResult, generate_opening, process_player_action
 from auto_dm.agents.companion import CompanionAgent
 from auto_dm.agents.companion_turn import CompanionTurnResult, run_companion_turn
 from auto_dm.companions import (
@@ -193,6 +193,31 @@ class GameApp:
         ):
             self._autosave()
 
+        return result
+
+    def generate_opening(self) -> NarrativeResult:
+        """Generate the campaign opening narration.
+
+        Called once before the REPL accepts its first player input, so
+        the very first thing the player sees is the DM establishing the
+        scene — the player doesn't have to send anything to learn where
+        they are. The DM also chooses the starting location and records
+        it via a ``move`` action, which :func:`generate_opening` applies
+        to ``state.current_location``.
+
+        Idempotent: if the narrative log already has an entry, the
+        opening was already generated (e.g. a loaded save) and this is
+        a no-op returning an empty :class:`NarrativeResult`.
+        """
+        if self._dm_agent is None:
+            raise RuntimeError("GameApp not initialized; call initialize() first")
+        # Loaded games already have narration — don't regenerate.
+        if self.state_manager.state.narrative_log:
+            return NarrativeResult(narration="")
+        result = generate_opening(self.state_manager, self._dm_agent)
+        # Persist the opening so a reload shows it instead of regenerating.
+        if self.auto_save_every_n_turns > 0:
+            self._autosave()
         return result
 
     def _handle_meta(self, line: str) -> Optional[NarrativeResult]:
