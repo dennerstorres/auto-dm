@@ -15,6 +15,7 @@ from auto_dm.companions import list_companion_keys
 from auto_dm.companions.selection import (
     ROLE_TAGS,
     SYNERGY_BIAS,
+    _CANDIDATE_CLASS,
     roll_party_candidates,
 )
 from auto_dm.state.models import AbilityScores, Character
@@ -71,9 +72,13 @@ class TestRollPartyCandidates:
         assert out == []
 
     def test_k_larger_than_pool_returns_all(self):
+        # k larger than the available pool returns every eligible
+        # candidate — i.e. the whole roster EXCEPT the player's own
+        # class (Wizard → kael excluded).
+        full = list(list_companion_keys())
         out = roll_party_candidates(_stub_player("Wizard"), k=20, rng=random.Random(0))
-        assert len(out) == len(list_companion_keys())
-        assert set(out) == set(list_companion_keys())
+        assert len(out) == len(full) - 1
+        assert set(out) == (set(full) - {"kael"})
 
 
 # ---------------------------------------------------------------------------
@@ -108,17 +113,28 @@ class TestRoleTags:
 
 
 class TestSynergy:
-    def test_fighter_player_avoids_thorgrim(self):
-        # Only one Fighter (thorgrim). With same-class penalty 0.3 + tank
-        # overlap, it should be selected only rarely.
-        hits = 0
+    def test_fighter_player_never_gets_thorgrim(self):
+        # Only one Fighter (thorgrim). Same-class companions are excluded
+        # outright, so thorgrim must NEVER appear for a Fighter player.
         for seed in range(100):
             out = roll_party_candidates(_stub_player("Fighter"), rng=random.Random(seed))
-            if "thorgrim" in out:
-                hits += 1
-        # Soft bound: thorgrim should appear in a clear minority (<25%)
-        # of rolls.
-        assert hits < 25, f"thorgrim appeared {hits}/100 times — too often"
+            assert "thorgrim" not in out, (
+                f"thorgrim (same class as player) appeared at seed {seed}: {out}"
+            )
+
+    def test_no_companion_shares_player_class_any_seed(self):
+        # For every PHB class, no rolled companion may share that class.
+        for pclass in [
+            "Barbarian", "Bard", "Cleric", "Druid", "Fighter", "Monk",
+            "Paladin", "Ranger", "Rogue", "Sorcerer", "Warlock", "Wizard",
+        ]:
+            for seed in range(20):
+                out = roll_party_candidates(_stub_player(pclass), rng=random.Random(seed))
+                for key in out:
+                    cand_class = _CANDIDATE_CLASS.get(key, "")
+                    assert cand_class != pclass.lower(), (
+                        f"{key} ({cand_class}) shares class with {pclass} player"
+                    )
 
     def test_wizard_player_prefers_healer(self):
         # Wizard has no healer role → healer guarantee kicks in.

@@ -76,7 +76,6 @@ SYNERGY_BIAS: dict[str, float] = {
     "caster":      1.0,
 }
 
-SAME_CLASS_WEIGHT: float = 0.3
 _DEFAULT_WEIGHT: float = 1.0
 _MAX_HEALER_RETRIES: int = 50
 
@@ -105,20 +104,21 @@ def _player_class_lower(player: Character) -> str:
 
 
 def _candidate_weight(player: Character, candidate_key: str) -> float:
-    """Compute the weight for a candidate given the player's class."""
-    pclass = _player_class_lower(player)
-    cand_class = _CANDIDATE_CLASS.get(candidate_key, "")
-    cand_roles = ROLE_TAGS[candidate_key]
-    player_roles = _CLASS_ROLES.get(pclass, frozenset())
+    """Compute the weight for a candidate given the player's class.
 
-    same_class_factor = SAME_CLASS_WEIGHT if cand_class == pclass else 1.0
+    Same-class candidates are assumed to have already been filtered out
+    of the pool by the caller (see ``roll_party_candidates``); this
+    function only handles the synergy side of the weighting.
+    """
+    cand_roles = ROLE_TAGS[candidate_key]
+    player_roles = _CLASS_ROLES.get(_player_class_lower(player), frozenset())
 
     synergy = 1.0
     for tag in cand_roles:
         if tag not in player_roles:
             synergy *= SYNERGY_BIAS.get(tag, 1.0)
 
-    return _DEFAULT_WEIGHT * same_class_factor * synergy
+    return _DEFAULT_WEIGHT * synergy
 
 
 def _tags_for(keys: list[str]) -> frozenset[str]:
@@ -161,15 +161,17 @@ def roll_party_candidates(
     """Roll ``k`` companion keys biased by synergy with ``player``.
 
     Sampling is weighted random WITHOUT replacement. Weights are
-    computed per candidate:
+    computed per candidate based purely on role synergy:
 
-    - If the candidate shares the player's class, its weight is
-      multiplied by ``SAME_CLASS_WEIGHT`` (0.3) — overlap is allowed
-      but discouraged.
     - For each role tag the candidate has that the player does NOT
       fill, the weight is multiplied by ``SYNERGY_BIAS[tag]`` (so a
       healer companion is twice as likely to be picked when the player
       has no healer role).
+
+    A companion that shares the player's class is **never** offered —
+    it is removed from the pool before sampling. Each PHB class has
+    exactly one companion in the roster, so for the default ``k=4``
+    this still leaves plenty of candidates.
 
     If the player has no ``healer`` role, we retry up to
     ``_MAX_HEALER_RETRIES`` times when no candidate in the pick has
@@ -194,7 +196,13 @@ def roll_party_candidates(
     list[str]
         Up to ``k`` unique companion keys. Empty list if ``k == 0``.
     """
-    pool = list(list_companion_keys())
+    pclass = _player_class_lower(player)
+    # Exclude same-class companions outright — overlap with the player's
+    # own class is undesirable regardless of how good the synergy is.
+    pool = [
+        key for key in list_companion_keys()
+        if _CANDIDATE_CLASS.get(key, "") != pclass
+    ]
     if k <= 0 or not pool:
         return []
     if k >= len(pool):
@@ -202,7 +210,7 @@ def roll_party_candidates(
 
     r = rng if rng is not None else random.Random()
 
-    player_roles = _CLASS_ROLES.get(_player_class_lower(player), frozenset())
+    player_roles = _CLASS_ROLES.get(pclass, frozenset())
     needs_healer = "healer" not in player_roles
 
     last_roll: list[str] = []
