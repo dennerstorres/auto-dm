@@ -39,7 +39,7 @@ from auto_dm.web.auth import current_user, require_admin
 from auto_dm.web.config import get_settings
 from auto_dm.web.db import get_session
 from auto_dm.web.limits import check_quota
-from auto_dm.web.models import ActivityType, Save, User
+from auto_dm.web.models import ActivityType, Save, UsageKind, User
 from auto_dm.web.sessions import SessionManager
 from auto_dm.web.usage import persist_usage_events
 
@@ -304,18 +304,31 @@ async def session_input(
     # Persist state to Redis.
     await sm.save(sess)
     # Record token usage (best-effort; never fails the turn).
+    # Phase 33: each UsageReport now carries a ``kind`` tag (set by the
+    # narrative loop). We split by kind and persist each bucket
+    # separately so the summarizer's cost doesn't pollute the player's
+    # daily quota. Empty ``kind`` defaults to ``"player"`` for
+    # backward-compat (DM and follow-up narration).
     usages: list[UsageReport] = list(getattr(result, "usages", []) or [])
     if usages:
         try:
-            await persist_usage_events(
-                db,
-                user_id=user.id,
-                endpoint=f"/api/sessions/{session_id}/input",
-                reports=usages,
-                settings=settings,
-                session_id=session_id,
-                kind="player",
-            )
+            # Bucket usages by kind (empty string → "player").
+            buckets: dict[str, list[UsageReport]] = {}
+            for u in usages:
+                kind = u.kind or UsageKind.PLAYER.value
+                buckets.setdefault(kind, []).append(u)
+            for kind_value, reports in buckets.items():
+                if not reports:
+                    continue
+                await persist_usage_events(
+                    db,
+                    user_id=user.id,
+                    endpoint=f"/api/sessions/{session_id}/input",
+                    reports=reports,
+                    settings=settings,
+                    session_id=session_id,
+                    kind=kind_value,
+                )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to persist usage events")
     # NarrativeResult is a dataclass; convert to dict.

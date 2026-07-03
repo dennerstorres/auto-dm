@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from auto_dm.agents import DMAgent, NarrativeResult, generate_opening, process_player_action
+from auto_dm.agents.summarizer import NarrativeSummarizer, summarize_once
 from auto_dm.agents.companion import CompanionAgent
 from auto_dm.agents.companion_turn import CompanionTurnResult, run_companion_turn
 from auto_dm.companions import (
@@ -68,6 +69,11 @@ META_COMMANDS = {
     "/conditions [name]": "Show party member conditions (default: player)",
     "/level-up [name]": "Advance a character one level (HP rolled automatically; use /asi after)",
     "/spells [name]": "Show party member spellbook (default: player)",
+    "/summary": "Show summary status (default action when no subcommand)",
+    "/summary on": "Enable periodic summarization",
+    "/summary off": "Disable periodic summarization",
+    "/summary status": "Show summary config + cursor state",
+    "/summary force": "Summarize now and autosave",
     "/quit": "Exit the game",
 }
 
@@ -96,6 +102,7 @@ class GameApp:
     combat_engine: Optional[CombatEngine] = None
     extra_companions: list[str] = field(default_factory=list)
     _dm_agent: Optional[DMAgent] = None
+    _summarizer: Optional[NarrativeSummarizer] = None
     _companion_agents: dict[str, CompanionAgent] = field(default_factory=dict)
     _turn_counter: int = 0
     _should_quit: bool = False
@@ -105,7 +112,13 @@ class GameApp:
     # ------------------------------------------------------------------
 
     def initialize(self) -> None:
-        """Build DM + companion agents, attach companions to the party."""
+        """Build DM + companion agents, attach companions to the party.
+
+        Phase 33: also build a ``NarrativeSummarizer`` using the DM's
+        provider. The summarizer is the same model class for player
+        turns and companion turns, so it inherits the same provider
+        configuration; both paths pass the same instance through.
+        """
         # Add pre-picked companions
         for key in self.extra_companions:
             companion = self._build_companion(key)
@@ -114,6 +127,10 @@ class GameApp:
         self._dm_agent = DMAgent(
             provider=self.provider_factory(),
             state_manager=self.state_manager,
+        )
+        # Phase 33 — periodic summarizer (shares the DM's provider).
+        self._summarizer = NarrativeSummarizer(
+            provider=self.provider_factory(),
         )
         for c in self.state_manager.state.party:
             if c.is_player:
@@ -176,6 +193,7 @@ class GameApp:
             stripped,
             self._dm_agent,
             combat_engine=self.combat_engine,
+            summarizer=self._summarizer,
         )
 
         # Companion cycle: only when we're still in combat and have a
@@ -250,6 +268,8 @@ class GameApp:
             self._do_spells(arg.strip())
         elif cmd == "/level-up":
             self._do_level_up(arg.strip())
+        elif cmd == "/summary":
+            self._do_summary(arg.strip())
         elif cmd == "/quit":
             self._should_quit = True
             print("Até a próxima aventura!")
@@ -288,6 +308,10 @@ class GameApp:
         self._dm_agent = DMAgent(
             provider=self.provider_factory(),
             state_manager=self.state_manager,
+        )
+        # Phase 33 — rebuild the summarizer too (uses the new provider).
+        self._summarizer = NarrativeSummarizer(
+            provider=self.provider_factory(),
         )
         self._companion_agents = {
             c.id: CompanionAgent(
@@ -365,6 +389,7 @@ class GameApp:
                     agent,
                     enemies=enemies,
                     allies=allies,
+                    summarizer=self._summarizer,
                 )
                 results.append(turn)
                 if not self.state_manager.state.in_combat:
@@ -546,6 +571,68 @@ class GameApp:
             print(f"  Features de classe: {', '.join(new_features)}.")
         if sub_features:
             print(f"  Features de subclasse: {', '.join(sub_features)}.")
+
+    def _do_summary(self, arg: str) -> None:
+        """``/summary [on|off|status|force]`` — inspect/toggle the summarizer.
+
+        Subcommands:
+        - ``/summary`` (no arg) or ``/summary status`` — print config
+        - ``/summary on|off`` — toggle ``state.summary_enabled``
+        - ``/summary force`` — run summarizer NOW and autosave
+        """
+        state = self.state_manager.state
+        cmd = arg.strip().lower()
+        if cmd in ("", "status"):
+            entries = len(state.narrative_log)
+            summaries = len(state.summary_history)
+            print("[summary] status")
+            print(f"  enabled: {state.summary_enabled}")
+            print(f"  every_n_entries: {state.summary_every_n_entries}")
+            print(f"  char_threshold: {state.summary_char_threshold}")
+            print(
+                f"  narrative_log: {entries} entries, "
+                f"{sum(len(e.content) for e in state.narrative_log)} chars"
+            )
+            print(f"  summary_history: {summaries} entries")
+            print(
+                f"  cursors: last_summarized_at={state.last_summarized_at_index}, "
+                f"last_attempt_at={state.last_summary_attempt_at_index}"
+            )
+            return
+        if cmd == "on":
+            state.summary_enabled = True
+            print("[summary] Ativado.")
+            return
+        if cmd == "off":
+            state.summary_enabled = False
+            print("[summary] Desativado.")
+            return
+        if cmd == "force":
+            if self._summarizer is None:
+                print("[summary] Sem summarizer configurado.")
+                return
+            # Force a summary: temporarily set last_summarized_at_index
+            # BACK so should_summarize fires regardless of cooldown.
+            # We restore it after — but if the LLM fires successfully,
+            # it'll advance the cursor naturally.
+            before_cursor = state.last_summarized_at_index
+            state.last_summarized_at_index = 0
+            usage = summarize_once(self.state_manager, self._summarizer)
+            if usage is None:
+                # Nothing to summarize (log too short) — restore cursor.
+                state.last_summarized_at_index = before_cursor
+                print(
+                    "[summary] Nada para resumir (narrative_log muito curto)."
+                )
+                return
+            new = len(state.summary_history)
+            self._autosave()
+            print(
+                f"[summary] Resumo adicionado. summary_history agora tem {new} "
+                f"entrada(s). Autosave feito."
+            )
+            return
+        print(f"[summary] Subcomando desconhecido: {cmd!r}. Use on|off|status|force.")
 
 
 # ---------------------------------------------------------------------------

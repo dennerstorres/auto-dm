@@ -44,6 +44,12 @@ class UsageReport:
         model: Model name, for logging.
         source: ``"api"`` when the numbers came from ``response.usage``,
             ``"fallback"`` when estimated via the chars//3 heuristic.
+        kind: Tagged source of the LLM call — e.g. ``"player"``,
+            ``"summarizer"``, ``"opening"``, ``"companion"``. Empty by
+            default; downstream code (web layer, billing) treats empty
+            as ``"player"``. Phase 33 added this field so the periodic
+            summarizer's cost is aggregated separately from player turns
+            instead of being lumped into the player's daily quota.
     """
 
     prompt_tokens: int = 0
@@ -52,6 +58,7 @@ class UsageReport:
     provider: str = ""
     model: str = ""
     source: str = "fallback"
+    kind: str = ""
 
     def __post_init__(self) -> None:
         # Normalize: if total wasn't reported, derive it so downstream

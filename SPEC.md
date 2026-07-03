@@ -228,8 +228,40 @@ class GameState:
 
     # História
     narrative_log: list[NarrativeEntry]  # pra alimentar o LLM
-    summary_history: list[str]  # resumos antigos
+    summary_history: list[str]  # ledger append-only de resumos consolidados
+
+    # Phase 33 — periodic summarizer config + cursor state
+    summary_enabled: bool = True                # kill switch de runtime (CLI /summary off)
+    summary_every_n_entries: int = 20           # dispara quando o log cresce N entradas desde o último resumo
+    summary_char_threshold: int = 12_000        # OU quando o log cruza N chars totais
+    last_summarized_at_index: int = 0           # índice em narrative_log da última entrada resumida (exclusivo)
+    last_summary_attempt_at_index: int = 0      # última tentativa (sucesso OU falha) — retry cooldown
 ```
+
+### Resumo periódico (Phase 33)
+
+Quando `narrative_log` cruza os thresholds acima, um LLM call extra (no
+mesmo provider do DM) condensa `narrative_log[:-6]` em uma única string
+pt-BR e a anexa em `summary_history`. Apenas a entrada mais recente é
+injetada no system prompt do DM (`build_dm_context_block` →
+`## Resumo de eventos anteriores`); as entradas mais antigas ficam em
+disco para inspeção admin e replay futuro.
+
+Regras:
+- `summary_history` é **append-only** — entradas antigas não são
+  apagadas. Dedup trivial (texto idêntico ao anterior colapsa para
+  no-op).
+- Cooldown por fórmula (sem lock explícito): após cada tentativa,
+  `last_summarized_at_index` (sucesso) ou `last_summary_attempt_at_index`
+  (qualquer tentativa) avançam, e `should_summarize` retorna False
+  por algumas entradas.
+- Falhas (provider down / `<NO_SUMMARY>` / markdown-only / < 50 chars):
+  warning logged, `last_summary_attempt_at_index` avança mas
+  `last_summarized_at_index` NÃO — a próxima turno re-tenta.
+- Custo do summarizer é taggeado como `kind="summarizer"` em
+  `UsageEvent`, separado da quota diária do jogador.
+- CLI: `/summary` mostra status; `/summary on|off` toggle; `/summary
+  force` dispara imediatamente e autosalva.
 
 ### Action (entrada do LLM pro engine)
 ```python

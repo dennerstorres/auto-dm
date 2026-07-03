@@ -32,6 +32,12 @@ from auto_dm.agents.companion_turn import (
 )
 from auto_dm.agents.dm import DMAgent, DMResponse, parse_dm_response
 from auto_dm.agents.narrative import generate_opening, process_player_action, NarrativeResult
+from auto_dm.agents.summarizer import (
+    NarrativeSummarizer,
+    apply_summary,
+    should_summarize,
+    summarize_once,
+)
 
 __all__ = [
     # Prompts
@@ -55,4 +61,9 @@ __all__ = [
     "process_player_action",
     "generate_opening",
     "NarrativeResult",
+    # Phase 33 — periodic summarizer
+    "NarrativeSummarizer",
+    "should_summarize",
+    "apply_summary",
+    "summarize_once",
 ]

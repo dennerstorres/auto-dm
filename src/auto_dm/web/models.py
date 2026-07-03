@@ -53,6 +53,7 @@ class UsageKind(str, Enum):
     DM = "dm"  # DM follow-up narration of a mechanical result
     COMPANION = "companion"  # companion turn decision
     OPENING = "opening"  # campaign opening narration (no player input)
+    SUMMARIZER = "summarizer"  # Phase 33 — periodic narrative summarizer LLM call
 
 
 class ActivityType(str, Enum):

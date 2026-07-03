@@ -209,6 +209,16 @@ def build_dm_context_block(state_manager: StateManager, *, last_n: int = 5) -> s
         lines.append(state.initial_scenario)
         lines.append("")
 
+    # Phase 33 — long-term memory (most recent consolidated summary).
+    # Older summary entries are kept on disk but not injected, to keep
+    # the prompt bounded. Placed adjacent to world state (not the diário)
+    # so the LLM treats it as world-level context, not a preamble to
+    # the recent log.
+    if state.summary_history:
+        lines.append("## Resumo de eventos anteriores")
+        lines.append(state.summary_history[-1])
+        lines.append("")
+
     # Party
     lines.append("## Party")
     if not state.party:

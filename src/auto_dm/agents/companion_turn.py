@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from auto_dm.agents.companion import CompanionAgent, CompanionDecision
+from auto_dm.agents.summarizer import NarrativeSummarizer, summarize_once
 from auto_dm.engine.combat_engine import CombatEngine
 from auto_dm.state.manager import StateManager
 from auto_dm.state.models import (
@@ -82,6 +83,7 @@ def run_companion_turn(
     *,
     enemies: list[str],
     allies: Optional[list[str]] = None,
+    summarizer: Optional[NarrativeSummarizer] = None,
 ) -> CompanionTurnResult:
     """Execute one companion's combat turn.
 
@@ -91,6 +93,13 @@ def run_companion_turn(
         3. Log the intent in the narrative log.
         4. If the agent produced an Action, dispatch through the engine.
         5. Log the result message (success or refusal).
+        6. Phase 33 — run periodic summarizer hook (no-op when the
+           trigger doesn't fire or when ``summarizer`` is None).
+
+    Companion-turn costs are not currently billed to the web, so the
+    summarizer call here only updates ``state.summary_history``; its
+    UsageReport is dropped. The ``last_summarized_at_index`` cooldown
+    ensures at most one summarization per combat cycle.
     """
     actor = agent.character
     if state_manager.state.in_combat:
@@ -116,6 +125,8 @@ def run_companion_turn(
 
     if decision.action is None:
         # Companion had nothing to say / no action to take.
+        if summarizer is not None:
+            summarize_once(state_manager, summarizer)
         return CompanionTurnResult(
             actor_id=actor.id,
             actor_name=actor.name,
@@ -125,6 +136,9 @@ def run_companion_turn(
 
     action_result = combat_engine.execute_action(state_manager, decision.action)
     _log_result(state_manager, actor, action_result)
+
+    if summarizer is not None:
+        summarize_once(state_manager, summarizer)
 
     return CompanionTurnResult(
         actor_id=actor.id,

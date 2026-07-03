@@ -14,17 +14,25 @@ real CombatEngine.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Optional
 
 from auto_dm.agents.companion_turn import CompanionTurnResult
 from auto_dm.agents.dm import DMAgent, DMResponse
 from auto_dm.agents.prompts import get_followup_max_sentences
+from auto_dm.agents.summarizer import NarrativeSummarizer, summarize_once
 from auto_dm.engine.combat_engine import CombatEngine
 from auto_dm.llm.usage import UsageReport
 from auto_dm.state.manager import StateManager
 from auto_dm.state.models import Action, ActionResult, ActionType, NarrativeEntry
+
+
+# Phase 33 — tag the summarizer's LLM usage so the web layer (and any
+# other consumer of ``result.usages``) can split billing by source.
+# We use a plain string here to avoid an agents→web dependency cycle.
+# Empty / "player" => player-turn cost; "summarizer" => background cost.
+_SUMMARIZER_USAGE_KIND = "summarizer"
 
 
 logger = logging.getLogger(__name__)
@@ -66,6 +74,7 @@ def process_player_action(
     dm_agent: DMAgent,
     *,
     combat_engine: Optional[CombatEngine] = None,
+    summarizer: Optional[NarrativeSummarizer] = None,
 ) -> NarrativeResult:
     """Process one player turn end-to-end.
 
@@ -76,6 +85,8 @@ def process_player_action(
         4. If the DM emitted an Action, dispatch it (stubbed for combat).
         5. If dispatch produced output, optionally ask the DM once more
            so it can narrate the result.
+        6. Run the periodic summarizer hook (Phase 33) — only at end of
+           turn, so we always summarize a complete log slice.
 
     Returns a :class:`NarrativeResult` with everything the CLI needs
     to print and any state mutations already applied.
@@ -92,6 +103,7 @@ def process_player_action(
         result.usages.append(dm_response.usage)
 
     if dm_response.action is None:
+        _maybe_summarize(state_manager, summarizer, result)
         return result
 
     # Dispatch the action
@@ -114,7 +126,32 @@ def process_player_action(
         if follow_up.usage is not None:
             result.usages.append(follow_up.usage)
 
+    # Phase 33 — end-of-turn summarizer hook. Runs once after the
+    # complete turn (player + optional follow-up). Outside any inner
+    # loops so the summarizer sees a consistent log slice.
+    _maybe_summarize(state_manager, summarizer, result)
+
     return result
+
+
+def _maybe_summarize(
+    state_manager: StateManager,
+    summarizer: Optional[NarrativeSummarizer],
+    result: NarrativeResult,
+) -> None:
+    """End-of-turn helper: run summarize_once, tag usage, append to result.
+
+    Wraps the summarizer module's call so narrative.py never has to know
+    about the trigger predicate. ``result.usages`` accumulates the LLM
+    usage with ``kind="summarizer"`` so the web layer can bill it
+    separately from player-turn cost.
+    """
+    if summarizer is None:
+        return
+    usage = summarize_once(state_manager, summarizer)
+    if usage is not None:
+        tagged = replace(usage, kind=_SUMMARIZER_USAGE_KIND)
+        result.usages.append(tagged)
 
 
 def generate_opening(

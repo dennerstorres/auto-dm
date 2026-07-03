@@ -699,6 +699,18 @@ class GameState(BaseModel):
     narrative_log: list[NarrativeEntry] = Field(default_factory=list)
     summary_history: list[str] = Field(default_factory=list)
 
+    # Phase 33 — periodic narrative summarizer config + cursor state.
+    # Defaults preserve old saves (Pydantic fills missing keys).
+    # Trigger condition: every `summary_every_n_entries` new entries
+    # since `last_summarized_at_index`, OR total chars in narrative_log
+    # exceed `summary_char_threshold`. `summary_enabled` is a runtime
+    # kill switch (``/summary off`` in the CLI).
+    summary_enabled: bool = True
+    summary_every_n_entries: int = 20
+    summary_char_threshold: int = 12_000
+    last_summarized_at_index: int = 0
+    last_summary_attempt_at_index: int = 0
+
     # Player-set campaign preferences
     # Default "longo" preserves the original behavior for old saves
     # (Pydantic fills the default when the key is missing).
