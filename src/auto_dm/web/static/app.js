@@ -1050,15 +1050,30 @@ function returnToLobby() {
   loadLobby();
 }
 
+function openPlayGuide() {
+  const guide = document.getElementById("play-guide");
+  if (!guide) return;
+  guide.open = true;
+  guide.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function fillCommand(command) {
+  const input = document.getElementById("cmd");
+  if (!input || input.disabled) return;
+  input.value = command;
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
 // --- /command helpers (client-side) ---
 async function clientCommand(line) {
   // /quit, /save, /load, /list, /help — handled locally.
   const parts = line.trim().split(/\s+/);
   const cmd = parts[0].toLowerCase();
   if (cmd === "/help") {
+    openPlayGuide();
     appendLog("Sistema",
-      "Comandos: /help /status /look /inventory /conditions /spells " +
-      "/encounter <mon> /roll <teste> /save [slug] /load <slug> /list /quit",
+      "Guia aberto abaixo do campo de comando. Use-o para ver quando usar cada comando.",
       "system");
     return true;
   }
@@ -1140,6 +1155,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("archive-toggle").onclick = toggleArchived;
   document.getElementById("send-btn").onclick = sendInput;
   document.getElementById("lobby-btn").onclick = returnToLobby;
+  document.querySelectorAll(".command-chip").forEach((btn) => {
+    btn.addEventListener("click", () => fillCommand(btn.dataset.command || ""));
+  });
   const rollBtn = document.getElementById("roll-btn");
   if (rollBtn) rollBtn.onclick = rollSelectedCheck;
   const rollCheck = document.getElementById("roll-check");

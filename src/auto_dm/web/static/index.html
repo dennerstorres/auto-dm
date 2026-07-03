@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Auto DM — Console</title>
-  <link rel="stylesheet" href="/style.css?v=37" />
+  <link rel="stylesheet" href="/style.css?v=38" />
 </head>
 <body>
   <div id="app">
@@ -201,6 +201,84 @@
           <span>Modo streaming (narração tok-by-tok via SSE)</span>
         </label>
       </div>
+      <details id="play-guide" class="play-guide">
+        <summary>Guia de jogo e comandos</summary>
+        <div class="guide-grid">
+          <section>
+            <h3>Como jogar</h3>
+            <ol>
+              <li>Leia a narração do DM e decida a intenção do personagem.</li>
+              <li>Digite uma ação em linguagem natural, como "examino a porta" ou "converso com o guarda".</li>
+              <li>Quando o DM pedir um teste, use o painel "Teste pedido pelo DM" ou o comando <code>/roll</code>.</li>
+              <li>Depois da resposta do DM, continue descrevendo a próxima ação.</li>
+              <li>Use comandos para consultar ficha, rolar dados, salvar, carregar ou sair.</li>
+            </ol>
+          </section>
+          <section>
+            <h3>Comandos principais</h3>
+            <dl class="command-list">
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/help">/help</button></dt>
+                <dd>Abre este guia durante a sessão.</dd>
+              </div>
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/status">/status</button></dt>
+                <dd>Mostra a situação atual da campanha e do grupo.</dd>
+              </div>
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/look">/look</button></dt>
+                <dd>Relembra o ambiente quando você estiver sem saber o que fazer.</dd>
+              </div>
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/inventory">/inventory</button></dt>
+                <dd>Confere itens antes de usar equipamento ou consumir recursos.</dd>
+              </div>
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/conditions">/conditions</button></dt>
+                <dd>Confere efeitos ativos, ferimentos, buffs e penalidades.</dd>
+              </div>
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/spells">/spells</button></dt>
+                <dd>Mostra magias e recursos de conjuração.</dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <h3>Dados e combate</h3>
+            <dl class="command-list">
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/roll furtividade">/roll &lt;teste&gt;</button></dt>
+                <dd>Role quando o DM pedir um teste. Exemplos: <code>/roll furtividade</code>, <code>/roll save destreza</code>.</dd>
+              </div>
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/encounter goblin">/encounter &lt;monstro&gt;</button></dt>
+                <dd>Inicia encontro manual. Use só quando quiser forçar um combate.</dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <h3>Saves e sessão</h3>
+            <dl class="command-list">
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/save">/save [nome]</button></dt>
+                <dd>Salve antes de sair ou em momentos importantes. Sem nome, usa o save atual.</dd>
+              </div>
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/list">/list</button></dt>
+                <dd>Lista seus saves quando você não lembrar o nome.</dd>
+              </div>
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/load ">/load &lt;nome&gt;</button></dt>
+                <dd>Carrega outro save pelo nome mostrado em <code>/list</code>.</dd>
+              </div>
+              <div>
+                <dt><button class="command-chip" type="button" data-command="/quit">/quit</button></dt>
+                <dd>Volta ao lobby. O jogo também é salvo automaticamente após suas ações.</dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+      </details>
       <div class="hints">
         Comandos: <code>/help</code> <code>/status</code>
         <code>/look</code> <code>/inventory</code>
@@ -277,6 +355,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=37" type="module"></script>
+  <script src="/app.js?v=38" type="module"></script>
 </body>
 </html>
