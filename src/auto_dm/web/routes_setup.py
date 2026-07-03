@@ -24,6 +24,13 @@ from typing import Annotated, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from auto_dm.character.spells import (
+    get_cantrips_known,
+    get_spell_slots,
+    get_spellbook_size,
+    get_spells_known_max,
+    prepare_caster_spells,
+)
 from auto_dm.character.builder import CharacterBuilder, parse_class_skill_options
 from auto_dm.companions import (
     COMPANION_BLURBS,
@@ -31,7 +38,7 @@ from auto_dm.companions import (
     list_companion_keys,
     roll_party_candidates,
 )
-from auto_dm.phb import get_class, get_race
+from auto_dm.phb import get_class, get_race, get_spells_for_class
 from auto_dm.state.models import AbilityScores, Character, GameState
 from auto_dm.web.auth import current_user
 from auto_dm.web.models import User
@@ -72,6 +79,13 @@ class BackgroundOption(BaseModel):
     feature: str = ""
 
 
+class SpellSelectionSpec(BaseModel):
+    cantrips: list[str] = Field(default_factory=list)
+    spells_known: list[str] = Field(default_factory=list)
+    spells_prepared: list[str] = Field(default_factory=list)
+    spellbook: list[str] = Field(default_factory=list)
+
+
 class CharacterOptions(BaseModel):
     """Metadata for the wizard UI."""
 
@@ -104,6 +118,7 @@ class PlayerCharacterSpec(BaseModel):
     starting_armor: Optional[str] = None
     starting_shield: bool = False
     starting_pack: Optional[str] = None
+    spell_selection: Optional[SpellSelectionSpec] = None
 
     model_config = {"populate_by_name": True}
 
@@ -136,6 +151,9 @@ def _serialize_race(race) -> dict[str, Any]:
 
 
 def _serialize_class(cls) -> dict[str, Any]:
+    spellcasting = None
+    if cls.spellcasting is not None:
+        spellcasting = _serialize_spellcasting_options(cls)
     return {
         "name": cls.name,
         "hit_dice": cls.hit_dice,
@@ -144,6 +162,50 @@ def _serialize_class(cls) -> dict[str, Any]:
         "num_skill_choices": cls.proficiencies.num_skill_choices,
         "subclasses": [sc.name for sc in cls.subclasses],
         "is_spellcaster": cls.spellcasting is not None,
+        "spellcasting": spellcasting,
+    }
+
+
+def _caster_type(class_name: str) -> str:
+    cls = class_name.strip().lower()
+    if cls == "wizard":
+        return "wizard"
+    if cls in {"cleric", "druid", "paladin"}:
+        return "prepared"
+    if cls in {"bard", "ranger", "sorcerer", "warlock"}:
+        return "known"
+    return "none"
+
+
+def _serialize_spell(spell) -> dict[str, Any]:
+    return {
+        "name": spell.name,
+        "level": spell.level,
+        "school": str(spell.school.value),
+        "ritual": spell.is_ritual,
+        "concentration": spell.is_concentration,
+    }
+
+
+def _serialize_spellcasting_options(cls) -> dict[str, Any]:
+    spells = sorted(
+        get_spells_for_class(cls.name),
+        key=lambda s: (s.level, s.name),
+    )
+    limits = {}
+    for level in _LEVELS:
+        slots = get_spell_slots(cls.name, level)
+        limits[str(level)] = {
+            "cantrips_known": get_cantrips_known(cls.name, level),
+            "spells_known": get_spells_known_max(cls.name, level),
+            "spellbook_size": get_spellbook_size(cls.name, level),
+            "slot_levels": sorted(slots.keys()),
+        }
+    return {
+        "ability": cls.spellcasting.ability.value,
+        "caster_type": _caster_type(cls.name),
+        "limits": limits,
+        "spells": [_serialize_spell(s) for s in spells],
     }
 
 
@@ -187,7 +249,38 @@ def _build_character(spec: PlayerCharacterSpec) -> Character:
     if spec.starting_pack:
         builder.with_starting_pack(spec.starting_pack)
     draft = builder.build()
-    return draft.character
+    character = draft.character
+    if spec.spell_selection is None:
+        return character
+
+    selection = _build_spell_selection(
+        draft.char_class,
+        character,
+        spec.spell_selection,
+    )
+    spellcasting = selection.to_spellcasting(
+        draft.char_class,
+        character.abilities,
+        character.proficiency_bonus,
+    )
+    slots = get_spell_slots(draft.char_class.name, character.level)
+    spellcasting.spell_slots = dict(slots)
+    spellcasting.spell_slots_max = dict(slots)
+    return character.model_copy(update={"spellcasting": spellcasting})
+
+
+def _build_spell_selection(char_class, character: Character, spec: SpellSelectionSpec):
+    """Validate the browser spell choices and return a SpellSelection."""
+    return prepare_caster_spells(
+        char_class=char_class,
+        level=character.level,
+        abilities=character.abilities,
+        proficiency_bonus=character.proficiency_bonus,
+        cantrips=spec.cantrips,
+        spells_known=spec.spells_known,
+        spells_prepared=spec.spells_prepared,
+        spellbook=spec.spellbook,
+    )
 
 
 # ============================================================================

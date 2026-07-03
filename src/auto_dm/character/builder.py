@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from auto_dm.engine.dice import roll_stats
-from auto_dm.character.spells import SpellSelection
+from auto_dm.character.spells import SpellSelection, get_spell_slots
 from auto_dm.phb import (
     CharacterClass,
     PHBArmor,
@@ -336,6 +336,9 @@ class CharacterBuilder:
             spellcasting = self._spell_selection.to_spellcasting(
                 char_class, abilities, prof_bonus
             )
+            slots = get_spell_slots(char_class.name, self._level)
+            spellcasting.spell_slots = dict(slots)
+            spellcasting.spell_slots_max = dict(slots)
 
         character = Character(
             id=str(uuid.uuid4())[:8],

@@ -82,6 +82,22 @@ async def test_character_options_classes_have_skills(client, auth_token):
 
 
 @pytest.mark.asyncio
+async def test_character_options_spellcasters_include_spell_options(client, auth_token):
+    token, user, headers = auth_token
+    resp = await client.get("/api/character-options", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    wizard = next(c for c in body["classes"] if c["name"] == "Wizard")
+    assert wizard["is_spellcaster"] is True
+    assert wizard["spellcasting"]["caster_type"] == "wizard"
+    assert wizard["spellcasting"]["ability"] == "intelligence"
+    assert wizard["spellcasting"]["limits"]["1"]["cantrips_known"] == 3
+    assert wizard["spellcasting"]["limits"]["1"]["spellbook_size"] == 6
+    spell_names = {s["name"] for s in wizard["spellcasting"]["spells"]}
+    assert {"Fire Bolt", "Magic Missile", "Shield"}.issubset(spell_names)
+
+
+@pytest.mark.asyncio
 async def test_character_options_tolerates_missing_phb_entries(
     client, auth_token, monkeypatch
 ):
@@ -322,6 +338,86 @@ async def test_with_character_roll_stats(client, auth_token):
 # ============================================================================
 # POST /companions/roll — Phase 27 synergy roller
 # ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_with_character_wizard_spell_selection(client, auth_token):
+    token, user, headers = auth_token
+    options_resp = await client.get("/api/character-options", headers=headers)
+    assert options_resp.status_code == 200
+    wizard = next(c for c in options_resp.json()["classes"] if c["name"] == "Wizard")
+    spells = wizard["spellcasting"]["spells"]
+    cantrips = [s["name"] for s in spells if s["level"] == 0][:3]
+    spellbook = [s["name"] for s in spells if s["level"] == 1][:6]
+
+    spec = {
+        "name": "Elara",
+        "race": "Human",
+        "class": "Wizard",
+        "subclass": "Evocation",
+        "background": "Sage",
+        "alignment": "NG",
+        "level": 1,
+        "stats_method": "standard_array",
+        "skills": ["arcana", "history"],
+        "spell_selection": {
+            "cantrips": cantrips,
+            "spellbook": spellbook,
+            "spells_prepared": spellbook[:2],
+        },
+    }
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Arcane Test",
+            "player_character": spec,
+            "companions": [],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    player = resp.json()["state"]["party"][0]
+    sc = player["spellcasting"]
+    assert sc is not None
+    assert sc["cantrips_known"] == cantrips
+    assert sc["spellbook"] == spellbook
+    assert sc["spells_prepared"] == spellbook[:2]
+    assert sc["spell_slots"] == {"1": 2}
+
+
+@pytest.mark.asyncio
+async def test_with_character_rejects_spell_outside_level(client, auth_token):
+    token, user, headers = auth_token
+    spec = {
+        "name": "Elara",
+        "race": "Human",
+        "class": "Wizard",
+        "subclass": "Evocation",
+        "background": "Sage",
+        "alignment": "NG",
+        "level": 1,
+        "stats_method": "standard_array",
+        "skills": ["arcana", "history"],
+        "spell_selection": {
+            "cantrips": ["Fire Bolt", "Light", "Mage Hand"],
+            "spellbook": [
+                "Magic Missile", "Shield", "Mage Armor",
+                "Sleep", "Detect Magic", "Fireball",
+            ],
+            "spells_prepared": ["Magic Missile"],
+        },
+    }
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Bad Spell",
+            "player_character": spec,
+            "companions": [],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert "cannot choose" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

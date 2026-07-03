@@ -167,6 +167,15 @@ def _spells_known_warlock() -> dict[int, int]:
     }
 
 
+def _spells_known_ranger() -> dict[int, int]:
+    """Ranger spells known per PHB p. 90."""
+    return {
+        1: 0, 2: 2, 3: 3, 4: 3, 5: 4, 6: 4, 7: 5, 8: 5, 9: 6, 10: 6,
+        11: 7, 12: 7, 13: 8, 14: 8, 15: 9, 16: 9, 17: 10, 18: 10,
+        19: 11, 20: 11,
+    }
+
+
 _CANTRIPS_KNOWN: dict[str, dict[int, int]] = {
     "bard":     _build_cantrips_by_class([(1, 2), (4, 3), (10, 4)]),
     "cleric":   _build_cantrips_by_class([(1, 3), (4, 4), (10, 5)]),
@@ -182,6 +191,7 @@ _CANTRIPS_KNOWN: dict[str, dict[int, int]] = {
 # PHB Bard / Sorcerer / Warlock class tables.
 _SPELLS_KNOWN: dict[str, dict[int, int]] = {
     "bard":     _spells_known_bard(),
+    "ranger":   _spells_known_ranger(),
     "sorcerer": _spells_known_sorcerer(),
     "warlock":  _spells_known_warlock(),
 }
@@ -233,6 +243,7 @@ class SpellSelection:
             cantrips_known=list(self.cantrips),
             spells_known=list(self.spells_known),
             spells_prepared=list(self.spells_prepared),
+            spellbook=list(self.spellbook),
             spell_slots=spell_slots,
             spell_slots_max=spell_slots,
             concentration=None,
@@ -291,6 +302,55 @@ def get_spellbook_size(class_name: str, level: int) -> int:
     if cls != "wizard":
         return 0
     return _WIZARD_SPELLBOOK.get(level, 0)
+
+
+def _class_spells_by_name(char_class: CharacterClass) -> dict[str, int]:
+    """Return spell name -> level for spells available to ``char_class``."""
+    return {
+        s.name: s.level
+        for s in get_spells_for_class(char_class.name)
+    }
+
+
+def _available_leveled_spell_levels(class_name: str, level: int) -> set[int]:
+    """Leveled spell levels the class can cast at character level ``level``."""
+    slots = get_spell_slots(class_name, level)
+    if not slots:
+        return set()
+    max_slot = max(slots)
+    return set(range(1, max_slot + 1))
+
+
+def _validate_unique(names: list[str], label: str) -> None:
+    if len(set(names)) != len(names):
+        raise ValueError(f"Duplicate spell in {label}")
+
+
+def _validate_leveled_spells(
+    char_class: CharacterClass,
+    level: int,
+    picks: list[str],
+    *,
+    label: str,
+) -> None:
+    """Validate leveled spell picks against class list and slot access."""
+    _validate_unique(picks, label)
+    class_spells = _class_spells_by_name(char_class)
+    allowed_levels = _available_leveled_spell_levels(char_class.name, level)
+    for name in picks:
+        spell_level = class_spells.get(name)
+        if spell_level is None:
+            raise ValueError(
+                f"{name!r} is not on the {char_class.name} spell list"
+            )
+        if spell_level == 0:
+            raise ValueError(f"{name!r} is a cantrip, not a leveled spell")
+        if spell_level not in allowed_levels:
+            allowed = ", ".join(str(n) for n in sorted(allowed_levels)) or "none"
+            raise ValueError(
+                f"{char_class.name} L{level} cannot choose {name!r} "
+                f"(spell level {spell_level}; available levels: {allowed})"
+            )
 
 
 def select_cantrips(
@@ -368,13 +428,9 @@ def prepare_caster_spells(
                 f"{char_class.name} L{level} knows {max_known} spells, "
                 f"got {len(spells_known)}"
             )
-        # All must be on class list
-        class_spell_names = {s.name for s in get_spells_for_class(char_class.name)}
-        for name in spells_known:
-            if class_spell_names and name not in class_spell_names:
-                raise ValueError(
-                    f"{name!r} is not on the {char_class.name} spell list"
-                )
+        _validate_leveled_spells(
+            char_class, level, spells_known, label="spells_known"
+        )
         return SpellSelection(
             cantrips=cantrips,
             spells_known=list(spells_known),
@@ -392,6 +448,9 @@ def prepare_caster_spells(
                 f"{char_class.name} L{level} can prepare {max_prep}, "
                 f"got {len(spells_prepared)}"
             )
+        _validate_leveled_spells(
+            char_class, level, spells_prepared, label="spells_prepared"
+        )
         return SpellSelection(
             cantrips=cantrips,
             spells_known=[],
@@ -408,11 +467,22 @@ def prepare_caster_spells(
                 f"Wizard L{level} has {max_book} spells in book, "
                 f"got {len(spellbook)}"
             )
+        _validate_leveled_spells(
+            char_class, level, spellbook, label="spellbook"
+        )
         max_prep = get_prepared_count(char_class.name, level, casting_mod)
         prepared = list(spells_prepared or [])
         if len(prepared) > max_prep:
             raise ValueError(
                 f"Wizard L{level} can prepare {max_prep}, got {len(prepared)}"
+            )
+        _validate_leveled_spells(
+            char_class, level, prepared, label="spells_prepared"
+        )
+        missing_from_book = [name for name in prepared if name not in spellbook]
+        if missing_from_book:
+            raise ValueError(
+                f"Wizard prepared spells must be in spellbook: {missing_from_book}"
             )
         return SpellSelection(
             cantrips=cantrips,

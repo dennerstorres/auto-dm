@@ -276,6 +276,8 @@ def render_spellbook(character: Character) -> Panel:
         lines.append(f"[bold]Preparadas:[/bold] {', '.join(sc.spells_prepared)}")
     elif sc.spells_known:
         lines.append(f"[bold]Conhecidas:[/bold] {', '.join(sc.spells_known)}")
+    if sc.spellbook:
+        lines.append(f"[bold]Grimorio:[/bold] {', '.join(sc.spellbook)}")
 
     # Spell slots
     if sc.spell_slots_max:

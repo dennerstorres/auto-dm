@@ -1542,8 +1542,17 @@ function labeled(text, control) {
 const WIZARD_STEPS = [
   "name", "race", "class", "subclass",
   "background", "alignment", "level", "stats",
-  "skills", "companions", "confirm",
+  "skills", "spells", "companions", "confirm",
 ];
+
+function emptySpellSelection() {
+  return {
+    cantrips: [],
+    spells_known: [],
+    spells_prepared: [],
+    spellbook: [],
+  };
+}
 
 let wizardState = {
   step: 0,             // index into WIZARD_STEPS
@@ -1559,9 +1568,10 @@ let wizardState = {
   level: 1,
   stats_method: "standard_array",
   skills: [],
+  spell_selection: emptySpellSelection(),
   companions: [],
   // Phase 27: companions are rolled lazily from /api/companions/roll when
-  // the player reaches step 10 (synergy-biased against wizardState.char_class).
+  // the player reaches the companions step (synergy-biased against wizardState.char_class).
   companionCandidates: null,
 };
 
@@ -1575,6 +1585,7 @@ async function openWizard() {
     // against the player's class the first time step 10 is reached.
     wizardState.companions = [];
     wizardState.companionCandidates = null;
+    wizardState.spell_selection = emptySpellSelection();
     show("wizard-screen");
     renderWizardStep();
     setMsg("lobby-msg", "", "");
@@ -1585,7 +1596,7 @@ async function openWizard() {
 
 function renderWizardStep() {
   // Hide all, show current.
-  for (let i = 1; i <= 11; i++) {
+  for (let i = 1; i <= WIZARD_STEPS.length; i++) {
     const el = document.getElementById(`wizard-step-${i}`);
     if (el) el.classList.toggle("active", i === wizardState.step + 1);
   }
@@ -1617,6 +1628,7 @@ function renderWizardStep() {
     case "level": renderWizardLevel(); break;
     case "stats": renderWizardStats(); break;
     case "skills": renderWizardSkills(); break;
+    case "spells": renderWizardSpells(); break;
     case "companions": renderWizardCompanions(); break;
     case "confirm": renderWizardConfirm(); break;
   }
@@ -1681,6 +1693,9 @@ function renderWizardClass() {
       wizardState.char_class = c.name;
       wizardState.subclass = null;
       wizardState.skills = [];
+      wizardState.spell_selection = emptySpellSelection();
+      wizardState.companions = [];
+      wizardState.companionCandidates = null;
       renderWizardStep();
     };
     root.appendChild(card);
@@ -1705,6 +1720,8 @@ function renderWizardSubclass() {
     card.innerHTML = `<div class="name">${s}</div>`;
     card.onclick = () => {
       wizardState.subclass = wizardState.subclass === s ? null : s;
+      wizardState.companions = [];
+      wizardState.companionCandidates = null;
       renderWizardStep();
     };
     root.appendChild(card);
@@ -1751,6 +1768,7 @@ function renderWizardLevel() {
     card.innerHTML = `<div class="name">Nível ${lv}</div>`;
     card.onclick = () => {
       wizardState.level = lv;
+      wizardState.spell_selection = emptySpellSelection();
       renderWizardStep();
     };
     root.appendChild(card);
@@ -1813,6 +1831,181 @@ function renderWizardSkills() {
     lbl.appendChild(cb);
     lbl.appendChild(span);
     root.appendChild(lbl);
+  }
+}
+
+function wizardClassOption() {
+  if (!wizardState.char_class || !wizardState.options) return null;
+  return wizardState.options.classes.find((c) => c.name === wizardState.char_class) || null;
+}
+
+function wizardSpellLimit() {
+  const cls = wizardClassOption();
+  if (!cls || !cls.spellcasting) return null;
+  return cls.spellcasting.limits[String(wizardState.level)] || null;
+}
+
+function wizardPreparedMax() {
+  const cls = wizardClassOption();
+  if (!cls || !cls.spellcasting) return 0;
+  const abilityScores = {
+    strength: 15,
+    dexterity: 14,
+    constitution: 13,
+    intelligence: 12,
+    wisdom: 10,
+    charisma: 8,
+  };
+  const score = abilityScores[cls.spellcasting.ability] || 10;
+  const mod = Math.floor((score - 10) / 2);
+  if (wizardState.char_class === "Paladin") {
+    return Math.max(1, mod + Math.floor(wizardState.level / 2));
+  }
+  return Math.max(1, mod + wizardState.level);
+}
+
+function spellMeta(spell) {
+  const tags = [
+    spell.level === 0 ? "truque" : `${spell.level} nivel`,
+    spell.school,
+  ];
+  if (spell.ritual) tags.push("ritual");
+  if (spell.concentration) tags.push("concentracao");
+  return tags.join(" - ");
+}
+
+function renderSpellCheckboxList(root, title, spells, selected, max, field) {
+  const section = document.createElement("section");
+  section.className = "spell-section";
+  const h = document.createElement("h3");
+  h.textContent = max > 0 ? `${title} (${selected.length}/${max})` : title;
+  section.appendChild(h);
+
+  if (!spells.length || max === 0) {
+    const empty = document.createElement("div");
+    empty.className = "msg";
+    empty.textContent = "Nenhuma escolha disponivel neste nivel.";
+    section.appendChild(empty);
+    root.appendChild(section);
+    return;
+  }
+
+  const list = document.createElement("div");
+  list.className = "spell-list";
+  for (const spell of spells) {
+    const lbl = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = selected.includes(spell.name);
+    cb.disabled = !cb.checked && selected.length >= max;
+    cb.onchange = () => {
+      if (cb.checked) {
+        if (!wizardState.spell_selection[field].includes(spell.name)) {
+          wizardState.spell_selection[field].push(spell.name);
+        }
+      } else {
+        wizardState.spell_selection[field] =
+          wizardState.spell_selection[field].filter((x) => x !== spell.name);
+        if (field === "spellbook") {
+          wizardState.spell_selection.spells_prepared =
+            wizardState.spell_selection.spells_prepared.filter((x) =>
+              wizardState.spell_selection.spellbook.includes(x)
+            );
+        }
+      }
+      renderWizardSpells();
+    };
+
+    const text = document.createElement("span");
+    const name = document.createElement("span");
+    name.className = "spell-name";
+    name.textContent = spell.name;
+    const meta = document.createElement("span");
+    meta.className = "spell-meta";
+    meta.textContent = spellMeta(spell);
+    text.appendChild(name);
+    text.appendChild(meta);
+    lbl.appendChild(cb);
+    lbl.appendChild(text);
+    list.appendChild(lbl);
+  }
+  section.appendChild(list);
+  root.appendChild(section);
+}
+
+function renderWizardSpells() {
+  const root = document.getElementById("wz-spells");
+  const info = document.getElementById("wz-spells-info");
+  root.innerHTML = "";
+  const cls = wizardClassOption();
+  const limit = wizardSpellLimit();
+  if (!cls || !cls.spellcasting || !limit) {
+    info.textContent = "Esta classe nao usa magias na criacao.";
+    return;
+  }
+
+  const spellcasting = cls.spellcasting;
+  const spells = spellcasting.spells || [];
+  const slotLevels = new Set(limit.slot_levels || []);
+  const cantrips = spells.filter((s) => s.level === 0);
+  const leveled = spells.filter((s) => s.level > 0 && slotLevels.has(s.level));
+  const selection = wizardState.spell_selection;
+  const type = spellcasting.caster_type;
+
+  if (!limit.cantrips_known && !slotLevels.size) {
+    info.textContent = `${wizardState.char_class} ainda nao recebe magias no nivel ${wizardState.level}.`;
+    return;
+  }
+
+  const ability = spellcasting.ability;
+  info.textContent =
+    `Habilidade de conjuracao: ${ability}. Escolha as magias iniciais do personagem.`;
+
+  renderSpellCheckboxList(
+    root,
+    "Truques",
+    cantrips,
+    selection.cantrips,
+    limit.cantrips_known || 0,
+    "cantrips",
+  );
+
+  if (type === "known") {
+    renderSpellCheckboxList(
+      root,
+      "Magias conhecidas",
+      leveled,
+      selection.spells_known,
+      limit.spells_known || 0,
+      "spells_known",
+    );
+  } else if (type === "prepared") {
+    renderSpellCheckboxList(
+      root,
+      "Magias preparadas",
+      leveled,
+      selection.spells_prepared,
+      slotLevels.size ? wizardPreparedMax() : 0,
+      "spells_prepared",
+    );
+  } else if (type === "wizard") {
+    renderSpellCheckboxList(
+      root,
+      "Grimorio",
+      leveled,
+      selection.spellbook,
+      limit.spellbook_size || 0,
+      "spellbook",
+    );
+    const preparedSource = leveled.filter((s) => selection.spellbook.includes(s.name));
+    renderSpellCheckboxList(
+      root,
+      "Magias preparadas",
+      preparedSource,
+      selection.spells_prepared,
+      wizardPreparedMax(),
+      "spells_prepared",
+    );
   }
 }
 
@@ -1880,6 +2073,8 @@ function renderWizardConfirm() {
     ["Nível", wizardState.level],
     ["Método de atributos", wizardState.stats_method],
     ["Perícias", wizardState.skills.join(", ") || "(nenhuma)"],
+    ["Truques", wizardState.spell_selection.cantrips.join(", ") || "(nenhum)"],
+    ["Magias", wizardSpellSummary()],
     ["Companheiros", wizardState.companions.length
       ? wizardState.companions.map((k) => wizardState.options.companions.find((c) => c.key === k)?.name || k).join(", ")
       : "(solo)"],
@@ -1901,6 +2096,56 @@ function renderWizardConfirm() {
   }
   root.innerHTML = "";
   root.appendChild(block);
+}
+
+function wizardSpellSummary() {
+  const s = wizardState.spell_selection;
+  const parts = [];
+  if (s.spells_known.length) parts.push(`conhecidas: ${s.spells_known.join(", ")}`);
+  if (s.spellbook.length) parts.push(`grimorio: ${s.spellbook.join(", ")}`);
+  if (s.spells_prepared.length) parts.push(`preparadas: ${s.spells_prepared.join(", ")}`);
+  return parts.join(" | ") || "(nenhuma)";
+}
+
+function wizardValidateSpells() {
+  const cls = wizardClassOption();
+  const limit = wizardSpellLimit();
+  if (!cls || !cls.spellcasting || !limit) return null;
+  const selection = wizardState.spell_selection;
+  const type = cls.spellcasting.caster_type;
+  const slots = limit.slot_levels || [];
+
+  if ((limit.cantrips_known || 0) > 0 &&
+      selection.cantrips.length !== limit.cantrips_known) {
+    return `Escolha ${limit.cantrips_known} truque(s) para ${wizardState.char_class}.`;
+  }
+  if (type === "known" && (limit.spells_known || 0) > 0 &&
+      selection.spells_known.length !== limit.spells_known) {
+    return `Escolha ${limit.spells_known} magia(s) conhecida(s) para ${wizardState.char_class}.`;
+  }
+  if (type === "prepared" && slots.length > 0 && selection.spells_prepared.length < 1) {
+    return `Escolha pelo menos 1 magia preparada para ${wizardState.char_class}.`;
+  }
+  if (type === "wizard") {
+    if ((limit.spellbook_size || 0) > 0 &&
+        selection.spellbook.length !== limit.spellbook_size) {
+      return `Escolha ${limit.spellbook_size} magia(s) para o grimorio.`;
+    }
+    if (selection.spells_prepared.length < 1) {
+      return "Escolha pelo menos 1 magia preparada.";
+    }
+  }
+  return null;
+}
+
+function hasWizardSpellSelection() {
+  const s = wizardState.spell_selection;
+  return Boolean(
+    s.cantrips.length ||
+    s.spells_known.length ||
+    s.spells_prepared.length ||
+    s.spellbook.length
+  );
 }
 
 // --- Navigation ---
@@ -1956,6 +2201,8 @@ function wizardValidateStep(step) {
       }
       return null;
     }
+    case "spells":
+      return wizardValidateSpells();
     case "companions":
       return null;  // 0 is OK
     default:
@@ -1988,6 +2235,9 @@ async function wizardFinish() {
       },
       companions: wizardState.companions,
     };
+    if (hasWizardSpellSelection()) {
+      payload.player_character.spell_selection = wizardState.spell_selection;
+    }
     const res = await api("/api/sessions/with-character", {
       method: "POST",
       body: payload,

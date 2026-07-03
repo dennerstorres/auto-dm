@@ -63,8 +63,8 @@ def cleric() -> Character:
         spellcasting=Spellcasting(
             ability=Ability.WIS,
             save_dc=13, attack_bonus=5,
-            spells_known=["Sacred Flame", "Light", "Guidance",
-                          "Cure Wounds", "Bless", "Healing Word", "Shield of Faith"],
+            cantrips_known=["Sacred Flame", "Light", "Guidance"],
+            spells_known=[],
             spells_prepared=["Cure Wounds", "Bless", "Healing Word", "Shield of Faith"],
             spell_slots={1: 4, 2: 2},
             spell_slots_max={1: 4, 2: 2},
@@ -89,7 +89,8 @@ def sorcerer() -> Character:
         spellcasting=Spellcasting(
             ability=Ability.CHA,
             save_dc=13, attack_bonus=5,
-            spells_known=["Fire Bolt", "Mage Hand", "Burning Hands", "Shield"],
+            cantrips_known=["Fire Bolt", "Mage Hand"],
+            spells_known=["Burning Hands", "Shield"],
             spells_prepared=[],
             spell_slots={1: 4, 2: 2},
             spell_slots_max={1: 4, 2: 2},
@@ -217,7 +218,7 @@ class TestPreparation:
         assert can_cast_as_prepared(cleric, "Fireball") is False
 
     def test_can_cast_as_known(self, sorcerer: Character) -> None:
-        assert can_cast_as_known(sorcerer, "Fire Bolt") is True
+        assert can_cast_as_known(sorcerer, "Burning Hands") is True
         assert can_cast_as_known(sorcerer, "Cure Wounds") is False
 
 
@@ -348,6 +349,11 @@ class TestCastSpell:
         assert result.success is True
         assert result.slot_level_used == 0
         assert sorcerer.spellcasting.spell_slots == before
+
+    def test_unlearned_cantrip_fails(self, sorcerer: Character) -> None:
+        result = cast_spell(sorcerer, "Ray of Frost")
+        assert result.success is False
+        assert "not known" in result.error
 
     def test_prepared_spell_consumes_slot(self, cleric: Character) -> None:
         result = cast_spell(cleric, "Cure Wounds")

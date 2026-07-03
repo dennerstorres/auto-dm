@@ -173,6 +173,7 @@ class Spellcasting(BaseModel):
     cantrips_known: list[str] = Field(default_factory=list)
     spells_known: list[str] = Field(default_factory=list)
     spells_prepared: list[str] = Field(default_factory=list)
+    spellbook: list[str] = Field(default_factory=list)
     spell_slots: dict[int, int] = Field(default_factory=dict)  # level -> remaining
     spell_slots_max: dict[int, int] = Field(default_factory=dict)  # level -> max
     concentration: Optional[str] = None  # spell name if currently concentrating

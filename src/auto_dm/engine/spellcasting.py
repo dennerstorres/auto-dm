@@ -260,8 +260,9 @@ def can_cast_as_ritual(character: Character, spell_name: str) -> tuple[bool, str
     if spell_name not in (
         character.spellcasting.spells_known
         + character.spellcasting.spells_prepared
+        + character.spellcasting.spellbook
     ):
-        return False, "spell must be known or prepared to cast as ritual"
+        return False, "spell must be known, prepared, or in spellbook"
     return True, ""
 
 
@@ -372,6 +373,11 @@ def cast_spell(
 
     # Cantrip: at-will, no slot
     if spell.is_cantrip:
+        if spell_name not in caster.spellcasting.cantrips_known:
+            return CastResult(
+                success=False, spell_name=spell_name, slot_level_used=0,
+                upcast=False, error=f"{spell_name!r} not known",
+            )
         return CastResult(
             success=True, spell_name=spell_name, slot_level_used=0, upcast=False,
         )
