@@ -284,3 +284,405 @@ Variável de acordo com profundidade. O motor de regras (Fase 3) e o combate (Fa
 ## Onde começar
 
 Próximo passo concreto: **Fase 0 + Fase 1 juntas**, pra ter um esqueleto de CLI conversando com um LLM de verdade. A partir daí, Fases 2 e 3 em paralelo (modelos de estado + motor de regras) porque são fundação pra tudo depois.
+
+---
+
+# Fase 34–39: Segunda onda pós-Fase 33
+
+> Fases de polimento web + gameplay richness, todas projetadas após o
+> painel admin / quota (Fase 30) e a memória de longo prazo (Fase 33).
+> Estimativa é `~3-4 semanas` para um dev solo; ordem escolhida pelo
+> usuário. Cada fase tem entregável testável e roda isolada (cuidado
+> com acoplamentos cruzados).
+
+---
+
+## Fase 34 — Painel de personagem em tempo real (4-5 dias)
+
+**Objetivo:** o jogador vê HP/AC/conditions/slots/recursos do seu
+personagem (e da party) sem rolar `narrative_log`. Único entregável
+do painel: render reflexo de estado via polling inteligente.
+
+### Fase 34a — Backend read endpoints + cache (1 dia)
+
+**Entregáveis:**
+- `web/routes_panel.py` com:
+  - `GET /api/sessions/{id}/panel?target={pc|companion_id}` →
+    `CharacterPanel` (subset tipado de `Character`) com HP/AC/slots/
+    recursos/conditions/atributos.
+  - Helper `etag_for_state(state)` → `hashlib.md5(state.model_dump_json().encode()).hexdigest()[:16]`.
+  - Suporte `If-None-Match` → 304 quando unchanged.
+- Schema `web/models.py::CharacterPanel` (Pydantic) com aliases
+  snake_case→camelCase (frontend usa camelCase).
+- Server emite `X-State-Rev` header em `/input`, `/inventory/equip`,
+  `/condition/remove` (int incremental por mutação no state).
+- Pool de polling: front usa `If-None-Match` para evitar tráfego de
+  corpo igual. Latência média <30 ms por poll.
+
+**Testes:** 12 cobrindo ETag match/mismatch, 304, X-State-Rev
+incrementa após cada mutation, character_view exclui `inventory`
+quando listing companions.
+
+### Fase 34b — Frontend do painel (2-3 dias)
+
+**Entregáveis:**
+- `web/static/render_panel.js` (~500 linhas, sem framework).
+- HTML `<aside id="character-panel">` em `index.html` (estrutura
+  esqueleto), CSS `.cp-*` em `style.css` (variáveis para HP/CONDITION
+  colors, layout grid desktop / drawer mobile).
+- Toggle `companion | self` dropdown → re-renderiza conteúdo.
+- `intelligent-poll(stateRevision, lastEtag)` com:
+  - 2500 ms em combate (state muda rápido)
+  - 6000 ms em exploração
+  - Pausa quando aba invisível (`document.visibilityState`)
+- Live refresh em mutações: `api()` armazena último `X-State-Rev` e
+  dispara poll imediato quando rev muda.
+- Painel colapsa em ≤768 px para um drawer acionável por swipe (CSS
+  only, sem JS).
+
+**Testes:** 0 automatizados (sem JS test runner no CI). Validação
+manual via checklist de 9 itens.
+
+### Fase 34c — Config + polish (1 dia)
+
+**Entregáveis:**
+- `users.preferences.panel = {"visible": true, "position": "left",
+  "refresh_ms": 2500}` (JSONB).
+- Migração idempotente `_ensure_user_preferences` em `server.py`.
+- Cli atualiza: `/panel on|off` + `/panel pos <left|right>` (META_COMMANDS).
+- Web ativa config pelo endpoint `GET /api/me` que agora retorna
+  `panel` e `music` (Fase 38).
+- Cache bust: `index.html`/`app.js` `?v=43`.
+
+**Testes:** 6 (settings persistência, hidden toggle no /me, default
+position, rotação left ↔ right, refresh_ms boundary 500/1000).
+
+### Critério "pronto"
+
+- Em uma sessão de combate, o PC perde HP por ataque → barra lateral
+  mostra novo HP em ≤3s sem qualquer input do usuário.
+- Companheiro entra em *Bloodied* (HP <25%) → chip vermelho surge
+  automaticamente.
+- Polling invisível quando state não muda (<1 % bandwidth).
+
+---
+
+## Fase 35 — Inventário & equipamento na web (4-5 dias)
+
+**Objetivo:** fluxo completo de loot → equipar → vender / comprar,
+pelo browser.
+
+### Fase 35a — Engine de inventário (1-2 dias)
+
+**Entregáveis:**
+- `engine/inventory.py` com:
+  - `swap_equipped(char_id, slot, item_id)` →
+    `InventoryResult{ac_delta, attuned_max_warning, errors}`.
+  - `add_item(state, char_id, item, quantity=1)` /
+    `remove_item(state, char_id, item_id, quantity)` — pure
+    functions; LLM nunca chama direto (somente via narrador).
+  - `attune(char_id, item_id)` / `unattune(char_id, item_id)`
+    respeitando limite de 3 (PHB p. 138).
+- `Item.quantity: int = 1` em `state/models.py` (default back-compat).
+- `Character.gold_gp: int = 0` + `Character.attuned_items: list[str]`
+  (novo).
+- `NPC.vendor: bool = False` + `NPC.shop_inventory: list[ShopItem]`
+  (com `{item_id, price_gp, restock_daily: bool}`).
+- Magic items: novo loader `data/phb/Treasure/*` já existente ganha
+  detecção de curse marker `*` em tools / items.
+
+**Testes:** 24 cobrindo swap sem proficiência, magic armor +shield
+AC recompute, attunement overflow (tenta 4º falha), stack de poção
+(quantidade 4 → use 1), gold_gp roundtrip, vendor flag.
+
+### Fase 35b — Endpoints REST (1 dia)
+
+**Entregáveis:**
+- `web/routes_inventory.py` (rotas conforme §12.2 do SPEC).
+- Auth padrão `Depends(current_user)` + ownership check.
+- 402 com `detail="gold_gp insufficient"` quando saldo < price.
+- Migrations idempotentes em `server.py::_ensure_inventory_columns`
+  (`gold_gp`, `quantity`, `vendor`).
+
+**Testes:** 28 cobrindo cada endpoint (200 happy + 401/403/422/402),
+loja com/sem ouro, attunement limit, vendor não flagrado → 422.
+
+### Fase 35c — Frontend de inventário + loja (2 dias)
+
+**Entregáveis:**
+- Aba `Inventário` no painel do personagem (toggle Painel /
+  Inventário / Spellbook).
+- Grid de slots com drag-drop ou modal de seleção.
+- Lista filtrável por categoria; pill `Magia (R)`/`Mágico`/`Curses`.
+- Modal de inspeção com markdown render de description (mesma usada
+  no PHB; **não baixa** itens pagos por copyright) e botões.
+- Overlay de loja full-screen com catálogo, saldo, affordance button.
+- Cache bump `?v=44`.
+
+**Testes:** 0 automatizados (validar manual).
+
+### Critério "pronto"
+
+- Wizard cria Sorcerer → equipar `staff` no main-hand: AC e
+  weapon_attack recalculam automaticamente.
+- Achou `+1 longsword` em loot narrado (via flag LLM no DM context
+  Bull 35c-opt) → loot aparece em inventário → equipar mostra
+  `+1` no attack modifier no painel.
+- Comprar `Potion of Healing` gasta 50 gp; vender reembolsa 25 gp
+  (50 % PHB default).
+
+---
+
+## Fase 36 — Encontros aleatórios + tesouros (3-4 dias)
+
+**Objetivo:** viagens narradas pelo DM rolam encontros usando
+tabelas curadas; tesouros caem automaticamente respeitando tier do
+grupo.
+
+### Fase 36a — Tabelas & infrastructure (1 dia)
+
+**Entregáveis:**
+- 6 JSONs em `data/world_tables/encounters/{forest,road}_
+  {day,night}.json` + 2 dungeon levels.
+- 4 JSONs em `data/world_tables/loot/{individual,hoard_low,hoard_mid,
+  hoard_high}.json`.
+- `world_tables/weather.json`.
+- Loader `phb/loader.py::load_world_tables()` com cache.
+- `phb/models.py::EncounterTable` / `LootTable` / `WeatherTable`
+  Pydantic.
+
+**Testes:** 8 (JSON válido, todos os ids batem com monsters/items,
+CR range coerente com `cr_for_level`).
+
+### Fase 36b — Engine `engine/world.py` (1-2 dias)
+
+**Entregáveis:**
+- `roll_encounter(state, table_id, seed=None) -> EncounterResult`
+- `resolve_travel(state, hours, *, rng_seed=None) -> WorldEventList`
+- `compute_loot(tier, roll) -> LootDrop` — gera ouro + items.
+- Cooldown enforcement (`world_event_cooldown_minutes`).
+- Whitelist de tags processáveis do LLM: `MEC`, `LOOT`, `WEATHER`.
+
+**Testes:** 18 (determinismo com seed fixa, cooldown enforced,
+spawn correto no npcs[], loot integration com `inventory.py`, weather
+atualização).
+
+### Fase 36c — DM Agent integration (1 dia)
+
+**Entregáveis:**
+- Bullet no `DM_SYSTEM_PROMPT` `## Encontros aleatórios`.
+- `agents/heuristics.py::infer_intent` detecta `Intent.TRAVEL` por
+  regex.
+- `narrative.py::process_player_action` chama
+  `resolve_travel(state, hours)` quando intent é `TRAVEL`.
+- Engine tag parsing em `post_dm_response` strips `MEC/LOOT/WEATHER`
+  do texto antes de mostrar, mas aplica os efeitos.
+- Seed visível: `narrative_log` ganha campo opcional
+  `world_seed: str` em entradas de viagem.
+
+**Testes:** 12 (intent detection regex, 5 strings de viagem /
+não-viagem, seed persistida, tag MEC consumida, cooldown).
+
+### Critério "pronto"
+
+- "Viajem dois dias pela estrada" → em 1-2 dias de viagem, um
+  encontro rola (lobo/bandidos), encerra inserindo `npc["wolf_x"]`
+  com init e a narração ganha flavor coerente.
+
+---
+
+## Fase 37 — Reações além de Opportunity Attack (4-5 dias)
+
+**Objetivo:** o engine aceita triggers reativos (Shield, Counterspell,
+Hellish Rebuke, Healing Word, Uncanny Dodge, Parry) e dá canal ao
+jogador para escolher.
+
+### Fase 37a — Modelo de reações (1 dia)
+
+**Entregáveis:**
+- `engine/actions.py::ReactionKind` enum.
+- `engine/actions.py::TriggerEvent` dataclasses:
+  - `OnHitByAttack(target, attacker, attack_damage, is_melee)`
+  - `OnSeeingSpellCast(caster, spell_name, level)`
+  - `OnAllyDown(ally_id)`
+  - `OnDamageTaken(amount, type)`
+- `state/models.py::Character.pending_reaction: Optional[dict]`
+  (epoch + json de trigger + reactions_eligible).
+
+**Testes:** 12 (enum kinds, triggers dados, pending_reaction TTL ≤30s).
+
+### Fase 37b — Engine dispatch (2 dias)
+
+**Entregáveis:**
+- `combat_engine.py::_dispatch_reactions(trigger, ...)` invocado
+  por `_handle_attack`, `_handle_cast_spell`, etc.
+- Cada `ReactionKind` resolve para `ReactionResolution`.
+- `cast_spell(engine_branch=REACTION)` em `engine/spellcasting.py`.
+- Validações Spell Known/Prepared + slot adequado.
+- Counterspell auto-check (não gasta slot em spell immune ou sem
+  vocalização): só o LLM pode decidir se concede trigger.
+- `_apply_damage_with_reactions(target, raw_damage, trigger)` —
+  suspende o apply se há reação elegível e ativa `pending_reaction`.
+
+**Testes:** 28 (cada ReactionKind, Uncanny Dodge halve, Shield +5
+AC aplicado, Counterspell success/fail com DC, Hellish Rebuke
+despawn de slot, Parry caps at L7, reaction_used reset no round
+start).
+
+### Fase 37c — UX no painel + UI prompt (1-2 dias)
+
+**Entregáveis:**
+- Web: painel ganha modal de reação com lista de opções + timer 30s
+  + auto-pass se timeout ou setting `auto-pass_shield`.
+- Web poll especializa: `state.pending_reaction` muda o poll pra
+  500 ms.
+- LLM: instruction no DM_SYSTEM_PROMPT pedir confirmação ao
+  jogador antes de narrar efeito de trigger (ex.: "Você ouve o
+  componente verbal de Fireball, quer reagir?").
+- Companions: `companion_reaction_aggression` heurística default
+  (HP < 50% → auto Shield).
+
+**Testes:** 16 (trigger marca pending_reaction, modal mostra
+opções, TTL timeout, companion decisão por heurística, settings).
+
+### Critério "pronto"
+
+- Wizard contra um mage inimigo que lança Fireball L3:
+  1. DM narra "Você vê arcos de fogo se formando nas mãos do inimigo".
+  2. Front envia trigger para PC.
+  3. Painel mostra modal: `Counterspell (L3, 1 slot)` [Cancel].
+  4. Player clica → Counterspell consome slot → narração marca
+     "sua magia estanca as chamas incipientes".
+  5. State persistido tem slot consumido.
+
+---
+
+## Fase 38 — TTS via edge-tts + música ambiente (3-4 dias)
+
+**Objetivo:** narração em voz pt-BR opcional, sem custo direto,
+cacheado no servidor. Músicas via URL configurável.
+
+### Fase 38a — TTS backend isolado (1-2 dias)
+
+**Entregáveis:**
+- `pyproject.toml` extras: `[audio] deps = ["edge-tts>=6.1,<7"]`.
+- `web/tts.py` isolado em deps leve (importa `edge_tts` apenas
+  dentro de funções).
+- `GET /api/tts/voices` retorna 30+ vozes.
+- `GET /api/sessions/{id}/tts?text=&voice=&rate=` → mp3 bytes.
+- Cache LRU em `/tmp/tts_cache/<sha1>.mp3`, TTL 30 dias.
+- Painel graceful: 503 quando `api.msedgespeech.microsoft.com`
+  fora do ar.
+- Sem None tipos, failsafe fallback.
+
+**Testes:** 10 (voices lista, mp3 retornado com content-type, cache
+hit retorna from-disk, falhas de network retornam 503).
+
+### Fase 38b — Frontend audio (1 dia)
+
+**Entregáveis:**
+- `audio.js` com `AudioContext` lazy init, `CacheStorage` por chave
+  `(text+voice+rate)`.
+- Botão 🔊 no chat replay última DM message.
+- Auto-play configurável via `preferences.tts.auto` (`off` default).
+- Mobile: toca só após 1ª interação (iOS Safari).
+- Disable on `!navigator.onLine`.
+
+**Testes:** 0 (manual).
+
+### Fase 38c — Música ambiente (1 dia)
+
+**Entregáveis:**
+- `users.preferences.music = {"enabled": false, "src": "", "volume": 0.4}`.
+- Endpoint `GET /api/me` retorna bloco `music`.
+- UI: botão 🎵 + slider volume + URL config field em Settings.
+- `<audio loop crossorigin>` controlado por JS.
+- README com links a playlists CC-BY recomendadas (não embarcadas).
+
+**Testes:** 6 (preferences persistência, endpoint retorna shape,
+default disabled, music.active boolean computado).
+
+### Critério "pronto"
+
+- Login → painel → config TTS voz=FranciscaNeural, auto=off →
+  abre Settings → digita input → após DM narração, botão 🔊 toca
+  áudio em ~1 s (cache hit) ou ~3-5 s (cold, mp3 download).
+- Músicas: copia URL do Incompetech forest ambience → 🎵 toca
+  looping, sem scrollar a página.
+
+---
+
+## Fase 39 — End-to-end do fluxo completo (2-3 dias)
+
+**Objetivo:** CI garante que o caminho mínimo de jogo funciona ponta-
+a-ponta. Bug regressão em wizard → save → load → painel nunca
+passa despercebido.
+
+### Fase 39a — Stack de teste E2E (1 dia)
+
+**Entregáveis:**
+- `tests/e2e/conftest.py`: sobe `app` em port efêmera, conecta PG
+  + Redis dev, expõe `httpx.AsyncClient` com `Authorization: Bearer`
+  helper.
+- `tests/e2e/fake_dm.py` patcha `LLMProvider.chat` para retornar
+  resposta determinística (TAG-driven).
+- `tests/e2e/helpers.py`: `signup_login`, `play_turn`, `assert_state_rev`.
+
+**Testes:** 0 (infra).
+
+### Fase 39b — Cenários canônicos (1-2 dias)
+
+**Entregáveis (4 testes):**
+1. `test_solo_wizard_save_load` (cobre Wizard L3 + 3 companions + 3
+   turnos do jogador + 2 companheiros + save + load).
+2. `test_panel_live_reflects_hp` (Fase 34 dep; status: skip if Fase 34
+   ainda não merged).
+3. `test_shop_buy_insufficient_gold_402` (Fase 35 dep).
+4. `test_travel_3_days_rolls_encounter_and_loot` (Fase 36 dep).
+
+Cada teste roda ≤30 s; total E2E ≤2 min. `make e2e` (Makefile) →
+verde.
+
+**Testes:** 4 (skip quando dep de fase ausente).
+
+### Fase 39c — CI + report (1 dia)
+
+**Entregáveis:**
+- `Makefile` com target `e2e` e `all` (`unit + e2e`).
+- README atualiza seção "Desenvolvimento" listando E2E.
+- GitHub Action opcional (template, não obrigatório).
+
+**Testes:** 4 (verificação dos próprios cenários, sem network).
+
+### Critério "pronto"
+
+- `make all` em CI passa em <3 min.
+- Bug injetado manualmente em `routes_game.py` (ex.: faltando
+  X-State-Rev) é capturado por `test_solo_wizard_save_load`.
+
+---
+
+## Resumo segunda onda (34–39)
+
+| Fase | Escopo | Dias | Dependências | Notas |
+|---|---|---|---|---|
+| 34 | Painel personagem web | 4-5 | nenhuma | bloqueia 35 visualmente, mas 35 funciona sem |
+| 35 | Inventário + loja | 4-5 | nenhuma | engine é independente |
+| 36 | Encontros/tesouros | 3-4 | nenhuma | DM integration toca narrative.py |
+| 37 | Reações estendidas | 4-5 | 34 (UX) | engine funciona sem painel |
+| 38 | TTS + música | 3-4 | 34 (preferences) | backend e2e |
+| 39 | E2E | 2-3 | 34, 35, 36 | gate final do release |
+
+**Riscos:**
+- Fases 34 + 38 mutam `users.preferences` JSONB; ordem de merges
+  precisa de migradores idempotentes (`_ensure_user_preferences`).
+- Phase 36 LLM tag parsing pode gerar confusion se o LLM alucinar
+  tags inválidas; engine valida por regex estrita + fallback pra
+  encontro default.
+- Phase 38: edge-tts é GPL-3.0. Se nosso projeto entrar em
+  distribuição mais ampla, separar `web/tts.py` num sidecar
+  (subrepositório) ou trocar pelo `gTTS` (BSD-style).
+
+**Saída global estimada:** ~3-4 semanas. Painel + Inventário
+juntos já entregam ~80 % da melhoria de UX percebida.
+

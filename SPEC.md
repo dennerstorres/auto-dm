@@ -414,6 +414,459 @@ Um jogador consegue:
 
 ---
 
+## 12. Pós-MVP: segunda onda (Fases 34–39)
+
+> Incrementos depois das Fases 0–33. Todas as features abaixo respeitam
+> os três princípios inegociáveis (mecânica autoritativa, contexto
+> gerenciado, configurabilidade) e adicionam zero acoplamento de
+> provider LLM — funcionam igual com Minimax, Claude, OpenAI etc.
+
+### 12.1 Painel de personagem em tempo real (Fase 34)
+
+**Problema:** a console web mostra apenas a narrativa. Para saber HP
+atual, AC, spell slots, conditions, recursos (ki, sorcery points,
+inspiration), o jogador precisa rolar `narrative_log` ou usar meta-
+comandos. Mata a sensação de "estar jogando".
+
+**Solução:** painel lateral fixo à esquerda (≥280 px em desktop,
+drawer retrátil em ≤768 px) que reflete o `GameState` em tempo quase
+real durante o jogo.
+
+**Conteúdo do painel, top-down:**
+1. **Cabeçalho:** nome do personagem, classe-nível, raça, alinhamento,
+   avatar (inicial do nome em círculo colorido derivado da classe via
+   `auto_dm.cli.rendering.class_color`).
+2. **Bloco vital:** barra HP segmentada (verde/amarelo/vermelho +
+   número `atual / máx`), AC grande (com tooltip mostrando breakdown
+   `10 + DEX + shield + armor + magic`), speed, iniciativa atual
+   quando em combate, hit dice restantes (`Atual / Total`, ex.: `5/8`).
+3. **Conditions ativas:** chips coloridos (`poisoned`, `stunned`,
+   `exhausted` etc.) com ícone e tooltip — clicar abre descrição;
+   botão × para tentar remoção (mecânica continua exigindo ação
+   apropriada; UI apenas invoca `/api/sessions/{id}/condition/remove`
+   com a flag certa).
+4. **Spell slots:** tabela compacta `1º: ●●●○  2º: ●●○○  3º: ●○○○`,
+   respondendo ao spell level máximo da classe. Clicar em um ● gasta
+   (modal de confirmação só para níveis 5+).
+5. **Recursos por classe (PHB):** Ki (Monk), Sorcery (Sorcerer), Rage
+   (Barbarian), Bardic Inspiration (Bard), Channel Divinity (Cleric/
+   Paladin), Lay on Hands (Paladin), Superiority (Fighter),
+   Spell Slots pactos (Warlock), Wild Shape (Druid), Focus Points
+   (Druid). Cada recurso como bloco próprio com progress bar.
+6. **Atributos:** seis abas STR/DEX/CON/INT/WIS/CHA com mod ao lado.
+7. **Toggle `companion / self`:** dropdown para inspecionar PC ou cada
+   companheiro (mesmo layout, dados do `Character` selecionado).
+
+**Implementação:**
+- `GET /api/sessions/{id}/state` (já existente) é reusado; o painel
+  faz **polling** a cada 2.5 s durante combate (server `Last-Modified`
+  + `ETag` curtos baseados em `state.model_dump_json().hash()` para não
+  retornar corpo idêntico) e a cada 6 s em exploração.
+- Eventos críticos invalidam o cache: `POST /api/sessions/{id}/input`,
+  `/api/sessions/{id}/condition/remove`, `/api/sessions/{id}/inventory/equip`
+  respondem com `X-State-Rev: <int>`; o front refaz poll imediato
+  quando vê rev diferente do último conhecido.
+- `CharacterRender` (novo, em `web/static/render_panel.js`) é
+  puramente funcional — recebe JSON, devolve DOM. Sem framework.
+- O painel renderiza 100% cliente-side. Nada de LLM, zero impacto na
+  quota.
+- Companheiros mostram apenas os dados públicos do `Character`
+  (HP, conditions, recursos); internals como `inventory`/spells podem
+  ser ocultos se o jogador ligar um setting `hide_party_internals`.
+
+**Configurabilidade:** `panel_visible` (on/off), `panel_position`
+(`left`/`right`/`off`), `refresh_rate_ms` (5000–10000). Stored no
+profile do usuário em `users.preferences` (JSONB opcional, migração
+idempotente no `lifespan`).
+
+**Fora do escopo da Fase 34:** edição de equipamento pelo painel (vai
+para Fase 35), drag-and-drop de magias (mantém-se modal discreto).
+
+---
+
+### 12.2 Inventário & equipamento na web (Fase 35)
+
+**Problema:** loot, equipar/desequipar, comprar/vender são CLI-only. O
+jogador que está na web não consegue consumir o `bag of holding` que
+acabou de encontrar, nem trocar a armadura após level-up.
+
+**Solução:** fluxo visual completo de gerenciamento de inventário com
+persistência no servidor.
+
+**Modelo:** `Character.inventory: list[Item]` e `EquippedSlots`
+(armor/hand_main/hand_off/shield) já existem em `state/models.py`.
+Falta expor operações semânticas.
+
+**Endpoints novos (todos sob `/api/sessions/{id}/inventory`):**
+| Método | Path | Função |
+|---|---|---|
+| GET | `/{id}/inventory` | `InventoryView` agrupado por categoria |
+| POST | `/{id}/inventory/equip` | `{item_id, slot}` → valida, troca, retorna diff |
+| POST | `/{id}/inventory/unequip` | `{slot}` → move pro inventário |
+| POST | `/{id}/inventory/drop` | `{item_id, quantity?}` → remove (atravessa `attunement` check) |
+| POST | `/{id}/inventory/buy` | `{vendor_id, item_id, quantity?}` → checha ouro, transfere |
+| POST | `/{id}/inventory/sell` | `{item_id, quantity?}` → adiciona ouro, remove |
+| GET | `/{id}/shop/{vendor_id}` | catálogo do NPC, com preços |
+
+**Loja:** um NPC é flagado como `vendor: bool` em `state/models.py`
+(migração idempotente). Quando o jogador usa `talk to innkeeper`, o
+DM pode setar `npcs[id].vendor = true` (classe estruturada disponível
+para tool-call do LLM, opcional). `GET .../shop/{vendor_id}` lista
+inventário do NPC (tabela stock em `npcs[].shop_inventory` com
+`{item_id, price_gp, restock_daily: bool}`). Preços respeitam a
+tabela PHB cap. 5 (sellers padrão); itens mágicos raros escalam por
+raridade (common 100 gp, uncommon 500 gp, rare 5 000 gp).
+
+**Engine integra com o que já existe:**
+- `Engine.swap_equipped(character_id, slot, item_id)` (novo, em
+  `engine/inventory.py`) usa as funções de AC já em
+  `engine/defenses.py::effective_ac` para recalcular.
+- Magic items com `requires_attunement`: valida limite de 3 itens
+  sintonizados por personagem (PHB p. 138) antes de aceitar.
+- Curses (curse of magic items) lidos no PHB marker `*` em
+  `data/phb/Treasure/` — `magic_item.curse: bool` (novo campo) e
+  tooltip mostra `"Aparentemente inofensivo, mas…"` para flag=true.
+
+**Frontend:**
+- Aba `Inventário` no painel do personagem (toggle entre Painel /
+  Inventário / Spellbook).
+- Grid de slots: `Helm | Armor | Main-hand | Off-hand | Shield |
+  Boots | Cloak | Accessory` (PHB p. 151 + ring slots), cada um um
+  `<div>` dropzone.
+- Lado direito: lista filtrável por categoria (Weapon, Armor,
+  Potion, Scroll, Misc, Magic).
+- Modal de inspeção para item mágico mostra `rarity`, `attunement?`,
+  descrição markdown-rendered, `curse` warning, e botões `Equipar` /
+  `Sintonizar` / `Soltar` / `Vender (X gp)`.
+- Loja: overlay full-screen com catálogo do NPC, calculando
+  affordance (`Ouro: 47 gp`, botão `Comprar` desabilitado se
+  insuficiente).
+
+**Ouro:** campo `Character.gold_gp: int` (novo, migração
+idempotente, default 0).
+
+**Validações na engine:**
+- Trocar de armadura respeita `proficiencies.armor`.
+- Trocar arma respeita `proficiencies.weapons` (warning, não bloqueia
+  — DnD 5e impõe desvantagem, não proibição, no ataque).
+- Stack de consumíveis (poções, ammo) usa `Item.quantity: int` (novo,
+  default 1).
+
+**Fora do escopo da Fase 35:** crafting, encumbrance tracking (PHB
+cap. 5 variante), separação por container (saco de carga é trivial:
+`bag_of_holding` vira token na ficha, não expande lista).
+
+---
+
+### 12.3 Encontros aleatórios + tesouros em viagem (Fase 36)
+
+**Problema:** o DM narra viagens curtas. Para "viajem três dias pela
+Estrada do Rei", falta o motor rolar encontros (PHB cap. 5, com tabelas
+do **DMG cap. 3**) e distribuir tesouros de acordo com o nível do grupo.
+
+**Solução:** módulo `agents/world.py` + tabelas locais para
+encontros/tesouros, plugado no `process_player_action` quando o input
+for detectado como "modo viagem".
+
+**Detecção de modo:** heurística simples adicionada em
+`agents/heuristics.py::infer_intent(text)`:
+- `"viajar"`, `"viajem"`, `"caminhar até"`, `"travel to"`, `"head to"`
+  → `Intent.TRAVEL` com `hours`/`days` extraído por regex
+  (`"3 dias"`, `"uma hora"`, `"overnight"`).
+- Outros intents continuam inalterados (`COMBAT_TRIGGER`,
+  `EXPLORE`, `TALK`, `REST`).
+
+**Tabelas novas em `data/world_tables/` (recurso aberto, não PHB —
+criado à mão ou a partir do DMG SRD):**
+```
+data/world_tables/
+├── README.md
+├── encounters/
+│   ├── forest_day.json   # CR-weighted monsters por bioma + horário
+│   ├── forest_night.json
+│   ├── road_day.json
+│   ├── road_night.json
+│   ├── dungeon_level_1.json
+│   └── dungeon_level_5.json
+├── loot/
+│   ├── individual.json   # 1d20+CR → item, gold
+│   ├── hoard_low.json    # 4d6×100 gp + items
+│   ├── hoard_mid.json    # "         "
+│   └── hoard_high.json
+└── weather.json         # 1d20 por bioma + estação
+```
+
+Estrutura JSON exemplo:
+```json
+{
+  "name": "Floresta — Dia",
+  "weight": 30,
+  "entries": [
+    {
+      "roll": "1-30",
+      "monsters": [{"id": "wolf", "count": "2d4"}],
+      "notes": "Lobos seguindo rastro fresco"
+    },
+    {
+      "roll": "31-50",
+      "monsters": [{"id": "goblin", "count": "2d6"}]
+    }
+    // ...
+  ]
+}
+```
+
+**Roteamento no DM Agent:** bullet novo no `DM_SYSTEM_PROMPT`
+`## Encontros aleatórios` dizendo: "Quando o jogador declara uma
+viagem de **N horas/dias**, role `N` checks de encontro (1 a cada 4h
+viagem contínua) usando a tabela do bioma atual. Reporte o resultado
+no formato `MEC: encounter <table_id> <roll> -> <monsters>`. Esta tag
+marca que o encontro é canônico e o motor vai spawnar."
+
+**Engine processa a tag:** novo módulo `engine/world.py` com
+`roll_encounter(state)`, `resolve_travel(state, hours)`. Whitelist de
+tags processadas:
+- `MEC: encounter <table> <roll> <monsters>` → spawn no `npcs[]`,
+  adiciona entrada no `narrative_log` antes do turno do jogador.
+- `LOOT: hoard <tier> <roll>` → executa tabela, dá ouro e items
+  direto via `add_item_to_inventory` (Fase 35 reaproveita API).
+- `WEATHER: <table> <roll>` → atualiza `state.weather`.
+
+**Determinismo:** seed de randomização baseado em
+`(state.campaign_seed, day, hours_into_day)`. Permite replay/admin
+inspeção. O `narrative_log` registra a seed usada por turno de
+viagem.
+
+**Anti-abuso:** cooldown: o encontro só dispara uma vez a cada
+`world_event_cooldown_minutes = 30` minutos de jogo (configurável,
+default 30); senão o jogador zera encontros pedindo 1h de cada vez.
+
+**Moderação do LLM:** o LLM é encorajado a narrar primeiro e gerar a
+tag depois. Engine confia na tag (validada por regex estrita);
+falha de validação → log warning + encontro padrão nível 1 do bioma
+(`cr_for_level(state.party_level)`).
+
+**Fora do escopo da Fase 36:** tabelas específicas por setting
+(Forgotten Realms, Eberron) — só biomas genéricos. Travel via
+`fast-travel` mágico (`Teleport`, `Word of Recall`) ignora encontros.
+
+---
+
+### 12.4 Reações além de Opportunity Attack (Fase 37)
+
+**Problema:** hoje `engine/combat_engine.py` só dispara uma reação
+explícita: `OPPORTUNITY_ATTACK`. O `_reaction_used` flag é setado,
+mas magias defensivas como `Shield`, `Counterspell`, `Healing Word`
+(como reação), `Hellish Rebuke`, e a reação universal via
+`War Caster`/`Sentinel` etc. não têm canal.
+
+**Solução:** generalizar o conceito de reação para `Reaction`
+declarativa, suportando **reação via magia** e **reação passiva
+triggered**.
+
+**Modelo de dados:** novo enum `engine.actions.ReactionKind`:
+```python
+class ReactionKind(str, Enum):
+    OPPORTUNITY_ATTACK = "opportunity_attack"
+    SHIELD_SPELL = "shield_spell"
+    COUNTERSPELL = "counterspell"
+    HEALING_WORD = "healing_word_bonus"  # Cure Wounds também é reação
+    HELLISH_REBUKE = "hellish_rebuke"
+    UNCANNY_DODGE = "uncanny_dodge"      # Rogue L5+ (já tem handler)
+    PARRY = "parry"                       # Blade Pact Warlock, EK Fighter
+    REPRIMAND = "reprimand"              # UA, pulado
+```
+
+Cada `ReactionKind` mapeia para um trigger:
+| Kind | Trigger | Spell/Resource cost |
+|---|---|---|
+| Opportunity Attack | inimigo deixa reach | attack action |
+| Shield | você é atingido por ataque | reaction + 1st-level slot |
+| Counterspell | alvo conjura (V/S/M detectável) | reaction + slot L ≥ spell L |
+| Healing Word | alguém a 60ft cai a 0HP | action bonus |
+| Hellish Rebuke | você sofre dano | reaction + 1st-level slot |
+| Uncanny Dodge | você é atingido por ataque | reaction (sem recurso) |
+| Parry | você é atingido por ataque | reaction + reduce damage 1dX + prof |
+
+**Engine wiring:**
+- Novo `combat_engine.py::_dispatch_reactions(trigger, source, target, payload)`
+  itera todos os personagens do lado reativo (`source` ou `target`,
+  conforme trigger), checa `reaction_used` + sortelha condição.
+- Cada `ReactionKind` retorna um `ReactionResolution{consumed: bool, effects: list}`
+  e é aplicado antes do `DamageApply` final.
+- Reações mágicas: nova branch em `_handle_cast_spell` com flag
+  `is_reaction=True` (não gasta action, gasta slot).
+- Validações: Shield = PC tem slot L1 disponível + spell preparado;
+  Counterspell = spell preparado/conhecido + slot adequado e
+  `arcana` check com DC `10 + spell_level`; Healing Word = spell
+  preparado; Hellish Rebuke = Warlock EB expanded list? Não — é
+  magia L1 warlock Fiend, separada em `engine/spellcasting.py`.
+
+**Sistema de trigger visível ao jogador:** quando um trigger
+dispara (ex.: "goblin te ataca"), o painel lateral mostra modal
+`Você foi atingido! Reações disponíveis: [Shield (L1, 1 slot)] [Uncanny
+Dodge] [Parry] [Cancelar]`. O jogador escolhe OU passa (sem reação).
+Para actions do jogador: passa por padrão — fica configurável em
+`auto-pass_shield: bool` em `users.preferences`.
+
+**NPCs / Companions:** reações deles são decididas pelo
+`CompanionAgent` (1 call extra) ou via `CompanionDecisionPolicy` com
+heurística (rule-based) que decide pelas condições (HP < 30% Shield →
+auto, Counterspell só se alvo fechar combate etc.). A política é
+extensível; default rolando 1d20 + WIS mod, threshold configurável
+em `companion_reaction_aggression: float`.
+
+**Determinismo no teatro:** quando o trigger é "auto-fire" (ex.:
+opportunity attack sem sair do reach), a engine aplica direto.
+Quando é "player choice", a engine suspende o `apply_damage` por
+até 1 turno in-game (com TTL de 30s no web) e devolve a lista de
+reações elegíveis via `state.pending_reaction: Optional[...]`.
+
+**Cobertura:** apenas as magias marcadas em `data/phb/Spells/*.md`
+como `**Casting Time**: 1 reaction`. O parser do PHB já captura o
+casting time — falta apenas estender o `cast_spell` engine branch.
+
+**Fora do escopo da Fase 37:** Sentinels, Warcaster feats, Blade
+Pact attacks (complexos demais). Adicionados em backlog.
+
+---
+
+### 12.5 Narração por voz + música ambiente (Fase 38)
+
+**Problema:** sessões D&D solo se beneficiam muito de narração por
+voz (imersão, cansaço visual reduzido). Hoje o jogador lê.
+
+**Solução:** TTS opcional da última linha de narração, mais música
+ambiente contínua.
+
+### TTS — backend: `edge-tts`
+
+**Escolha tecnológica:** `edge-tts` (pip,
+`github.com/rany2/edge-tts`, **GPL-3.0**, **grátis**, **sem API key**).
+
+**Restrições aceitas:**
+- **GPL-3.0** é copyleft forte. Aceito porque o backend do nosso
+  app não é distribuído comercialmente e o uso é interno (não
+  embute `edge-tts` no frontend). Adicionar `edge-tts` ao `pip
+  install -e ".[audio]"` como extra opcional em `pyproject.toml`.
+- **Requer internet** para o serviço `api.msedgespeech.microsoft.com`.
+  Sem rede → degrada graciosamente para texto, sem erro. Frontend
+  exibe "Voz indisponível (offline)" quando `navigator.onLine=false`
+  ou falha o primeiro request.
+- **Sem SLA oficial** da Microsoft. Para um jogo solo caseiro, é
+  adequado. Trocar por `gTTS` ou `pyttsx3` offline fica documentado
+  como alternativa trivial (mesma interface, sem cache de SSML).
+
+**Backend:**
+- `web/tts.py` (novo, isolado para evitar GPL-3 spread):
+  - `async synthesize(text: str, voice: str = "pt-BR-FranciscaNeural", rate: float = 1.0) -> bytes`
+  - Cache LRU em disco (`/tmp/tts_cache/{sha1}.mp3`), TTL 30 dias
+    (purga por LRU + idade).
+  - Endpoint: `GET /api/sessions/{id}/tts?text=<urlenc>&voice=<v>`
+    retorna `audio/mpeg`, 200 OK; 503 se Microsoft offline.
+  - Vozes expostas via `GET /api/tts/voices` (lista 30+ vozes pt-BR +
+    EN, com previews).
+  - Config de voz do usuário em `users.preferences.tts` =
+    `{"enabled": false, "voice": "pt-BR-FranciscaNeural", "rate": 1.05, "auto": "narration_only"}`.
+
+**Frontend:**
+- Botão 🔊 no canto do chat que toca a última linha de narração.
+- Auto-play opcional após cada DM message
+  (`preferences.tts.auto` = `"every_dm_message" | "narration_only"
+  | "off"`). Default `"off"` para não assustar novos usuários.
+- `AudioContext` lazy-inicializado na 1ª interação (mobile Safari
+  bloqueia autoplay).
+- Cache de áudio no `CacheStorage` do browser — chave `sha1(text+voice+rate)`,
+  evita `/api/tts` repetido.
+
+### Música ambiente
+
+**Solução leve:** usar faixas geradas em runtime via
+`howler.js`-style loops? **Não — overkill.** Em vez disso, configurar
+a URL de uma playlist pública no perfil do usuário
+(`preferences.music.url`) e um único `<audio loop>` controlado por
+botões na UI (play, pause, volume, mute).
+
+**Defaults bons (linkados no profile do usuário, não embarcamos):**
+- `https://incompetech.com/music/royalty-free/` (Kevin MacLeod,
+  CC-BY).
+- Para combate: `https://www.tabletopaudio.com/` (com link de
+  doação no README).
+- Frontend carrega via `crossorigin="anonymous"`; se o servidor
+  bloquear CORS, mostra erro silencioso e botão "Reportar problema
+  de música" (link mailto).
+
+**Configurabilidade:**
+- `users.preferences.music = {"enabled": false, "src": "...", "volume": 0.5}`.
+
+**Persistência:** ambos os blocos adicionados em
+`users.preferences` (JSONB), migração idempotente.
+
+**Fora do escopo da Fase 38:** geração dinâmica de música por IA, mix
+adaptativo por estado de combate, voice cloning. Upmixes ficam em
+backlog.
+
+---
+
+### 12.6 End-to-end do fluxo completo (Fase 39)
+
+**Problema:** 1 700+ testes unitários estão sólidos, mas nenhum exercita
+o caminho **signup → wizard 11 passos → combate com 3 turnos do
+jogador + 2 turnos de companheiro → save → logout → login → load →
+continuar + painel lateral + TTS + loja**. Bugs de integração só
+aparecem no uso manual.
+
+**Solução:** bateria E2E com `pytest-anyio` + `httpx.AsyncClient` +
+um stack real (Postgres + Redis via `docker-compose.dev.yml`).
+Paralelização via `pytest-xdist` (2 workers).
+
+**Escopo:** 1 arquivo `tests/e2e/test_full_flow.py` com 4 cenários
+independentes; cada cenário escreve/lê seu próprio save (slugs
+sufixoados por `uuid.uuid4().hex[:8]` para evitar colisão entre
+runs).
+
+**Stack:**
+- `tests/e2e/conftest.py` sobe `app` do `web/server.py` numa porta
+  efêmera, conecta no Postgres/Redis de dev, cria `TestClient` httpx.
+- Helper `signup_login(client) -> token` (3 linhas).
+- Helper `play_turn(client, token, session_id, text)` que bypassa
+  LLM real (patcha `LLMProvider.chat` com fixture `fake_dm` que
+  retorna narração determinística a partir de tags do input). Custo:
+  zero tokens, velocidade ~50 ms/turno.
+- Screenshots opcionais (`playwright` instalado em `dev-deps`
+  opcional) para validar o frontend no CI: `index.html` carregado
+  em browser headless, clica "Criar personagem", preenche wizard,
+  verifica que `#output` mostra narração pós-clique em "Enviar".
+
+**Cenários:**
+1. **Solo wizard → 3 turnos → save → logout → load → 2 turnos**.
+   Variante: Wizard Sorcerer L3, companions: Kael (Wizard) +
+   Garrick (Paladin) + Mira (Cleric). Cobre: spell slots, sneak
+   attack, aoo saving throw, concentration break.
+2. **Painel lateral reflete state em tempo real** (após Fase 34).
+   Polling até `hp_current` mudar; verifica que DOM mostra barra
+   atualizada.
+3. **Loja: comprar/vender sem saldo** (após Fase 35). Verifica 402
+   quando `gold_gp < price`, e happy path com successo 200.
+4. **Viagem de 3 dias dispara encontro + loot** (após Fase 36).
+   Seed fixa; verifica que `npcs[]` ganha 2 enemies + `gold_gp`
+   aumenta; engine tag MEC resolvida.
+
+**Acceptance:** CI do `Makefile` target `make e2e` roda <2 min,
+verde. Flake rate <0.5 % (rerun automático em falha única).
+
+**Ferramentas:**
+- `pytest-anyio` (async fixtures)
+- `httpx` (HTTP client async)
+- `playwright` opcional (frontend visual)
+- `pytest-xdist --maxfail=1` (paraleliza)
+
+**Fora do escopo da Fase 39:** stress tests (1000 campanhas),
+fuzz da API, multi-tenancy security tests (deixados para Fase 40
+— segurança pós-painel/listo).
+
+---
+
 ## 11. Documentos de referência (PHB 5e)
 
 Os `.md` do PHB ficam em `data/phb/` e são consumidos por:
