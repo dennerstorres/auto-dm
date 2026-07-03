@@ -24,7 +24,7 @@ code. The LLM only narrates.
 The game is a **web app** — a FastAPI backend (auth, sessions, save
 state in Postgres, live sessions in Redis, SSE streaming) serving a
 vanilla HTML/CSS/JS frontend with a full in-browser character creation
-wizard. A terminal CLI is still available for local/headless play.
+wizard.
 
 ---
 
@@ -101,29 +101,9 @@ confirm), then the game screen with `/help /save /load /list /status
 
 ---
 
-## Running the CLI instead (optional)
+## In-game commands
 
-If you want the terminal experience (no Postgres/Redis/web), you can
-still run the standalone CLI:
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate           # Windows
-# source .venv/bin/activate     # Linux / macOS
-
-pip install -e ".[dev]"
-
-cp .env.example .env             # set AUTO_DM_API_KEY
-cp config.example.json config.json
-
-auto-dm                          # new game (wizard + REPL)
-auto-dm --load <slug>            # resume a saved campaign
-auto-dm --list-saves
-auto-dm --delete <slug>
-auto-dm --help
-```
-
-### In-game commands (shared by CLI and web)
+Inside the game screen, meta-commands start with `/`:
 
 ```text
 /help                 Show available commands.
@@ -144,7 +124,6 @@ Anything else is sent to the DM as a free-form action in pt-BR
 | Layer | Module | Responsibility |
 |------:|--------|----------------|
 | Web | `auto_dm.web` | FastAPI server: auth, sessions, SSE, REST, static frontend. |
-| CLI | `auto_dm.cli` | Terminal REPL, character creation wizard, Rich output. |
 | Agents | `auto_dm.agents` | DM + companion LLM wrappers; narrative loop. |
 | State | `auto_dm.state` | Pydantic models + StateManager. |
 | Engine | `auto_dm.engine` | Dice, combat. **Source of truth for mechanics.** |
@@ -152,7 +131,7 @@ Anything else is sent to the DM as a free-form action in pt-BR
 | Character | `auto_dm.character` | CharacterBuilder + spell selection. |
 | Companions | `auto_dm.companions` | Pre-defined roster + party roll/synergy. |
 | LLM | `auto_dm.llm` | Provider abstraction (Protocol + adapters). |
-| Persistence | `auto_dm.persistence` | JSON save/load (CLI); Postgres (web). |
+| Persistence | `auto_dm.persistence` | JSON save/load helpers + slugify. |
 
 The four architectural principles from `SPEC.md` are:
 
@@ -185,7 +164,7 @@ The four architectural principles from `SPEC.md` are:
 ## Development
 
 ```bash
-pytest                       # full test suite (1584 tests)
+pytest                       # full test suite (1656 tests)
 ruff check src/              # lint
 ruff format src/             # auto-format
 ```
@@ -198,7 +177,6 @@ truth for tooling.
 ```text
 src/auto_dm/
 ├── web/              # FastAPI: server.py, routes_*, db.py, sse.py, static/
-├── cli/              # CLI: app.py, character_flow.py, setup.py, rendering.py
 ├── agents/           # DM + companion agents, narrative loop
 ├── state/            # Pydantic models + StateManager
 ├── engine/           # dice, combat, resources, conditions (pure Python)
@@ -207,7 +185,7 @@ src/auto_dm/
 ├── companions/       # roster + party roll/synergy
 ├── llm/              # provider abstraction
 └── persistence/      # save / load JSON
-tests/                # pytest suite (1584 tests)
+tests/                # pytest suite (1656 tests)
 data/phb/             # SRD 5.1 markdown (read-only)
 Dockerfile            # single-stage python:3.11-slim image
 docker-compose.yml            # prod: backend only (external Postgres+Redis)
@@ -233,7 +211,6 @@ SPEC.md / PLAN.md / DEPLOY.md
 - **Web app**: FastAPI + Postgres + Redis, bcrypt/JWT auth, invite-code
   gate, SSE streaming, in-browser character creation wizard, lobby,
   save/load — all containerized.
-- Standalone CLI still available for headless/terminal play.
 
 Out of scope for v0.1: multi-classing, feats, content outside the
 PHB/SRD.

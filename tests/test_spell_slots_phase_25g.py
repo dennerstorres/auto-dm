@@ -37,7 +37,6 @@ from auto_dm.character.spells import (
     get_spellbook_size,
     get_spells_known_max,
 )
-from auto_dm.cli.app import META_COMMANDS
 from auto_dm.engine.class_features import (
     WARLOCK_MYSTIC_ARCANUM_LEVELS,
     arcane_apotheosis_active,
@@ -713,16 +712,6 @@ class TestFeaturesGainedAtLevel:
         c = _make_character(class_name=cls, level=level)
         feats = features_gained_at_class_level(c, level)
         assert expected in feats
-
-
-# ===========================================================================
-# /level-up meta-command unchanged
-# ===========================================================================
-
-
-class TestLevelUpMetaCommand:
-    def test_meta_command_listed(self):
-        assert "/level-up [name]" in META_COMMANDS
 
 
 # ===========================================================================

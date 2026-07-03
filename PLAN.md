@@ -2,6 +2,13 @@
 
 > Caminho pra chegar no MVP. Cada fase é um bloco entregável e testável.
 
+> ⚠️ **Nota histórica (Fase 34):** o CLI foi **removido** — o produto é
+> 100% web. As fases antigas abaixo (0, 5, 6, 11, etc.) descrevem um CLI
+> que **não existe mais** no código: `src/auto_dm/cli/` e `main.py` foram
+> deletados, junto das deps `click`/`rich`. Leia essas menções como
+> registro do que foi feito na época, não como reflexo do estado atual.
+> A camada de apresentação atual é o frontend web (`src/auto_dm/web/`).
+
 ---
 
 ## Princípios de execução
@@ -47,7 +54,7 @@ auto_dm/
 │   ├── state/
 │   ├── agents/
 │   ├── persistence/
-│   ├── cli/
+│   ├── web/                   # frontend + backend (substituiu o cli/)
 │   └── rules_data/            # extraído dos .md, cache
 └── tests/
 ```

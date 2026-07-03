@@ -8,7 +8,6 @@ Covers:
 - ASI eligibility at L4, L8, L12, L16, L19.
 - Apply_class_features gates Aura of Protection (Paladin L6),
   Feral Instinct (Barbarian L7), Aura of Courage (Paladin L10).
-- /level-up meta-command wired (smoke check via META_COMMANDS).
 """
 from __future__ import annotations
 
@@ -24,7 +23,6 @@ from auto_dm.character.level_up import (
     has_subclass_feature,
     list_subclass_features,
 )
-from auto_dm.cli.app import META_COMMANDS
 from auto_dm.engine.progression import (
     ASI_LEVELS,
     LevelUpResult,
@@ -376,16 +374,6 @@ class TestApplyClassFeatures:
 # ===========================================================================
 # Meta-command wiring
 # ===========================================================================
-
-
-class TestLevelUpMetaCommand:
-    def test_meta_command_listed(self):
-        assert "/level-up [name]" in META_COMMANDS
-
-    def test_meta_command_text_mentions_asi(self):
-        cmd_text = META_COMMANDS["/level-up [name]"]
-        # Narration should mention ASI eligibility.
-        assert "ASI" in cmd_text or "asi" in cmd_text.lower()
 
 
 # ===========================================================================

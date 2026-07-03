@@ -10,8 +10,6 @@ dependencies = [
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
     "python-dotenv>=1.0",
-    "rich>=13.7",
-    "click>=8.1",
     "openai>=1.40.0",
     "httpx>=0.27",
     # Phase 26 — Web backend
@@ -38,9 +36,6 @@ dev = [
     "pytest-cov>=4.1",
     "ruff>=0.4",
 ]
-
-[project.scripts]
-auto-dm = "auto_dm.main:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

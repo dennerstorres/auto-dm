@@ -200,47 +200,6 @@ class TestHasSubclassFeature:
 
 
 # ===========================================================================
-# CLI wizard subclass prompt
-# ===========================================================================
-
-
-class TestPromptSubclass:
-    def test_class_with_subclass_returns_picked_name(self):
-        from auto_dm.cli.character_flow import _prompt_subclass
-
-        inputs = iter(["1"])
-        outputs: list[str] = []
-        result = _prompt_subclass(
-            lambda _: next(inputs),
-            lambda *a, **kw: outputs.append(str(a)),
-            "Wizard",
-        )
-        assert result == "School of Evocation"
-
-    def test_class_with_no_subclasses_returns_none(self):
-        # All 12 PHB classes have subclasses; this guards against
-        # future classes that don't.
-        from auto_dm.cli.character_flow import _prompt_subclass
-
-        result = _prompt_subclass(lambda _: "", lambda *a, **kw: None, "Nonexistent")
-        assert result is None
-
-    def test_partial_match_works_via_prompt_choice(self):
-        # User types partial / case-different; the prompt_choice helper
-        # only accepts exact digit picks, so this verifies default behavior.
-        from auto_dm.cli.character_flow import _prompt_subclass
-
-        inputs = iter(["", "1"])  # first empty (default), then "1"
-        result = _prompt_subclass(
-            lambda _: next(inputs),
-            lambda *a, **kw: None,
-            "Cleric",
-        )
-        # Cleric's only parsed subclass is "Life Domain" — default index 0
-        assert result in {"Life Domain"}
-
-
-# ===========================================================================
 # Builder integration (smoke test)
 # ===========================================================================
 

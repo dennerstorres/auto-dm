@@ -17,8 +17,6 @@ scripted (text, usage) tuples via ``chat_with_usage``.
 """
 from __future__ import annotations
 
-import io
-from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -662,95 +660,3 @@ class TestPersistence:
         assert loaded.summary_history == state_manager.state.summary_history
         assert loaded.last_summarized_at_index == 42
         assert loaded.last_summary_attempt_at_index == 50
-
-
-# ============================================================================
-# CLI meta-command: /summary
-# ============================================================================
-
-
-class TestCLISummaryCommand:
-    def _build_app(self):
-        from auto_dm.cli.app import make_game_app
-
-        state = _make_state()
-        return make_game_app(
-            state=state,
-            provider_factory=lambda: _ScriptedUsageProvider(scripted=[""]),
-        )
-
-    def test_summary_status_prints_config(self):
-        from auto_dm.cli.app import make_game_app
-
-        app = make_game_app(
-            state=_make_state(),
-            provider_factory=lambda: _ScriptedUsageProvider(scripted=[""]),
-        )
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            app.process_input("/summary")
-        out = buf.getvalue()
-        assert "enabled" in out
-        assert "every_n_entries" in out
-        assert "char_threshold" in out
-
-    def test_summary_off_disables(self):
-        app = self._build_app()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            app.process_input("/summary off")
-        assert app.state_manager.state.summary_enabled is False
-
-    def test_summary_on_enables(self):
-        app = self._build_app()
-        app.state_manager.state.summary_enabled = False
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            app.process_input("/summary on")
-        assert app.state_manager.state.summary_enabled is True
-
-    def test_summary_force_triggers_immediate_summarization(self):
-        from datetime import datetime, timezone
-
-        app = self._build_app()
-        sm = app.state_manager
-        # Lower the entry-count trigger so a short log fires reliably.
-        sm.state.summary_every_n_entries = 5
-        sm.state.summary_char_threshold = 100_000  # disable char trigger
-        # Need > 7 entries to give the summarizer something to condense
-        # (with default keep_last_n=6).
-        for i in range(10):
-            sm.append_narrative(
-                NarrativeEntry(
-                    timestamp=datetime.now(timezone.utc),
-                    role="dm",
-                    speaker="DM",
-                    content=f"Entrada {i} que seja longa o suficiente para passar.",
-                )
-            )
-        # Rebuild the summarizer with a stub provider that returns a
-        # valid (>=50 chars) summary. We replace the whole collaborator
-        # rather than just the provider attribute, since Python lets us
-        # reuse the existing one cleanly.
-        app._summarizer = NarrativeSummarizer(
-            provider=_ScriptedUsageProvider(
-                scripted=[
-                    "Resumo curto mas válido pois tem mais de cinquenta caracteres."
-                ]
-            )
-        )
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            app.process_input("/summary force")
-        assert len(sm.state.summary_history) == 1
-        assert "Resumo adicionado" in buf.getvalue()
-
-    def test_summary_force_with_short_log_says_nothing(self):
-        app = self._build_app()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            app.process_input("/summary force")
-        assert (
-            "narrative_log muito curto" in buf.getvalue()
-            or app.state_manager.state.summary_history == []
-        )

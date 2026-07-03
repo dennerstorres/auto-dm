@@ -22,8 +22,7 @@ Jogar D&D 5e solo, com a narrativa, NPCs, encounters e arbitragem de regras cond
 - **Orquestração de agentes:** loop próprio de DM + companheiros (LangChain/LangGraph previstos mas não obrigatórios no MVP).
 - **Web backend:** FastAPI + uvicorn (auth, sessões, REST, SSE streaming).
 - **Frontend:** HTML/CSS/JS vanilla (sem build step), com wizard de criação de personagem no browser.
-- **Persistência:** **Postgres** (users + saves no web) + **Redis** (sessões ativas, TTL 24h); CLI standalone usa JSON em `saves/`.
-- **CLI:** Rich (HP bars, painéis, log de combate colorido, replay de rolagens) — alternativa ao web para headless/terminal.
+- **Persistência:** **Postgres** (users + saves no web) + **Redis** (sessões ativas, TTL 24h). O engine também serializa `GameState` para JSON (usado em saves e testes).
 - **Deploy:** **Docker** (Dockerfile single-stage + `docker-compose.yml` prod / `docker-compose.dev.yml` dev com Postgres+Redis+backend).
 
 ### Como rodar
@@ -96,10 +95,10 @@ Detalhes de deploy (nginx, TLS, Vercel, backups) em `DEPLOY.md`.
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                   CLI (Textual)                  │
+│              Frontend web (browser)              │
 │   input do jogador, render do estado, log        │
 └──────────────────┬──────────────────────────────┘
-                   │
+                   │  HTTP / SSE (FastAPI backend)
                    ▼
 ┌─────────────────────────────────────────────────┐
 │              Game Loop / Turn Manager            │
@@ -132,7 +131,7 @@ Detalhes de deploy (nginx, TLS, Vercel, backups) em `DEPLOY.md`.
 
 ### Fluxo de um turno (combate)
 
-1. CLI renderiza iniciativa, HP de todos, conditions ativas
+1. O frontend renderiza iniciativa, HP de todos, conditions ativas
 2. Motor diz "é o turno do Guerreiro IA"
 3. Companion Agent recebe: system prompt com a ficha do guerreiro + traits de personalidade + estado atual da mesa
 4. LLM retorna JSON estruturado: `{action_type, target, reasoning, dialogue}`
@@ -231,7 +230,7 @@ class GameState:
     summary_history: list[str]  # ledger append-only de resumos consolidados
 
     # Phase 33 — periodic summarizer config + cursor state
-    summary_enabled: bool = True                # kill switch de runtime (CLI /summary off)
+    summary_enabled: bool = True                # kill switch de runtime
     summary_every_n_entries: int = 20           # dispara quando o log cresce N entradas desde o último resumo
     summary_char_threshold: int = 12_000        # OU quando o log cruza N chars totais
     last_summarized_at_index: int = 0           # índice em narrative_log da última entrada resumida (exclusivo)
@@ -260,8 +259,6 @@ Regras:
   `last_summarized_at_index` NÃO — a próxima turno re-tenta.
 - Custo do summarizer é taggeado como `kind="summarizer"` em
   `UsageEvent`, separado da quota diária do jogador.
-- CLI: `/summary` mostra status; `/summary on|off` toggle; `/summary
-  force` dispara imediatamente e autosalva.
 
 ### Action (entrada do LLM pro engine)
 ```python
@@ -378,7 +375,7 @@ A cada turno do companheiro:
 
 O backend web persiste em **Postgres** (tabelas `User` + `Save`, com
 slug amigável e meta block) e usa **Redis** apenas para sessões ativas
-(TTL 24h). O CLI standalone mantém JSON em `saves/`.
+(TTL 24h).
 
 ### Saves (Postgres / JSON)
 - Estado completo serializado (Pydantic → dict → JSON)
@@ -434,8 +431,7 @@ real durante o jogo.
 
 **Conteúdo do painel, top-down:**
 1. **Cabeçalho:** nome do personagem, classe-nível, raça, alinhamento,
-   avatar (inicial do nome em círculo colorido derivado da classe via
-   `auto_dm.cli.rendering.class_color`).
+   avatar (inicial do nome em círculo colorido derivado da classe).
 2. **Bloco vital:** barra HP segmentada (verde/amarelo/vermelho +
    número `atual / máx`), AC grande (com tooltip mostrando breakdown
    `10 + DEX + shield + armor + magic`), speed, iniciativa atual
@@ -486,9 +482,9 @@ para Fase 35), drag-and-drop de magias (mantém-se modal discreto).
 
 ### 12.2 Inventário & equipamento na web (Fase 35)
 
-**Problema:** loot, equipar/desequipar, comprar/vender são CLI-only. O
-jogador que está na web não consegue consumir o `bag of holding` que
-acabou de encontrar, nem trocar a armadura após level-up.
+**Problema:** loot, equipar/desequipar, comprar/vender ainda não têm
+fluxo na web. O jogador que está na web não consegue consumir o `bag of
+holding` que acabou de encontrar, nem trocar a armadura após level-up.
 
 **Solução:** fluxo visual completo de gerenciamento de inventário com
 persistência no servidor.
