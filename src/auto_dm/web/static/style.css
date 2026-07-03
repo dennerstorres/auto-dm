@@ -59,7 +59,8 @@ header h1 {
 }
 
 input[type="text"],
-input[type="password"] {
+input[type="password"],
+select {
   flex: 1;
   background: #0c0e14;
   border: 1px solid #2a2e39;
@@ -70,7 +71,8 @@ input[type="password"] {
   font-size: inherit;
 }
 
-input:focus {
+input:focus,
+select:focus {
   outline: none;
   border-color: #c89b3c;
 }
@@ -453,7 +455,8 @@ button:disabled {
 
 /* --- Phase 28: input-blocking + busy feedback --- */
 input[type="text"]:disabled,
-input[type="password"]:disabled {
+input[type="password"]:disabled,
+select:disabled {
   background: #1a1e28;
   color: #666;
   cursor: not-allowed;
@@ -623,4 +626,412 @@ button.mini {
 .admin-list li {
   padding: 0.3rem 0;
   border-bottom: 1px solid #1f2330;
+}
+
+/* ============================================================ */
+/* Mobile responsiveness                                         */
+/* ============================================================ */
+
+html {
+  min-height: 100%;
+}
+
+body {
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+button,
+input,
+select {
+  min-width: 0;
+}
+
+button {
+  min-height: 2.75rem;
+  line-height: 1.2;
+}
+
+input[type="text"],
+input[type="password"],
+select {
+  min-height: 2.75rem;
+}
+
+.row,
+.input-row {
+  min-width: 0;
+}
+
+.row > *,
+.input-row > * {
+  min-width: 0;
+}
+
+#game-screen {
+  min-height: 0;
+}
+
+#game-screen .output {
+  min-height: 24rem;
+}
+
+.slug,
+.meta,
+.choice,
+.summary-block .val,
+.admin-table td {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  #app {
+    max-width: none;
+    width: 100%;
+    min-height: 100dvh;
+    height: auto;
+  }
+
+  .screen {
+    width: 100%;
+  }
+
+  .admin-table {
+    min-width: 760px;
+  }
+}
+
+@media (max-width: 640px) {
+  html,
+  body {
+    font-size: 14px;
+  }
+
+  #app {
+    padding: 0.75rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  header {
+    align-items: flex-start;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+
+  header h1 {
+    line-height: 2.75rem;
+  }
+
+  #user-info {
+    justify-content: flex-end;
+    flex: 1 1 12rem;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  #who {
+    overflow-wrap: anywhere;
+  }
+
+  .screen {
+    padding: 0.75rem;
+    border-radius: 4px;
+  }
+
+  .row {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .row button,
+  .row input,
+  .row select,
+  .modal-card button,
+  .modal-card input,
+  .modal-card select {
+    width: 100%;
+  }
+
+  input[type="text"],
+  input[type="password"],
+  select,
+  button {
+    font-size: 16px;
+  }
+
+  #saves-list li,
+  #archived-list li {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding: 0.75rem 0;
+  }
+
+  #saves-list li > span,
+  #archived-list li > span {
+    flex: 1 1 100%;
+  }
+
+  #saves-list button,
+  #archived-list button {
+    flex: 1 1 calc(50% - 0.5rem);
+    min-height: 2.5rem;
+    padding: 0.45rem 0.6rem;
+  }
+
+  .lobby-advanced {
+    padding: 0.65rem;
+  }
+
+  #game-screen {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100dvh - 5.75rem);
+  }
+
+  #game-screen .output {
+    flex: 1 1 auto;
+    min-height: 18rem;
+    max-height: calc(100dvh - 16rem);
+    padding: 0.75rem;
+    font-size: 13px;
+  }
+
+  .game-top {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .game-top button,
+  #lobby-btn,
+  #admin-back-btn {
+    width: 100%;
+  }
+
+  .input-row {
+    gap: 0.6rem;
+  }
+
+  .input-row label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .hints {
+    line-height: 1.8;
+  }
+
+  .hints code {
+    display: inline-block;
+    margin-bottom: 0.25rem;
+  }
+
+  .wizard-progress {
+    gap: 0.2rem;
+  }
+
+  .choices {
+    grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  }
+
+  .choice {
+    padding: 0.65rem;
+  }
+
+  .skills-grid,
+  .checkbox-list {
+    grid-template-columns: 1fr;
+  }
+
+  .checkbox-list label,
+  .skills-grid label {
+    align-items: flex-start;
+    padding: 0.45rem 0.25rem;
+  }
+
+  .wizard-nav {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin: 1rem -0.75rem -0.75rem;
+    padding: 0.75rem;
+    background: #131720;
+    border-top: 1px solid #2a2e39;
+  }
+
+  .wizard-nav > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .wizard-nav button,
+  .wizard-nav button.secondary {
+    width: 100%;
+  }
+
+  #wz-step-counter {
+    margin-right: 0 !important;
+    text-align: center;
+  }
+
+  .summary-block .row {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .summary-block .key {
+    width: 7.5rem;
+  }
+
+  .admin-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .admin-card {
+    padding: 0.65rem;
+  }
+
+  .admin-table-wrap {
+    overflow: visible;
+  }
+
+  .admin-table,
+  .admin-table tbody,
+  .admin-table tr,
+  .admin-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .admin-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.9rem;
+  }
+
+  .admin-table thead {
+    display: none;
+  }
+
+  .admin-table tr {
+    background: #11151e;
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    margin-bottom: 0.75rem;
+    padding: 0.35rem 0;
+  }
+
+  .admin-table td {
+    display: grid;
+    grid-template-columns: minmax(6.5rem, 38%) 1fr;
+    gap: 0.75rem;
+    padding: 0.45rem 0.65rem;
+    border-bottom: 1px solid #1f2330;
+  }
+
+  .admin-table td:last-child {
+    border-bottom: none;
+  }
+
+  .admin-table td::before {
+    color: #888;
+    content: "";
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .admin-table td:nth-child(1)::before { content: "Usuário"; }
+  .admin-table td:nth-child(2)::before { content: "Role"; }
+  .admin-table td:nth-child(3)::before { content: "Status"; }
+  .admin-table td:nth-child(4)::before { content: "Tokens"; }
+  .admin-table td:nth-child(5)::before { content: "Custo"; }
+  .admin-table td:nth-child(6)::before { content: "Ações"; }
+
+  .admin-table td[colspan] {
+    display: block;
+  }
+
+  .admin-table td[colspan]::before {
+    content: none;
+  }
+
+  .admin-table td.admin-actions {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .admin-table td.admin-actions::before {
+    flex: 1 1 100%;
+  }
+
+  .admin-actions button,
+  button.mini {
+    flex: 1 1 calc(50% - 0.45rem);
+    min-height: 2.4rem;
+  }
+
+  .admin-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .modal {
+    align-items: flex-end;
+    padding: 0.75rem;
+  }
+
+  .modal-card {
+    width: 100%;
+    max-height: calc(100dvh - 1.5rem);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  #app {
+    padding-inline: 0.5rem;
+  }
+
+  .screen {
+    padding: 0.65rem;
+  }
+
+  .input-row {
+    flex-direction: column;
+  }
+
+  .input-row button,
+  .input-row input {
+    width: 100%;
+  }
+
+  .choices {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-block .row {
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .summary-block .key {
+    width: auto;
+  }
+
+  #saves-list button,
+  #archived-list button,
+  .admin-actions button,
+  button.mini {
+    flex-basis: 100%;
+  }
 }
