@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -61,6 +61,12 @@ _STATS_METHODS: list[dict[str, str]] = [
     {"id": "roll", "label": "Rolar 4d6 (drop lowest, 6 rolagens)"},
     {"id": "point_buy", "label": "Compra de pontos (PHB p.13)"},
 ]
+# Per-campaign narration length. Mirrors the Literal in GameState.
+_NARRATION_LENGTHS: list[dict[str, str]] = [
+    {"id": "curto", "label": "Curto (1-2 frases, tensão ainda mais seca)"},
+    {"id": "medio", "label": "Médio (3-5 frases, com detalhe sensorial moderado)"},
+    {"id": "longo", "label": "Longo (1-2 parágrafos, prosa rica — modo atual)"},
+]
 
 
 class CompanionOption(BaseModel):
@@ -96,6 +102,7 @@ class CharacterOptions(BaseModel):
     levels: list[int]
     stats_methods: list[dict[str, str]]
     companions: list[CompanionOption]
+    narration_lengths: list[dict[str, str]]
 
 
 class PlayerCharacterSpec(BaseModel):
@@ -127,6 +134,9 @@ class WithCharacterRequest(BaseModel):
     campaign_name: str = Field(..., min_length=1, max_length=128)
     player_character: PlayerCharacterSpec
     companions: list[str] = Field(default_factory=list)
+    # Per-campaign DM narration length. Default "longo" preserves the
+    # original verbose behavior when the field is omitted.
+    narration_length: Literal["curto", "medio", "longo"] = "longo"
 
 
 class SessionCreated(BaseModel):
@@ -365,6 +375,7 @@ async def character_options(
         levels=_LEVELS,
         stats_methods=_STATS_METHODS,
         companions=companions,
+        narration_lengths=_NARRATION_LENGTHS,
     )
 
 
@@ -483,6 +494,7 @@ async def create_session_with_character(
         started_at=datetime.now(timezone.utc),
         # current_location intentionally left empty (default "") — the DM
         # chooses the starting scene during the opening narration.
+        narration_length=body.narration_length,
         party=[player, *chosen_companions],
         npcs=[],
         player_character_id=player.id,

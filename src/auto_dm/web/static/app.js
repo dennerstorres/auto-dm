@@ -1387,6 +1387,9 @@ let wizardState = {
   step: 0,             // index into WIZARD_STEPS
   options: null,        // loaded catalog from /api/character-options
   campaign_name: "",
+  // Per-campaign DM narration length. Default "longo" preserves the
+  // original verbose behavior when the player doesn't change it.
+  narration_length: "longo",
   name: "",
   race: null,
   subrace: null,
@@ -1475,6 +1478,23 @@ function renderWizardName() {
   document.getElementById("wz-char-name").oninput = (e) => {
     wizardState.name = e.target.value;
   };
+  // Narration length: prefer the catalog when available, fall back to the
+  // hard-coded options in index.html (which still ship as a defensive default).
+  const sel = document.getElementById("wz-narration-length");
+  if (sel) {
+    const opts = (wizardState.options && wizardState.options.narration_lengths)
+      || [
+        { id: "curto", label: "Curto (1-2 frases, tensão ainda mais seca)" },
+        { id: "medio", label: "Médio (3-5 frases, com detalhe sensorial moderado)" },
+        { id: "longo", label: "Longo (1-2 parágrafos, prosa rica — modo atual)" },
+      ];
+    sel.innerHTML = opts
+      .map((o) => `<option value="${o.id}" ${wizardState.narration_length === o.id ? "selected" : ""}>${o.label}</option>`)
+      .join("");
+    sel.onchange = (e) => {
+      wizardState.narration_length = e.target.value;
+    };
+  }
 }
 
 function renderWizardRace() {
@@ -1894,6 +1914,7 @@ function renderWizardConfirm() {
   const root = document.getElementById("wz-summary");
   const summary = [
     ["Campanha", wizardState.campaign_name || "(vazio)"],
+    ["Narração", wizardState.narration_length],
     ["Personagem", wizardState.name || "(vazio)"],
     ["Raça", wizardState.race + (wizardState.subrace ? ` (${wizardState.subrace})` : "")],
     ["Classe", wizardState.char_class + (wizardState.subclass ? ` (${wizardState.subclass})` : "")],
@@ -2050,6 +2071,7 @@ async function wizardFinish() {
   try {
     const payload = {
       campaign_name: wizardState.campaign_name,
+      narration_length: wizardState.narration_length,
       player_character: {
         name: wizardState.name,
         race: wizardState.race,

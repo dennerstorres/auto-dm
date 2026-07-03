@@ -53,6 +53,8 @@ def setup_new_game(
         inp, out, "Nome da campanha", default="Crônicas da Aliança",
     )
 
+    narration_length = _prompt_narration_length(inp, out)
+
     # Build the player character FIRST so companion selection can use
     # the player's class to roll a synergy-biased set of candidates
     # (Phase 27). Before this, we built the player after companions.
@@ -64,6 +66,7 @@ def setup_new_game(
     out(Panel.fit(
         f"[bold]Resumo[/bold]\n"
         f"  Campanha: {campaign_name}\n"
+        f"  Comprimento da narração: {narration_length}\n"
         f"  Personagem: {player.name} ({getattr(player, 'class_', '?')})\n"
         f"  Companheiros: {', '.join(chosen) if chosen else '(nenhum)'}",
         border_style="green",
@@ -81,6 +84,7 @@ def setup_new_game(
         started_at=datetime.now(tz=timezone.utc),
         # current_location intentionally left empty (default "") — the DM
         # chooses the starting scene during the opening narration.
+        narration_length=narration_length,
         party=party,
         npcs=[],
         player_character_id=player.id,
@@ -105,6 +109,41 @@ def _prompt_text(
 ) -> str:
     raw = inp(f"{label} [{default}]: ").strip()
     return raw or default
+
+
+# Per-campaign narration length. The user picks at campaign creation;
+# "longo" preserves the original verbose behavior.
+_NARRATION_LENGTH_CHOICES: list[tuple[str, str]] = [
+    ("curto", "Curto (1-2 frases, tensão ainda mais seca)"),
+    ("medio", "Médio (3-5 frases, com detalhe sensorial moderado)"),
+    ("longo", "Longo (1-2 parágrafos, prosa rica — modo atual)"),
+]
+
+
+def _prompt_narration_length(inp: InputFn, out: PrintFn) -> str:
+    """Ask the player how verbose the DM should be, and return the chosen key.
+
+    Accepts "1"/"2"/"3" (positional), or the raw key ("curto"/"medio"/"longo",
+    case-insensitive). Empty input falls back to "longo" — the original
+    behavior — so that pressing Enter keeps the default.
+    """
+    out("\n[bold]Comprimento das narrações do DM[/bold]")
+    out("Escolha o quanto o mestre deve narrar a cada resposta.")
+    out("[dim]Dentro de cada nível, tensão/combate fica mais seco e exploração mais descritivo.[/dim]")
+    for i, (_key, label) in enumerate(_NARRATION_LENGTH_CHOICES, 1):
+        out(f"  {i}) {label}")
+    raw = inp("  Escolha (1-3) [3 = longo]: ").strip()
+    if not raw:
+        return "longo"
+    if raw.isdigit():
+        idx = int(raw) - 1
+        if 0 <= idx < len(_NARRATION_LENGTH_CHOICES):
+            return _NARRATION_LENGTH_CHOICES[idx][0]
+    lowered = raw.lower()
+    for key, _label in _NARRATION_LENGTH_CHOICES:
+        if lowered == key:
+            return key
+    return "longo"
 
 
 def _prompt_companions(inp: InputFn, out: PrintFn, player: Character) -> list[str]:

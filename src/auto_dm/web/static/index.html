@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Auto DM — Console</title>
-  <link rel="stylesheet" href="/style.css?v=40" />
+  <link rel="stylesheet" href="/style.css?v=41" />
 </head>
 <body>
   <div id="app">
@@ -97,6 +97,15 @@
         <label>
           <span class="lbl">Nome do personagem</span>
           <input id="wz-char-name" type="text" placeholder="Aragorn" />
+        </label>
+        <label>
+          <span class="lbl">Comprimento da narração do DM</span>
+          <span class="hint">Dentro de cada nível, tensão fica mais seca e exploração mais descritiva.</span>
+          <select id="wz-narration-length">
+            <option value="curto">Curto (1-2 frases, tensão ainda mais seca)</option>
+            <option value="medio">Médio (3-5 frases, com detalhe sensorial moderado)</option>
+            <option value="longo" selected>Longo (1-2 parágrafos, prosa rica — modo atual)</option>
+          </select>
         </label>
       </div>
 
@@ -355,6 +364,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=40" type="module"></script>
+  <script src="/app.js?v=41" type="module"></script>
 </body>
 </html>

@@ -357,3 +357,43 @@ def test_get_creature_finds_npc():
 def test_get_creature_returns_none_for_unknown():
     mgr = StateManager(make_state())
     assert mgr.get_creature("ghost") is None
+
+
+# ---------------------------------------------------------------------------
+# Per-campaign narration length preference
+# ---------------------------------------------------------------------------
+
+
+class TestNarrationLength:
+    def test_default_is_longo(self):
+        """Without the field, new GameStates default to "longo" — the
+        original verbose behavior. Preserves backward compatibility for
+        any caller that builds a state without explicitly picking."""
+        state = make_state()
+        assert state.narration_length == "longo"
+
+    def test_explicit_values_round_trip(self):
+        for value in ("curto", "medio", "longo"):
+            state = make_state()
+            state.narration_length = value
+            j = state.model_dump_json()
+            state2 = GameState.model_validate_json(j)
+            assert state2.narration_length == value
+
+    def test_invalid_value_rejected(self):
+        # Pydantic v2 by default validates on construction, not on
+        # attribute assignment. Use model_validate to ensure the
+        # Literal guard fires for anything outside the union.
+        state = make_state().model_dump(mode="json")
+        state["narration_length"] = "epico"
+        with pytest.raises(Exception):
+            GameState.model_validate(state)
+
+    def test_old_save_without_field_loads_as_longo(self):
+        """Backward-compat: a JSON dump that predates the field must
+        still load successfully, defaulting to "longo"."""
+        j = make_state().model_dump(mode="json")
+        j.pop("narration_length", None)
+        assert "narration_length" not in j  # sanity
+        state2 = GameState.model_validate(j)
+        assert state2.narration_length == "longo"

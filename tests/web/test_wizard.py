@@ -98,6 +98,22 @@ async def test_character_options_spellcasters_include_spell_options(client, auth
 
 
 @pytest.mark.asyncio
+async def test_character_options_includes_narration_lengths(client, auth_token):
+    """Phase 31: catalog exposes the three narration-length options so
+    the wizard can render the <select> from server data (with a hard-
+    coded fallback in index.html)."""
+    token, user, headers = auth_token
+    resp = await client.get("/api/character-options", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "narration_lengths" in body
+    ids = {opt["id"] for opt in body["narration_lengths"]}
+    assert ids == {"curto", "medio", "longo"}
+    for opt in body["narration_lengths"]:
+        assert opt["label"]
+
+
+@pytest.mark.asyncio
 async def test_character_options_tolerates_missing_phb_entries(
     client, auth_token, monkeypatch
 ):
@@ -481,3 +497,78 @@ async def test_roll_companions_accepts_missing_subclass(client, auth_token):
     )
     assert resp.status_code == 200, resp.text
     assert len(resp.json()["candidates"]) == 4
+
+
+# ============================================================================
+# POST /sessions/with-character — Phase 31 narration_length
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_with_character_curto_persists_to_state(client, auth_token):
+    token, user, headers = auth_token
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Curto Test",
+            "player_character": _valid_spec(),
+            "companions": [],
+            "narration_length": "curto",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["state"]["narration_length"] == "curto"
+
+
+@pytest.mark.asyncio
+async def test_with_character_medio_persists_to_state(client, auth_token):
+    token, user, headers = auth_token
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Medio Test",
+            "player_character": _valid_spec(),
+            "companions": [],
+            "narration_length": "medio",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["state"]["narration_length"] == "medio"
+
+
+@pytest.mark.asyncio
+async def test_with_character_omitted_narration_length_defaults_to_longo(
+    client, auth_token
+):
+    """Backward-compat: omitting the field keeps the old verbose default."""
+    token, user, headers = auth_token
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Default Test",
+            "player_character": _valid_spec(),
+            "companions": [],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["state"]["narration_length"] == "longo"
+
+
+@pytest.mark.asyncio
+async def test_with_character_invalid_narration_length_rejected(client, auth_token):
+    """Literal type guard: anything outside curto/medio/longo → 422."""
+    token, user, headers = auth_token
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Bad Narration",
+            "player_character": _valid_spec(),
+            "companions": [],
+            "narration_length": "epico",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422

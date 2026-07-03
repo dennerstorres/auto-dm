@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -698,3 +698,8 @@ class GameState(BaseModel):
     # History (used to feed the LLM with relevant context)
     narrative_log: list[NarrativeEntry] = Field(default_factory=list)
     summary_history: list[str] = Field(default_factory=list)
+
+    # Player-set campaign preferences
+    # Default "longo" preserves the original behavior for old saves
+    # (Pydantic fills the default when the key is missing).
+    narration_length: Literal["curto", "medio", "longo"] = "longo"

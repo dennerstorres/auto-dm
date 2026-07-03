@@ -45,9 +45,18 @@ O bloco `action` é OPCIONAL. Use apenas quando precisar que o motor execute alg
 # Estilo
 
 - Frases curtas e vívidas em momentos de tensão; descrições longas em exploração.
+- Respeite o orçamento de narração definido pelo jogador (ver seção "Orçamento de narração" abaixo). A escolha do jogador sobrepõe esta regra: mesmo em exploração, se ele escolheu "curto", fique curto.
 - Use os cinco sentidos (visão, som, cheiro, tato, paladar) para ancorar a cena.
 - Não force conclusões — descreva o que o jogador percebe e oferece opções.
 - NPCs têm voz própria; personalidades distintas; motive cada um.
+
+# Orçamento de narração
+
+A seção "Orçamento de narração (definido pelo jogador...)" injetada abaixo deste prompt fixa o teto geral da sua resposta por turno. Siga-o estritamente.
+
+Dentro desse teto, mantenha a variação: tensão (combate, armadilha, perseguição) sempre mais seco que exploração (caminhos, cidades, salas, puzzles).
+
+A escolha do jogador é soberana. Se ele escolheu "curto", mesmo exploração deve ser breve; se escolheu "longo", mesmo tensão pode respirar um pouco mais.
 
 # Abertura de campanha
 
@@ -75,6 +84,62 @@ Use esse contexto para fundamentar cada resposta. Não contradiga fatos estabele
 
 Lembre-se: você é o mestre, não o motor. NARRAR é seu trabalho; ROLAR é do motor.
 """
+
+
+# Per-campaign narration length budgets. The DM honors the player's overall
+# choice (curto/medio/longo) and varies within each level — tensão sempre mais
+# seco que exploração, mas subordinado ao teto geral.
+NARRATION_LENGTH_BUDGETS: dict[str, dict[str, str]] = {
+    "curto": {
+        "directive": (
+            "Responda no máximo em 1-2 frases por turno. "
+            "Em tensão/combate: 1 frase direta (fato + sensação única). "
+            "Em exploração: no máximo 2 frases sucintas com o essencial. "
+            "Sem descrição ambiental longa, sem floreios, sem repetir o que o jogador já disse."
+        ),
+        "followup": "em 1 frase",
+    },
+    "medio": {
+        "directive": (
+            "Responda em 1 parágrafo curto (3-5 frases). "
+            "Em tensão/combate: 1-2 frases vívidas, ação e consequência. "
+            "Em exploração: 3-5 frases com algum detalhe sensorial, mas econômico."
+        ),
+        "followup": "em 1-2 frases",
+    },
+    "longo": {
+        "directive": (
+            "Responda em prosa narrativa rica (1-2 parágrafos). "
+            "Em tensão/combate: frases curtas e vívidas, ritmo acelerado. "
+            "Em exploração: descrição sensorial completa, cinco sentidos, NPCs com voz."
+        ),
+        "followup": "em 1-3 frases",
+    },
+}
+
+
+def get_narration_directive(length: str) -> str:
+    """Return the system-prompt paragraph instructing the DM how verbose to be.
+
+    Unknown values fall back to "longo" (the original behavior) so old saves
+    and bad inputs never crash the agent.
+    """
+    budget = NARRATION_LENGTH_BUDGETS.get(length) or NARRATION_LENGTH_BUDGETS["longo"]
+    return (
+        "## Orçamento de narração (definido pelo jogador na criação da campanha)\n"
+        f"Nível escolhido: **{length}**.\n"
+        f"{budget['directive']}"
+    )
+
+
+def get_followup_max_sentences(length: str) -> str:
+    """Return the post-action narration sentence budget for the chosen length.
+
+    Used by the narrative loop when asking the DM to describe a mechanical
+    action result. Unknown values fall back to "longo".
+    """
+    budget = NARRATION_LENGTH_BUDGETS.get(length) or NARRATION_LENGTH_BUDGETS["longo"]
+    return budget["followup"]
 
 
 COMPANION_SYSTEM_PROMPT = """Você é um personagem companheiro em uma party de Dungeons & Dragons 5ª edição. Você tem personalidade, histórico, ideais, vínculos e falhas próprios. Você toma decisões de combate e exploração em nome do seu personagem, em coordenação com o jogador humano e os outros companheiros.

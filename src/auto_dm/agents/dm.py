@@ -23,7 +23,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional, Protocol
 
-from auto_dm.agents.prompts import DM_SYSTEM_PROMPT, OPENING_INSTRUCTION, build_dm_context_block
+from auto_dm.agents.prompts import (
+    DM_SYSTEM_PROMPT,
+    OPENING_INSTRUCTION,
+    build_dm_context_block,
+    get_narration_directive,
+)
 from auto_dm.llm.base import Message
 from auto_dm.llm.usage import UsageReport, chat_with_usage
 from auto_dm.state.manager import StateManager
@@ -211,10 +216,13 @@ class DMAgent:
         """Build the full message list for one DM turn."""
         messages: list[Message] = []
 
-        # 1. System prompt + state context, fused into a single system
-        #    message so the LLM sees them together.
+        # 1. System prompt + state context + per-campaign narration budget,
+        #    all fused into a single system message so the LLM sees them
+        #    together. The narration directive honors the player's choice
+        #    (curto / medio / longo) at campaign creation.
         context = build_dm_context_block(self.state_manager)
-        system_content = f"{self.system_prompt}\n\n{context}"
+        directive = get_narration_directive(self.state_manager.state.narration_length)
+        system_content = f"{self.system_prompt}\n\n{context}\n\n{directive}"
         messages.append(Message(role="system", content=system_content))
 
         # 2. Recent narrative log entries (alternating user/assistant).

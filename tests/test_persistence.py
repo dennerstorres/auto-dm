@@ -392,3 +392,27 @@ class TestIntegration:
         assert loaded.initiative_order == ["p1", "g1"]
         assert loaded.current_turn_index == 1
         assert loaded.round_number == 3
+
+    def test_roundtrip_preserves_narration_length(self, tmp_saves):
+        """Phase 31: the new per-campaign narration_length preference
+        must survive a save/load cycle for every supported level."""
+        for value in ("curto", "medio", "longo"):
+            state = make_state(campaign_name=f"Roundtrip {value}")
+            state.narration_length = value
+            save_state(state, saves_dir=tmp_saves)
+            loaded = load_state(slugify(state.campaign_name), saves_dir=tmp_saves)
+            assert loaded.narration_length == value
+
+    def test_old_save_without_narration_length_loads_as_longo(self, tmp_saves):
+        """Backward-compat: a JSON written before the field was added
+        loads successfully and defaults to 'longo'."""
+        state = make_state(campaign_name="Legacy")
+        save_state(state, saves_dir=tmp_saves)
+        path = tmp_saves / slugify(state.campaign_name) / "state.json"
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["state"].pop("narration_length", None)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f)
+        loaded = load_state(slugify(state.campaign_name), saves_dir=tmp_saves)
+        assert loaded.narration_length == "longo"

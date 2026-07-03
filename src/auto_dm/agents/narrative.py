@@ -20,6 +20,7 @@ from typing import Optional
 
 from auto_dm.agents.companion_turn import CompanionTurnResult
 from auto_dm.agents.dm import DMAgent, DMResponse
+from auto_dm.agents.prompts import get_followup_max_sentences
 from auto_dm.engine.combat_engine import CombatEngine
 from auto_dm.llm.usage import UsageReport
 from auto_dm.state.manager import StateManager
@@ -296,13 +297,14 @@ def _narrate_action_result(
     Returns the full :class:`DMResponse` (narration + usage) so the
     caller can bill the second LLM call too.
     """
+    followup_budget = get_followup_max_sentences(state_manager.state.narration_length)
     prompt = (
         f"A ação {action.action_type.value} que você acabou de anunciar "
         f"produziu o seguinte resultado mecânico:\n\n"
         f"Sucesso: {result.success}\n"
         f"Mensagem: {result.message}\n"
         f"Detalhes: {result.mechanical}\n\n"
-        "Agora narre esse resultado em 1-3 frases (pt-BR, segunda pessoa). "
+        f"Agora narre esse resultado {followup_budget} (pt-BR, segunda pessoa). "
         "Não invente novos números — apenas descreva o que aconteceu."
     )
     follow_up = dm_agent.ask(prompt)

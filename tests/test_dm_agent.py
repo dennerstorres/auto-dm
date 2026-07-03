@@ -19,6 +19,10 @@ from auto_dm.agents import (
     process_player_action,
 )
 from auto_dm.agents.prompts import OPENING_INSTRUCTION
+from auto_dm.agents.prompts import (
+    get_followup_max_sentences,
+    get_narration_directive,
+)
 from auto_dm.llm.base import LLMConfig, Message
 from auto_dm.state.manager import StateManager
 from auto_dm.state.models import (
@@ -829,3 +833,152 @@ class TestOpeningNarration:
         assert result.action is None
         assert state.state.current_location == ""
         assert state.state.narrative_log[-1].role == "dm"
+
+
+# ============================================================================
+# Per-campaign narration length
+# ============================================================================
+
+
+class TestNarrationLengthHelpers:
+    """Each level yields a distinct directive that mentions both tensão
+    and exploração — the tension-vs-exploration dynamic stays subordinate
+    to the player's overall choice."""
+
+    @pytest.mark.parametrize("level", ["curto", "medio", "longo"])
+    def test_directive_names_the_chosen_level(self, level):
+        directive = get_narration_directive(level)
+        assert f"**{level}**" in directive
+        assert "Orçamento de narração" in directive
+
+    @pytest.mark.parametrize("level", ["curto", "medio", "longo"])
+    def test_directive_keeps_tensao_and_exploracao_subordinate(self, level):
+        """The original tensão/exploração dynamic must remain in every
+        level — the player choice overrides the *general* volume, not
+        the rule that tensão stays drier than exploração."""
+        directive = get_narration_directive(level).lower()
+        assert "tensão" in directive or "tensao" in directive
+        assert "exploração" in directive or "exploracao" in directive
+
+    def test_unknown_level_falls_back_to_longo(self):
+        directive = get_narration_directive("epico")
+        # The body uses the "longo" budget even though the player picked
+        # something nonsensical — old saves with corrupted values must
+        # never crash the agent.
+        assert "prosa narrativa rica" in directive
+        # And the section header is always emitted so the prompt stays
+        # well-formed regardless of input.
+        assert "Orçamento de narração" in directive
+
+    @pytest.mark.parametrize("level,expected", [
+        ("curto", "em 1 frase"),
+        ("medio", "em 1-2 frases"),
+        ("longo", "em 1-3 frases"),
+    ])
+    def test_followup_budget_per_level(self, level, expected):
+        assert get_followup_max_sentences(level) == expected
+
+    def test_followup_unknown_level_falls_back_to_longo(self):
+        assert get_followup_max_sentences("epico") == "em 1-3 frases"
+
+
+class TestDMSystemPromptNarrationBudget:
+    """The DM_SYSTEM_PROMPT itself must reference the new section so the
+    model is primed to obey the injected directive."""
+
+    def test_prompt_references_orcamento_section(self):
+        assert "Orçamento de narração" in DM_SYSTEM_PROMPT
+
+    def test_prompt_preserves_original_tensao_vs_exploracao_bullet(self):
+        """The original "frases curtas em tensão; descrições longas em
+        exploração" dynamic stays as a guiding bullet, subordinate to
+        the per-campaign budget below."""
+        assert "tensão" in DM_SYSTEM_PROMPT.lower()
+        assert "exploração" in DM_SYSTEM_PROMPT.lower()
+
+
+class TestNarrationDirectiveInjection:
+    """The DM agent must inject the correct directive for the player's
+    narration_length preference on every call."""
+
+    def _sys_content(self, state) -> str:
+        provider = FakeProvider(scripted=["ok"])
+        agent = DMAgent(provider=provider, state_manager=state)
+        agent.ask("olá")
+        return provider.calls[0][0].content
+
+    def test_curto_injected_for_state_curto(self, state):
+        state.state.narration_length = "curto"
+        content = self._sys_content(state)
+        assert "**curto**" in content
+        assert "1-2 frases" in content
+
+    def test_medio_injected_for_state_medio(self, state):
+        state.state.narration_length = "medio"
+        content = self._sys_content(state)
+        assert "**medio**" in content
+        assert "3-5 frases" in content
+
+    def test_longo_injected_for_state_longo(self, state):
+        state.state.narration_length = "longo"
+        content = self._sys_content(state)
+        assert "**longo**" in content
+        assert "prosa narrativa rica" in content
+
+    def test_default_longo_when_field_missing(self):
+        # A fresh state built without setting narration_length must
+        # default to "longo" (covered in test_state.py). Confirm the
+        # agent then injects the "longo" directive.
+        from auto_dm.state.models import GameState as _GS
+
+        sm = StateManager(_GS(
+            campaign_name="solo",
+            started_at=datetime(2026, 6, 24, tzinfo=timezone.utc),
+            party=[],
+            player_character_id="x",
+        ))
+        assert sm.state.narration_length == "longo"
+        content = self._sys_content(sm)
+        assert "**longo**" in content
+
+
+class TestFollowupBudgetRespectsLength:
+    """The narrative-loop follow-up DM call should ask for the right
+    sentence budget given the player's length preference."""
+
+    def _followup_prompt(self, state) -> str:
+        from auto_dm.state.models import ActionResult
+
+        class Engine:
+            def execute_action(self, sm, action):
+                return ActionResult(
+                    success=True, message="Acerto!", mechanical={"damage": 5}
+                )
+
+        provider = FakeProvider(
+            scripted=[
+                dm_response(
+                    "Você ataca.",
+                    {
+                        "action_type": "attack",
+                        "actor_id": "p1",
+                        "target_id": "gob1",
+                    },
+                ),
+                "O goblin cambaleia.",
+            ]
+        )
+        agent = DMAgent(provider=provider, state_manager=state)
+        process_player_action(state, "ataco", agent, combat_engine=Engine())
+        return provider.calls[1][-1].content
+
+    def test_curto_asks_for_one_sentence(self, state):
+        state.state.narration_length = "curto"
+        prompt = self._followup_prompt(state)
+        assert "em 1 frase" in prompt
+        assert "1-3 frases" not in prompt
+
+    def test_longo_asks_for_one_to_three_sentences(self, state):
+        state.state.narration_length = "longo"
+        prompt = self._followup_prompt(state)
+        assert "em 1-3 frases" in prompt
