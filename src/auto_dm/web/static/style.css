@@ -123,6 +123,7 @@ button:disabled {
 .output {
   flex: 1;
   overflow-y: auto;
+  overflow-wrap: anywhere;
   background: #0a0c12;
   border: 1px solid #2a2e39;
   border-radius: 4px;
@@ -168,6 +169,120 @@ button:disabled {
   display: flex;
   justify-content: flex-start;
   margin-bottom: 0.5rem;
+}
+
+.table-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.sheet-panel,
+.roll-panel {
+  background: #0a0c12;
+  border: 1px solid #2a2e39;
+  border-radius: 4px;
+  padding: 0.75rem;
+}
+
+.sheet-panel summary {
+  cursor: pointer;
+  color: #c89b3c;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.sheet-head strong {
+  color: #e8e8e8;
+}
+
+.sheet-head span,
+.sheet-meta {
+  color: #8f96a3;
+  font-size: 0.82rem;
+}
+
+.sheet-stats {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0.55rem 0;
+}
+
+.sheet-stat {
+  min-width: 0;
+  background: #131720;
+  border: 1px solid #1f2330;
+  border-radius: 4px;
+  padding: 0.35rem 0.25rem;
+  text-align: center;
+}
+
+.sheet-stat span,
+.sheet-stat em {
+  display: block;
+  color: #8f96a3;
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.sheet-stat strong {
+  display: block;
+  color: #d4d4d4;
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.roll-panel label {
+  display: block;
+}
+
+.roll-panel .lbl {
+  display: block;
+  color: #8f96a3;
+  font-size: 0.78rem;
+  margin-bottom: 0.25rem;
+}
+
+.roll-panel select {
+  width: 100%;
+}
+
+.roll-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+  color: #d4d4d4;
+  font-size: 0.85rem;
+}
+
+.roll-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.roll-preview {
+  min-height: 1.2rem;
+  color: #98c379;
+  font-size: 0.82rem;
+  margin-bottom: 0.55rem;
+  overflow-wrap: anywhere;
+}
+
+.roll-panel button {
+  width: 100%;
 }
 
 .input-row input {
@@ -669,11 +784,18 @@ select {
 }
 
 #game-screen {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 #game-screen .output {
-  min-height: 24rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: calc(100vh - 14rem);
+  max-height: calc(100dvh - 14rem);
 }
 
 .slug,
@@ -799,6 +921,20 @@ select {
   .game-top {
     flex-wrap: wrap;
     gap: 0.5rem;
+  }
+
+  .table-tools {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
+  }
+
+  .sheet-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sheet-head {
+    flex-direction: column;
+    gap: 0.15rem;
   }
 
   .game-top button,
@@ -1013,6 +1149,10 @@ select {
 
   .choices {
     grid-template-columns: 1fr;
+  }
+
+  .sheet-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .admin-cards {

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Auto DM — Console</title>
-  <link rel="stylesheet" href="/style.css?v=35" />
+  <link rel="stylesheet" href="/style.css?v=36" />
 </head>
 <body>
   <div id="app">
@@ -172,6 +172,24 @@
       <div class="game-top">
         <button id="lobby-btn" class="secondary">← Voltar ao lobby</button>
       </div>
+      <div id="table-tools" class="table-tools" style="display:none">
+        <details class="sheet-panel" open>
+          <summary>Ficha</summary>
+          <div id="sheet-summary" class="sheet-summary"></div>
+        </details>
+        <div class="roll-panel">
+          <label>
+            <span class="lbl">Teste pedido pelo DM</span>
+            <select id="roll-check"></select>
+          </label>
+          <div class="roll-options">
+            <label><input id="roll-adv" type="checkbox" /> Vantagem</label>
+            <label><input id="roll-dis" type="checkbox" /> Desvantagem</label>
+          </div>
+          <div id="roll-preview" class="roll-preview"></div>
+          <button id="roll-btn" class="secondary">Rolar teste</button>
+        </div>
+      </div>
       <div id="output" class="output"></div>
       <div class="input-row">
         <input id="cmd" type="text" placeholder="O que você faz?" autocomplete="off" />
@@ -187,7 +205,8 @@
         Comandos: <code>/help</code> <code>/status</code>
         <code>/look</code> <code>/inventory</code>
         <code>/conditions</code> <code>/spells</code>
-        <code>/encounter &lt;monstro&gt;</code> <code>/save [slug]</code>
+        <code>/encounter &lt;monstro&gt;</code> <code>/roll furtividade</code>
+        <code>/save [slug]</code>
         <code>/list</code> <code>/load &lt;slug&gt;</code>
         <code>/quit</code>
       </div>
@@ -258,6 +277,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=35" type="module"></script>
+  <script src="/app.js?v=36" type="module"></script>
 </body>
 </html>

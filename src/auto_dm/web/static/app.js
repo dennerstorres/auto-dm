@@ -129,6 +129,7 @@ function clearLog() {
 // --- Current session state ---
 let currentSessionId = null;
 let currentSlug = null;
+let currentGameState = null;
 // Read-only view (admin inspecting a save). When true, input is disabled
 // and sendInput() bails out — the admin can look but not play.
 let readOnlyMode = false;
@@ -141,6 +142,10 @@ function lockUi() {
   busy = true;
   document.getElementById("cmd").disabled = true;
   document.getElementById("send-btn").disabled = true;
+  const rollBtn = document.getElementById("roll-btn");
+  if (rollBtn) rollBtn.disabled = true;
+  const rollCheck = document.getElementById("roll-check");
+  if (rollCheck) rollCheck.disabled = true;
   const toggle = document.getElementById("stream-toggle");
   if (toggle) toggle.disabled = true;
 }
@@ -151,6 +156,10 @@ function unlockUi() {
   if (readOnlyMode) return;
   document.getElementById("cmd").disabled = false;
   document.getElementById("send-btn").disabled = false;
+  const rollBtn = document.getElementById("roll-btn");
+  if (rollBtn) rollBtn.disabled = false;
+  const rollCheck = document.getElementById("roll-check");
+  if (rollCheck) rollCheck.disabled = false;
   const toggle = document.getElementById("stream-toggle");
   if (toggle) toggle.disabled = false;
 }
@@ -227,6 +236,7 @@ function doLogout() {
   setUser(null);
   currentSessionId = null;
   currentSlug = null;
+  currentGameState = null;
   readOnlyMode = false;
   document.getElementById("who").textContent = "";
   document.getElementById("logout-btn").style.display = "none";
@@ -359,6 +369,7 @@ async function viewSaveReadOnly(userId, slug) {
     const res = await api(
       `/api/admin/saves/${encodeURIComponent(userId)}/${encodeURIComponent(slug)}`,
     );
+    currentGameState = res.state || null;
     enterGame({
       readOnly: true,
       narrativeLog: res.narrative_log || [],
@@ -410,6 +421,7 @@ async function loadSaveAsSession(slug) {
     });
     currentSessionId = res.session_id;
     currentSlug = slug;
+    currentGameState = res.state || null;
     enterGame();
   } catch (e) {
     setMsg("lobby-msg", "Erro: " + e.message, "error");
@@ -440,6 +452,7 @@ async function createEmptySession() {
     });
     currentSessionId = res.session_id;
     currentSlug = slug;
+    currentGameState = res.state || null;
     // Persist the empty state as a save.
     await api("/api/saves", {
       method: "POST",
@@ -462,11 +475,16 @@ function enterGame(opts = {}) {
   readOnlyMode = readOnly;
   show("game-screen");
   clearLog();
+  renderCharacterTools();
 
   if (readOnly) {
     // Disable all input controls; lobby button stays usable.
     document.getElementById("cmd").disabled = true;
     document.getElementById("send-btn").disabled = true;
+    const rollBtn = document.getElementById("roll-btn");
+    if (rollBtn) rollBtn.disabled = true;
+    const rollCheck = document.getElementById("roll-check");
+    if (rollCheck) rollCheck.disabled = true;
     const toggle = document.getElementById("stream-toggle");
     if (toggle) toggle.disabled = true;
     appendLog(
@@ -494,7 +512,10 @@ function enterGame(opts = {}) {
 
 // Persist the current GameState to the user's save (Postgres). Best-effort.
 async function persistSave(state) {
-  if (!currentSlug || !state) return;
+  if (!state) return;
+  currentGameState = state;
+  renderCharacterTools();
+  if (!currentSlug) return;
   try {
     await api("/api/saves", {
       method: "POST",
@@ -637,6 +658,232 @@ function renderNarrativeLog(entries) {
   }
 }
 
+// ============================================================================
+// Character sheet + virtual check roller
+// ============================================================================
+
+const ABILITY_OPTIONS = [
+  { key: "strength", short: "FOR", label: "Forca" },
+  { key: "dexterity", short: "DES", label: "Destreza" },
+  { key: "constitution", short: "CON", label: "Constituicao" },
+  { key: "intelligence", short: "INT", label: "Inteligencia" },
+  { key: "wisdom", short: "SAB", label: "Sabedoria" },
+  { key: "charisma", short: "CAR", label: "Carisma" },
+];
+
+const SKILL_OPTIONS = [
+  { key: "acrobatics", label: "Acrobacia", ability: "dexterity" },
+  { key: "animal_handling", label: "Adestrar Animais", ability: "wisdom" },
+  { key: "arcana", label: "Arcanismo", ability: "intelligence" },
+  { key: "athletics", label: "Atletismo", ability: "strength" },
+  { key: "deception", label: "Enganacao", ability: "charisma" },
+  { key: "history", label: "Historia", ability: "intelligence" },
+  { key: "insight", label: "Intuicao", ability: "wisdom" },
+  { key: "intimidation", label: "Intimidacao", ability: "charisma" },
+  { key: "investigation", label: "Investigacao", ability: "intelligence" },
+  { key: "medicine", label: "Medicina", ability: "wisdom" },
+  { key: "nature", label: "Natureza", ability: "intelligence" },
+  { key: "perception", label: "Percepcao", ability: "wisdom" },
+  { key: "performance", label: "Atuacao", ability: "charisma" },
+  { key: "persuasion", label: "Persuasao", ability: "charisma" },
+  { key: "religion", label: "Religiao", ability: "intelligence" },
+  { key: "sleight_of_hand", label: "Prestidigitacao", ability: "dexterity" },
+  { key: "stealth", label: "Furtividade", ability: "dexterity" },
+  { key: "survival", label: "Sobrevivencia", ability: "wisdom" },
+];
+
+function fmtMod(n) {
+  return `${n >= 0 ? "+" : ""}${n}`;
+}
+
+function abilityShort(key) {
+  return ABILITY_OPTIONS.find((a) => a.key === key)?.short || key;
+}
+
+function abilityLabel(key) {
+  return ABILITY_OPTIONS.find((a) => a.key === key)?.label || key;
+}
+
+function skillLabel(key) {
+  return SKILL_OPTIONS.find((s) => s.key === key)?.label || key;
+}
+
+function scoreModifier(score) {
+  return Math.floor((Number(score || 10) - 10) / 2);
+}
+
+function getPlayerCharacter() {
+  const st = currentGameState;
+  if (!st || !Array.isArray(st.party)) return null;
+  return st.party.find((c) => c.id === st.player_character_id)
+    || st.party.find((c) => c.is_player)
+    || st.party[0]
+    || null;
+}
+
+function hasProficiency(character, kind, key) {
+  const profs = character?.proficiencies || {};
+  if (kind === "skill") return (profs.skills || []).includes(key);
+  if (kind === "save") return (profs.saves || []).includes(key);
+  return false;
+}
+
+function modifierForSelection(character, kind, key) {
+  if (!character) return null;
+  const ability = kind === "skill"
+    ? SKILL_OPTIONS.find((s) => s.key === key)?.ability
+    : key;
+  const abilityMod = scoreModifier(character.abilities?.[ability]);
+  const proficient = hasProficiency(character, kind, key);
+  const profBonus = proficient ? Number(character.proficiency_bonus || 0) : 0;
+  return {
+    ability,
+    abilityMod,
+    proficient,
+    profBonus,
+    total: abilityMod + profBonus,
+  };
+}
+
+function populateRollOptions() {
+  const select = document.getElementById("roll-check");
+  if (!select) return;
+  const previous = select.value;
+  select.innerHTML = "";
+
+  const skills = document.createElement("optgroup");
+  skills.label = "Pericias";
+  for (const skill of SKILL_OPTIONS) {
+    const opt = document.createElement("option");
+    opt.value = `skill:${skill.key}`;
+    opt.textContent = `${skill.label} (${abilityShort(skill.ability)})`;
+    skills.appendChild(opt);
+  }
+  select.appendChild(skills);
+
+  const abilities = document.createElement("optgroup");
+  abilities.label = "Testes de atributo";
+  for (const ability of ABILITY_OPTIONS) {
+    const opt = document.createElement("option");
+    opt.value = `ability:${ability.key}`;
+    opt.textContent = `${ability.label} (${ability.short})`;
+    abilities.appendChild(opt);
+  }
+  select.appendChild(abilities);
+
+  const saves = document.createElement("optgroup");
+  saves.label = "Salvaguardas";
+  for (const ability of ABILITY_OPTIONS) {
+    const opt = document.createElement("option");
+    opt.value = `save:${ability.key}`;
+    opt.textContent = `Salvaguarda de ${ability.label} (${ability.short})`;
+    saves.appendChild(opt);
+  }
+  select.appendChild(saves);
+
+  if (previous) select.value = previous;
+}
+
+function renderCharacterTools() {
+  const tools = document.getElementById("table-tools");
+  if (!tools) return;
+  const character = getPlayerCharacter();
+  if (!character) {
+    tools.style.display = "none";
+    return;
+  }
+  tools.style.display = "";
+  populateRollOptions();
+
+  const summary = document.getElementById("sheet-summary");
+  if (summary) {
+    const abilities = ABILITY_OPTIONS.map((a) => {
+      const score = character.abilities?.[a.key] ?? 10;
+      return `<div class="sheet-stat"><span>${a.short}</span><strong>${score}</strong><em>${fmtMod(scoreModifier(score))}</em></div>`;
+    }).join("");
+    const profSkills = (character.proficiencies?.skills || [])
+      .map(skillLabel)
+      .sort()
+      .join(", ") || "nenhuma";
+    summary.innerHTML =
+      `<div class="sheet-head"><strong>${character.name}</strong>` +
+      `<span>${character.race} ${character.class || ""} ${character.level || ""}</span></div>` +
+      `<div class="sheet-meta">PV ${character.hp_current}/${character.hp_max} · CA ${character.armor_class} · Prof ${fmtMod(character.proficiency_bonus || 0)}</div>` +
+      `<div class="sheet-stats">${abilities}</div>` +
+      `<div class="sheet-meta">Pericias: ${profSkills}</div>`;
+  }
+  updateRollPreview();
+}
+
+function parseRollSelection(value) {
+  const [kind, key] = String(value || "").split(":");
+  return { kind, key };
+}
+
+function rollLabel(kind, key) {
+  if (kind === "skill") return skillLabel(key);
+  if (kind === "save") return `Salvaguarda de ${abilityLabel(key)}`;
+  return `Teste de ${abilityLabel(key)}`;
+}
+
+function updateRollPreview() {
+  const preview = document.getElementById("roll-preview");
+  const select = document.getElementById("roll-check");
+  const btn = document.getElementById("roll-btn");
+  if (!preview || !select) return;
+  const character = getPlayerCharacter();
+  const { kind, key } = parseRollSelection(select.value);
+  const parts = modifierForSelection(character, kind, key);
+  if (!character || !parts) {
+    preview.textContent = "Sem ficha de jogador nesta sessao.";
+    if (btn) btn.disabled = true;
+    return;
+  }
+  if (btn) btn.disabled = readOnlyMode;
+  const profText = parts.proficient
+    ? ` + prof ${fmtMod(parts.profBonus)}`
+    : " + sem prof";
+  preview.textContent =
+    `${rollLabel(kind, key)}: ${abilityShort(parts.ability)} ${fmtMod(parts.abilityMod)}${profText} = ${fmtMod(parts.total)}`;
+}
+
+function describeRollResult(r) {
+  const dice = r.rolls.length > 1
+    ? `[${r.rolls.join(", ")}] fica ${r.natural}`
+    : `${r.natural}`;
+  const mode = r.advantage ? " com vantagem" : r.disadvantage ? " com desvantagem" : "";
+  const prof = r.proficient
+    ? `, proficiencia ${fmtMod(r.proficiency_bonus)}`
+    : ", sem proficiencia";
+  return `${r.character_name} rolou ${r.label}${mode}: d20 ${dice} ${fmtMod(r.modifier)} = ${r.total} (${abilityLabel(r.ability)} ${fmtMod(r.ability_modifier)}${prof}).`;
+}
+
+async function rollCheck(check, kind = null, advantage = false, disadvantage = false) {
+  if (busy || readOnlyMode || !currentSessionId) return;
+  lockUi();
+  try {
+    const res = await api(`/api/sessions/${currentSessionId}/roll-check`, {
+      method: "POST",
+      body: { check, kind, advantage, disadvantage },
+    });
+    appendLog("Dados", describeRollResult(res), "system");
+  } catch (e) {
+    appendLog("Erro", "Nao foi possivel rolar: " + e.message, "system");
+  } finally {
+    unlockUi();
+    updateRollPreview();
+  }
+}
+
+async function rollSelectedCheck() {
+  const select = document.getElementById("roll-check");
+  if (!select) return;
+  const { kind, key } = parseRollSelection(select.value);
+  const adv = !!document.getElementById("roll-adv")?.checked;
+  const dis = !!document.getElementById("roll-dis")?.checked;
+  await rollCheck(key, kind, adv, dis);
+}
+
 async function sendInput() {
   if (busy || readOnlyMode) return;
   const input = document.getElementById("cmd");
@@ -672,6 +919,11 @@ async function sendInputClassic(line) {
       method: "POST",
       body: { line },
     });
+    if (res.state) {
+      currentGameState = res.state;
+      renderCharacterTools();
+      await persistSave(res.state);
+    }
     const r = res.result || {};
     if (r.error) {
       appendLog("Erro", r.error, "system");
@@ -790,6 +1042,7 @@ async function sendInputStream(line) {
 function returnToLobby() {
   appendLog("Sistema", "Voltando ao lobby...", "system");
   currentSessionId = null;
+  currentGameState = null;
   readOnlyMode = false;
   loadLobby();
 }
@@ -802,8 +1055,30 @@ async function clientCommand(line) {
   if (cmd === "/help") {
     appendLog("Sistema",
       "Comandos: /help /status /look /inventory /conditions /spells " +
-      "/encounter <mon> /save [slug] /load <slug> /list /quit",
+      "/encounter <mon> /roll <teste> /save [slug] /load <slug> /list /quit",
       "system");
+    return true;
+  }
+  if (cmd === "/roll" || cmd === "/teste" || cmd === "/check") {
+    let kind = null;
+    let checkParts = parts.slice(1);
+    const first = (checkParts[0] || "").toLowerCase();
+    if (["skill", "pericia"].includes(first)) {
+      kind = "skill";
+      checkParts = checkParts.slice(1);
+    } else if (["ability", "atributo", "habilidade"].includes(first)) {
+      kind = "ability";
+      checkParts = checkParts.slice(1);
+    } else if (["save", "salvaguarda", "resistencia"].includes(first)) {
+      kind = "save";
+      checkParts = checkParts.slice(1);
+    }
+    const check = checkParts.join(" ");
+    if (!check) {
+      appendLog("Erro", "Uso: /roll furtividade ou /roll save destreza", "system");
+      return true;
+    }
+    await rollCheck(check, kind);
     return true;
   }
   if (cmd === "/quit") {
@@ -862,6 +1137,22 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("archive-toggle").onclick = toggleArchived;
   document.getElementById("send-btn").onclick = sendInput;
   document.getElementById("lobby-btn").onclick = returnToLobby;
+  const rollBtn = document.getElementById("roll-btn");
+  if (rollBtn) rollBtn.onclick = rollSelectedCheck;
+  const rollCheck = document.getElementById("roll-check");
+  if (rollCheck) rollCheck.onchange = updateRollPreview;
+  const rollAdv = document.getElementById("roll-adv");
+  const rollDis = document.getElementById("roll-dis");
+  if (rollAdv) {
+    rollAdv.onchange = () => {
+      if (rollAdv.checked && rollDis) rollDis.checked = false;
+    };
+  }
+  if (rollDis) {
+    rollDis.onchange = () => {
+      if (rollDis.checked && rollAdv) rollAdv.checked = false;
+    };
+  }
   // Admin panel (Phase 30).
   const adminBtn = document.getElementById("admin-panel-btn");
   if (adminBtn) adminBtn.onclick = openAdminPanel;
@@ -1682,6 +1973,7 @@ async function wizardFinish() {
     });
     currentSessionId = res.session_id;
     currentSlug = res.slug;
+    currentGameState = res.state || null;
     // Auto-save.
     await api("/api/saves", {
       method: "POST",

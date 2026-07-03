@@ -32,6 +32,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auto_dm.agents import generate_opening, process_player_action
+from auto_dm.engine.checks import ABILITY_LABELS, roll_character_check
 from auto_dm.llm.usage import UsageReport
 from auto_dm.state.models import GameState
 from auto_dm.web.activity import log_activity
@@ -66,6 +67,35 @@ class SessionCreated(BaseModel):
 
 class InputRequest(BaseModel):
     line: str = Field(..., min_length=1, max_length=2000)
+
+
+class RollCheckRequest(BaseModel):
+    check: str = Field(..., min_length=1, max_length=80)
+    kind: str | None = Field(default=None, max_length=24)
+    advantage: bool = False
+    disadvantage: bool = False
+
+
+class RollCheckOut(BaseModel):
+    character_id: str
+    character_name: str
+    kind: str
+    key: str
+    label: str
+    ability: str
+    ability_label: str
+    ability_modifier: int
+    proficiency_bonus: int
+    proficient: bool
+    modifier: int
+    rolls: list[int]
+    kept: list[int]
+    dropped: list[int]
+    total: int
+    natural: int
+    notation: str
+    advantage: bool = False
+    disadvantage: bool = False
 
 
 class StreamRequest(BaseModel):
@@ -165,6 +195,75 @@ async def get_session_state(
             detail="Session not found or expired",
         )
     return {"session_id": session_id, "state": sess.state.model_dump(mode="json")}
+
+
+@router.post("/sessions/{session_id}/roll-check", response_model=RollCheckOut)
+async def session_roll_check(
+    session_id: str,
+    body: RollCheckRequest,
+    user: Annotated[User, Depends(current_user)],
+    sm: Annotated[SessionManager, Depends(get_session_manager)],
+) -> RollCheckOut:
+    """Roll a player d20 check using the active character sheet.
+
+    The frontend sends a requested ability, skill, or saving throw. The
+    backend resolves aliases such as "furtividade", "perception", or
+    "salvaguarda de Destreza", pulls the correct ability/proficiency
+    bonuses from the current player character, and returns the full
+    breakdown for display at the virtual table.
+    """
+    sess = await sm.get(user.id, session_id)
+    if sess is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+    state = sess.state
+    player = next(
+        (c for c in state.party if c.id == state.player_character_id),
+        None,
+    )
+    if player is None:
+        player = next((c for c in state.party if c.is_player), None)
+    if player is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No player character in this session",
+        )
+    try:
+        result = roll_character_check(
+            player,
+            body.check,
+            kind=body.kind,
+            advantage=body.advantage,
+            disadvantage=body.disadvantage,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+    return RollCheckOut(
+        character_id=result.character_id,
+        character_name=result.character_name,
+        kind=result.spec.kind,
+        key=result.spec.key,
+        label=result.spec.label,
+        ability=result.spec.ability.value,
+        ability_label=ABILITY_LABELS[result.spec.ability],
+        ability_modifier=result.ability_modifier,
+        proficiency_bonus=result.proficiency_bonus,
+        proficient=result.proficient,
+        modifier=result.modifier,
+        rolls=result.roll.rolls,
+        kept=result.roll.kept,
+        dropped=result.roll.dropped,
+        total=result.roll.total,
+        natural=result.roll.kept[0],
+        notation=result.roll.notation,
+        advantage=result.advantage,
+        disadvantage=result.disadvantage,
+    )
 
 
 @router.post("/sessions/{session_id}/input")

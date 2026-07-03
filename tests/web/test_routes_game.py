@@ -26,6 +26,46 @@ def _empty_state() -> dict:
     }
 
 
+def _state_with_player() -> dict:
+    """A valid GameState payload with one player character sheet."""
+    state = _empty_state()
+    state["party"] = [
+        {
+            "id": "pc_1",
+            "name": "Nara",
+            "race": "Human",
+            "class": "Rogue",
+            "level": 1,
+            "background": "Criminal",
+            "alignment": "CN",
+            "abilities": {
+                "strength": 8,
+                "dexterity": 16,
+                "constitution": 12,
+                "intelligence": 14,
+                "wisdom": 10,
+                "charisma": 13,
+            },
+            "hp_current": 9,
+            "hp_max": 9,
+            "armor_class": 14,
+            "speed": 30,
+            "proficiency_bonus": 2,
+            "hit_dice": "1d8",
+            "hit_dice_remaining": 1,
+            "proficiencies": {
+                "saves": ["dexterity", "intelligence"],
+                "skills": ["stealth", "perception"],
+                "tools": [],
+                "languages": [],
+            },
+            "is_player": True,
+        },
+    ]
+    state["player_character_id"] = "pc_1"
+    return state
+
+
 # ============================================================================
 # Auth-required checks
 # ============================================================================
@@ -154,6 +194,87 @@ async def test_session_input_empty_state_processes(client, admin_token):
     assert resp2.status_code in (200, 500)
     if resp2.status_code == 500:
         assert "detail" in resp2.json()
+
+
+@pytest.mark.asyncio
+async def test_roll_check_requires_session(client, admin_token):
+    token, user, headers = admin_token
+    resp = await client.post(
+        "/api/sessions/missing/roll-check",
+        json={"check": "furtividade"},
+        headers=headers,
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_roll_check_uses_player_skill_bonus(client, admin_token):
+    token, user, headers = admin_token
+    resp = await client.post(
+        "/api/sessions",
+        json={"state": _state_with_player()},
+        headers=headers,
+    )
+    sid = resp.json()["session_id"]
+
+    roll_resp = await client.post(
+        f"/api/sessions/{sid}/roll-check",
+        json={"check": "furtividade"},
+        headers=headers,
+    )
+
+    assert roll_resp.status_code == 200
+    body = roll_resp.json()
+    assert body["kind"] == "skill"
+    assert body["key"] == "stealth"
+    assert body["ability"] == "dexterity"
+    assert body["ability_modifier"] == 3
+    assert body["proficiency_bonus"] == 2
+    assert body["modifier"] == 5
+    assert body["total"] == body["kept"][0] + 5
+
+
+@pytest.mark.asyncio
+async def test_roll_check_can_roll_saving_throw(client, admin_token):
+    token, user, headers = admin_token
+    resp = await client.post(
+        "/api/sessions",
+        json={"state": _state_with_player()},
+        headers=headers,
+    )
+    sid = resp.json()["session_id"]
+
+    roll_resp = await client.post(
+        f"/api/sessions/{sid}/roll-check",
+        json={"check": "destreza", "kind": "save", "advantage": True},
+        headers=headers,
+    )
+
+    assert roll_resp.status_code == 200
+    body = roll_resp.json()
+    assert body["kind"] == "save"
+    assert body["modifier"] == 5
+    assert body["advantage"] is True
+    assert len(body["rolls"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_roll_check_rejects_unknown_check(client, admin_token):
+    token, user, headers = admin_token
+    resp = await client.post(
+        "/api/sessions",
+        json={"state": _state_with_player()},
+        headers=headers,
+    )
+    sid = resp.json()["session_id"]
+
+    roll_resp = await client.post(
+        f"/api/sessions/{sid}/roll-check",
+        json={"check": "cozinhar"},
+        headers=headers,
+    )
+
+    assert roll_resp.status_code == 422
 
 
 # ============================================================================
