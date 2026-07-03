@@ -55,6 +55,8 @@ def setup_new_game(
 
     narration_length = _prompt_narration_length(inp, out)
 
+    initial_scenario = _prompt_initial_scenario(inp, out)
+
     # Build the player character FIRST so companion selection can use
     # the player's class to roll a synergy-biased set of candidates
     # (Phase 27). Before this, we built the player after companions.
@@ -67,6 +69,7 @@ def setup_new_game(
         f"[bold]Resumo[/bold]\n"
         f"  Campanha: {campaign_name}\n"
         f"  Comprimento da narração: {narration_length}\n"
+        f"  Cenário inicial: {_summarize_scenario(initial_scenario)}\n"
         f"  Personagem: {player.name} ({getattr(player, 'class_', '?')})\n"
         f"  Companheiros: {', '.join(chosen) if chosen else '(nenhum)'}",
         border_style="green",
@@ -85,6 +88,7 @@ def setup_new_game(
         # current_location intentionally left empty (default "") — the DM
         # chooses the starting scene during the opening narration.
         narration_length=narration_length,
+        initial_scenario=initial_scenario,
         party=party,
         npcs=[],
         player_character_id=player.id,
@@ -144,6 +148,43 @@ def _prompt_narration_length(inp: InputFn, out: PrintFn) -> str:
         if lowered == key:
             return key
     return "longo"
+
+
+# Per-campaign initial scenario. Optional free-form description from the
+# player: where the party starts, what's in the world, factions, vibe, etc.
+# Empty = the DM chooses freely (original behavior). Filled = injected into
+# build_dm_context_block as the basis for the opening narration.
+def _prompt_initial_scenario(inp: InputFn, out: PrintFn) -> str:
+    """Ask the player to describe the starting scenario (optional).
+
+    Accepts multi-line input terminated by an empty line or EOF.
+    Empty input (just Enter / blank line on the first iteration) returns "" —
+    the DM then chooses freely, preserving the original behavior.
+    """
+    out("\n[bold]Cenário inicial (opcional)[/bold]")
+    out("Descreva onde a party começa, o que tem no mundo, facções, clima…")
+    out("[dim]Deixe em branco para o mestre decidir livremente. "
+        "Termine com uma linha vazia quando terminar.[/dim]")
+    lines: list[str] = []
+    while True:
+        try:
+            chunk = inp("  > ")
+        except EOFError:
+            break
+        if chunk.strip() == "":
+            # Blank line: ends input. If no content yet, the player skipped.
+            break
+        lines.append(chunk)
+    return "\n".join(lines).strip()
+
+
+def _summarize_scenario(scenario: str, *, max_len: int = 60) -> str:
+    """Render a short preview of the scenario for the Resumo panel."""
+    if not scenario:
+        return "(não definido — mestre decide)"
+    if len(scenario) <= max_len:
+        return scenario
+    return scenario[: max_len - 1] + "…"
 
 
 def _prompt_companions(inp: InputFn, out: PrintFn, player: Character) -> list[str]:

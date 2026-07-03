@@ -137,6 +137,10 @@ class WithCharacterRequest(BaseModel):
     # Per-campaign DM narration length. Default "longo" preserves the
     # original verbose behavior when the field is omitted.
     narration_length: Literal["curto", "medio", "longo"] = "longo"
+    # Cenário inicial opcional descrito pelo jogador (onde a party começa,
+    # o que tem no mundo, facções…). Vazio/None = LLM decide livremente.
+    # Cap de 2000 chars evita abuso e mantém o custo de tokens controlado.
+    initial_scenario: Optional[str] = Field(default=None, max_length=2000)
 
 
 class SessionCreated(BaseModel):
@@ -495,6 +499,9 @@ async def create_session_with_character(
         # current_location intentionally left empty (default "") — the DM
         # chooses the starting scene during the opening narration.
         narration_length=body.narration_length,
+        # Cenário inicial opcional. None (campo omitido) ou string vazia =
+        # LLM decide livremente (comportamento original).
+        initial_scenario=(body.initial_scenario or ""),
         party=[player, *chosen_companions],
         npcs=[],
         player_character_id=player.id,

@@ -67,6 +67,7 @@ Quando receber a marca `[ABERTURA]` (primeira cena da campanha), o jogador ainda
 3. **Apresente cada companheiro** de forma natural (uma fala, gesto ou ação curta que revele personalidade), integrando a party na ficção.
 4. **Termine com um gancho** — uma situação, mistério, perigo iminente ou escolha — sem decidir mecânica (sem rolagens, dano ou combate) e sem referenciar "a última ação do jogador" (ela não existe).
 5. **Emita um bloco `action`** com `action_type: "move"`, `actor_id` = id do jogador, e `params.destination` = uma frase curta nomeando o local escolhido, para o motor registrar onde a party está.
+6. **Se o jogador forneceu um cenário inicial** (presente em `state.initial_scenario`), USE-O como base autoritativa — escolha o local de partida, hora do dia, clima, facções e elementos do mundo a partir do que ele descreveu. Não contradiga nem substitua sem motivo narrativo forte. Se o campo estiver vazio, siga a regra 1 (escolha variada livre).
 
 Na abertura você NUNCA declara rolagens nem aplica efeitos — apenas pinta a primeira cena e o gancho.
 
@@ -199,6 +200,14 @@ def build_dm_context_block(state_manager: StateManager, *, last_n: int = 5) -> s
     if state.in_combat:
         lines.append(f"- EM COMBATE — turno {state.round_number}")
     lines.append("")
+
+    # Cenário inicial definido pelo jogador. Aparece apenas na primeira cena
+    # (narrative_log vazio) — após a abertura, a narração já está no diário e
+    # repetir seria desperdício de tokens. Vazio = LLM decide livremente.
+    if state.initial_scenario and not state.narrative_log:
+        lines.append("## Cenário inicial definido pelo jogador")
+        lines.append(state.initial_scenario)
+        lines.append("")
 
     # Party
     lines.append("## Party")

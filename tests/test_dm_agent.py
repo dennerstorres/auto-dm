@@ -942,6 +942,54 @@ class TestNarrationDirectiveInjection:
         assert "**longo**" in content
 
 
+class TestInitialScenarioInjection:
+    """The optional player-supplied scenario must flow into the DM's
+    system context **only on the opening turn** (when narrative_log is
+    empty). After the opening lands in the log, repeating the scenario
+    every turn is wasted tokens."""
+
+    def _sys_content(self, state) -> str:
+        provider = FakeProvider(scripted=["ok"])
+        agent = DMAgent(provider=provider, state_manager=state)
+        agent.ask("olá")
+        return provider.calls[0][0].content
+
+    def test_scenario_present_on_opening_when_narrative_log_empty(self, state):
+        text = "Cidade flutuante de gnomos. Religião proibida."
+        state.state.initial_scenario = text
+        assert state.state.narrative_log == []  # sanity: opening turn
+        content = self._sys_content(state)
+        assert "Cenário inicial definido pelo jogador" in content
+        assert text in content
+
+    def test_scenario_omitted_after_narrative_log_non_empty(self, state):
+        """Once the opening narration is in the log, the scenario is
+        no longer re-injected — it's already baked into the diary."""
+        state.state.initial_scenario = "Contexto do mundo"
+        # Simulate the opening having happened
+        state.state.narrative_log.append(NarrativeEntry(
+            timestamp=datetime.now(timezone.utc),
+            role="dm", speaker="DM", content="A party chega a Vellumbra…"
+        ))
+        content = self._sys_content(state)
+        assert "Cenário inicial definido pelo jogador" not in content
+        assert "Contexto do mundo" not in content
+
+    def test_scenario_omitted_when_field_empty(self, state):
+        """Empty scenario (the default / "user skipped") must NOT add a
+        section header to the prompt — preserves the original context
+        block shape."""
+        assert state.state.initial_scenario == ""
+        content = self._sys_content(state)
+        assert "Cenário inicial definido pelo jogador" not in content
+
+    def test_scenario_in_dm_system_prompt_rules(self):
+        """The DM_SYSTEM_PROMPT must instruct the DM to honor the
+        scenario when present and fall back to free choice when absent."""
+        assert "state.initial_scenario" in DM_SYSTEM_PROMPT
+        assert "USE-O como base autoritativa" in DM_SYSTEM_PROMPT
+
+
 class TestFollowupBudgetRespectsLength:
     """The narrative-loop follow-up DM call should ask for the right
     sentence budget given the player's length preference."""

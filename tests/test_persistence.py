@@ -416,3 +416,36 @@ class TestIntegration:
             json.dump(data, f)
         loaded = load_state(slugify(state.campaign_name), saves_dir=tmp_saves)
         assert loaded.narration_length == "longo"
+
+    def test_roundtrip_preserves_initial_scenario(self, tmp_saves):
+        """The optional player-supplied scenario must survive a
+        save/load cycle (it's injected into the DM opening context)."""
+        text = "Cidade flutuante de gnomos. Religião do deus-sol proibida."
+        state = make_state(campaign_name="Cenário")
+        state.initial_scenario = text
+        save_state(state, saves_dir=tmp_saves)
+        loaded = load_state(slugify(state.campaign_name), saves_dir=tmp_saves)
+        assert loaded.initial_scenario == text
+
+    def test_roundtrip_preserves_empty_initial_scenario(self, tmp_saves):
+        """An explicitly-empty scenario (the "LLM decides" signal)
+        must round-trip as empty, not be dropped or coerced to None."""
+        state = make_state(campaign_name="SemCenario")
+        assert state.initial_scenario == ""
+        save_state(state, saves_dir=tmp_saves)
+        loaded = load_state(slugify(state.campaign_name), saves_dir=tmp_saves)
+        assert loaded.initial_scenario == ""
+
+    def test_old_save_without_initial_scenario_loads_as_empty(self, tmp_saves):
+        """Backward-compat: a JSON written before the field was added
+        loads successfully and defaults to '' — the DM then picks freely."""
+        state = make_state(campaign_name="LegacyCenario")
+        save_state(state, saves_dir=tmp_saves)
+        path = tmp_saves / slugify(state.campaign_name) / "state.json"
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["state"].pop("initial_scenario", None)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f)
+        loaded = load_state(slugify(state.campaign_name), saves_dir=tmp_saves)
+        assert loaded.initial_scenario == ""

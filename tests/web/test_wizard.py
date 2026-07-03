@@ -572,3 +572,127 @@ async def test_with_character_invalid_narration_length_rejected(client, auth_tok
         headers=headers,
     )
     assert resp.status_code == 422
+
+
+# ============================================================================
+# POST /sessions/with-character — Initial scenario (free-text world context)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_with_character_initial_scenario_persists_to_state(
+    client, auth_token
+):
+    """The player-supplied scenario must land on state.initial_scenario
+    so the DM agent can use it as the basis for the opening turn."""
+    token, user, headers = auth_token
+    scenario = "Cidade flutuante de gnomos chamada Vellumbra."
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Cenário Test",
+            "player_character": _valid_spec(),
+            "companions": [],
+            "initial_scenario": scenario,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["state"]["initial_scenario"] == scenario
+
+
+@pytest.mark.asyncio
+async def test_with_character_omitted_scenario_defaults_to_empty_string(
+    client, auth_token
+):
+    """Omitting the field (or sending None) must default to "" — the
+    DM then picks freely, preserving the original behavior."""
+    token, user, headers = auth_token
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Sem Cenário",
+            "player_character": _valid_spec(),
+            "companions": [],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["state"]["initial_scenario"] == ""
+
+
+@pytest.mark.asyncio
+async def test_with_character_explicit_empty_scenario_persists(client, auth_token):
+    """An explicit empty string "" must round-trip as "" (not get
+    coerced to None or dropped). Distinguishes "user skipped" from
+    "field missing"."""
+    token, user, headers = auth_token
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Cenário Vazio Explícito",
+            "player_character": _valid_spec(),
+            "companions": [],
+            "initial_scenario": "",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["state"]["initial_scenario"] == ""
+
+
+@pytest.mark.asyncio
+async def test_with_character_oversized_scenario_rejected(client, auth_token):
+    """Cap at 2000 chars prevents abuse and keeps token usage sane."""
+    token, user, headers = auth_token
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Cenário Gigante",
+            "player_character": _valid_spec(),
+            "companions": [],
+            "initial_scenario": "x" * 2001,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_with_character_exactly_max_length_scenario_accepted(
+    client, auth_token
+):
+    """Boundary check: exactly 2000 chars is the maximum allowed."""
+    token, user, headers = auth_token
+    scenario = "x" * 2000
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Cenário No Limite",
+            "player_character": _valid_spec(),
+            "companions": [],
+            "initial_scenario": scenario,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["state"]["initial_scenario"] == scenario
+
+
+@pytest.mark.asyncio
+async def test_with_character_multiline_scenario_preserved(client, auth_token):
+    """Multi-line free-form text survives the JSON round-trip verbatim."""
+    token, user, headers = auth_token
+    scenario = "Linha 1\nLinha 2\n\nLinha 4."
+    resp = await client.post(
+        "/api/sessions/with-character",
+        json={
+            "campaign_name": "Cenário Multilinha",
+            "player_character": _valid_spec(),
+            "companions": [],
+            "initial_scenario": scenario,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["state"]["initial_scenario"] == scenario

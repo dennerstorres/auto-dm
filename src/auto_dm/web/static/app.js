@@ -432,11 +432,15 @@ async function loadSaveAsSession(slug) {
 
 async function createEmptySession() {
   const slug = document.getElementById("new-slug").value.trim() || "untitled";
+  const scenarioEl = document.getElementById("new-scenario");
+  const initialScenario = scenarioEl ? scenarioEl.value.trim() : "";
   // Phase 26a: create a minimal GameState with a placeholder character.
   // Full character creation is in 26c (wizard).
   const state = {
     campaign_name: slug,
     current_location: "",
+    // Cenário inicial opcional definido pelo admin. Vazio = mestre decide.
+    initial_scenario: initialScenario,
     party: [],
     npcs: [],
     initiative_order: [],
@@ -1390,6 +1394,8 @@ let wizardState = {
   // Per-campaign DM narration length. Default "longo" preserves the
   // original verbose behavior when the player doesn't change it.
   narration_length: "longo",
+  // Cenário inicial opcional descrito pelo jogador. Vazio = LLM decide.
+  initial_scenario: "",
   name: "",
   race: null,
   subrace: null,
@@ -1493,6 +1499,14 @@ function renderWizardName() {
       .join("");
     sel.onchange = (e) => {
       wizardState.narration_length = e.target.value;
+    };
+  }
+  // Cenário inicial (opcional). Vazio = mestre decide livremente.
+  const scenario = document.getElementById("wz-initial-scenario");
+  if (scenario) {
+    scenario.value = wizardState.initial_scenario || "";
+    scenario.oninput = (e) => {
+      wizardState.initial_scenario = e.target.value;
     };
   }
 }
@@ -1915,6 +1929,14 @@ function renderWizardConfirm() {
   const summary = [
     ["Campanha", wizardState.campaign_name || "(vazio)"],
     ["Narração", wizardState.narration_length],
+    [
+      "Cenário inicial",
+      wizardState.initial_scenario
+        ? (wizardState.initial_scenario.length > 80
+            ? wizardState.initial_scenario.slice(0, 79) + "…"
+            : wizardState.initial_scenario)
+        : "(mestre decide)",
+    ],
     ["Personagem", wizardState.name || "(vazio)"],
     ["Raça", wizardState.race + (wizardState.subrace ? ` (${wizardState.subrace})` : "")],
     ["Classe", wizardState.char_class + (wizardState.subclass ? ` (${wizardState.subclass})` : "")],
@@ -2072,6 +2094,9 @@ async function wizardFinish() {
     const payload = {
       campaign_name: wizardState.campaign_name,
       narration_length: wizardState.narration_length,
+      // Cenário inicial opcional: string vazia vira null no backend,
+      // que por sua vez trata como "mestre decide livremente".
+      initial_scenario: wizardState.initial_scenario || null,
       player_character: {
         name: wizardState.name,
         race: wizardState.race,

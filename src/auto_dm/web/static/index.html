@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Auto DM — Console</title>
-  <link rel="stylesheet" href="/style.css?v=41" />
+  <link rel="stylesheet" href="/style.css?v=42" />
 </head>
 <body>
   <div id="app">
@@ -68,6 +68,11 @@
           <input id="new-slug" type="text" placeholder="slug-do-save (ex: campanha-elfa)" />
           <button id="new-game-btn" class="secondary">Criar jogo vazio</button>
         </div>
+        <label>
+          <span class="lbl">Cenário inicial (opcional)</span>
+          <span class="hint">Descreva onde a party começa, o que tem no mundo… Deixe em branco para o mestre decidir livremente.</span>
+          <textarea id="new-scenario" rows="3" maxlength="2000"></textarea>
+        </label>
       </details>
 
       <div class="lobby-admin" style="display:none">
@@ -106,6 +111,12 @@
             <option value="medio">Médio (3-5 frases, com detalhe sensorial moderado)</option>
             <option value="longo" selected>Longo (1-2 parágrafos, prosa rica — modo atual)</option>
           </select>
+        </label>
+        <label>
+          <span class="lbl">Cenário inicial (opcional)</span>
+          <span class="hint">Descreva onde a party começa, o que tem no mundo, facções, clima… Deixe em branco para o mestre decidir livremente.</span>
+          <textarea id="wz-initial-scenario" rows="4" maxlength="2000"
+            placeholder="Ex: A party começa numa cidade flutuante de gnomos chamada Vellumbra. A religião do deus-sol foi proibida há 10 anos. OsCompanheiros são da guilda das Sombras…"></textarea>
         </label>
       </div>
 
@@ -364,6 +375,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=41" type="module"></script>
+  <script src="/app.js?v=42" type="module"></script>
 </body>
 </html>

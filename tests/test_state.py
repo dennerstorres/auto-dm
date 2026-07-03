@@ -397,3 +397,68 @@ class TestNarrationLength:
         assert "narration_length" not in j  # sanity
         state2 = GameState.model_validate(j)
         assert state2.narration_length == "longo"
+
+
+# ---------------------------------------------------------------------------
+# Optional "initial scenario" free-text description
+# ---------------------------------------------------------------------------
+
+
+class TestInitialScenario:
+    """The optional scenario field on GameState controls whether the DM
+    agent should anchor the opening narration to player-supplied world
+    context (filled) or pick freely (empty — the original behavior)."""
+
+    def test_default_is_empty_string(self):
+        """A fresh GameState with no scenario set exposes "" as the
+        default — the same as the original behavior, where the DM
+        chooses the starting scene freely."""
+        state = make_state()
+        assert state.initial_scenario == ""
+
+    def test_non_empty_string_round_trips(self):
+        text = (
+            "A party começa numa cidade flutuante de gnomos chamada "
+            "Vellumbra. A religião do deus-sol foi proibida há 10 anos."
+        )
+        state = make_state()
+        state.initial_scenario = text
+        j = state.model_dump_json()
+        state2 = GameState.model_validate_json(j)
+        assert state2.initial_scenario == text
+
+    def test_multiline_text_preserved(self):
+        """Multi-line scenarios (the typical use case) must survive a
+        JSON round-trip verbatim, including newlines."""
+        text = "Linha 1\nLinha 2\n\nLinha 4 com espaço no fim "
+        state = make_state()
+        state.initial_scenario = text
+        state2 = GameState.model_validate_json(state.model_dump_json())
+        assert state2.initial_scenario == text
+
+    def test_old_save_without_field_loads_as_empty(self):
+        """Backward-compat: JSON written before the field was added
+        loads successfully with the default empty string — the DM
+        then chooses freely."""
+        j = make_state().model_dump(mode="json")
+        j.pop("initial_scenario", None)
+        assert "initial_scenario" not in j  # sanity
+        state2 = GameState.model_validate(j)
+        assert state2.initial_scenario == ""
+
+    def test_explicit_empty_string_persists(self):
+        """An explicitly-set empty string must round-trip as empty
+        (not get coerced to None). This distinguishes "user skipped"
+        from "field missing"."""
+        state = make_state()
+        state.initial_scenario = ""
+        state2 = GameState.model_validate_json(state.model_dump_json())
+        assert state2.initial_scenario == ""
+
+    def test_in_model_dump_json(self):
+        """The field must appear in model_dump_json output so the
+        persistence layer can round-trip it through save files."""
+        state = make_state()
+        state.initial_scenario = "cenario"
+        j = state.model_dump(mode="json")
+        assert j["initial_scenario"] == "cenario"

@@ -703,3 +703,10 @@ class GameState(BaseModel):
     # Default "longo" preserves the original behavior for old saves
     # (Pydantic fills the default when the key is missing).
     narration_length: Literal["curto", "medio", "longo"] = "longo"
+
+    # Cenário inicial opcional definido pelo jogador na criação da campanha.
+    # Vazio = LLM decide livremente (comportamento original). Não-vazio =
+    # injetado em build_dm_context_block apenas na primeira cena
+    # (narrative_log vazio), para o DM usar como base autoritativa da abertura.
+    # Default "" preserva saves antigos (Pydantic preenche ao validar).
+    initial_scenario: str = ""
