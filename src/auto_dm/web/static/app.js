@@ -315,12 +315,14 @@ async function toggleArchived() {
   await renderArchived();
 }
 
-// Build a single <li> row for a save. Archived rows offer "Restaurar",
-// active rows offer "Arquivar"; both offer "Carregar". Admin rows also
-// show the owning username, a "Visualizar" (read-only) button instead of
-// "Carregar", and an "Excluir" button.
+// Build a single <li> row for a save. Own saves can be loaded and
+// archived/restored. Admin rows for other users are read-only and can
+// be deleted.
 function renderSaveRow(s, { archived }) {
   const admin = isAdmin();
+  const currentUser = getUser();
+  const isOwnSave =
+    !admin || !!(currentUser && Number(s.user_id) === Number(currentUser.id));
   const li = document.createElement("li");
   const meta = document.createElement("span");
   const owner = admin && s.username ? ` · <span class="owner">@${s.username}</span> ` : "";
@@ -328,7 +330,7 @@ function renderSaveRow(s, { archived }) {
     `<span class="slug">${s.slug}</span>${owner}<span class="meta">${s.updated_at}</span>`;
 
   const loadBtn = document.createElement("button");
-  if (admin) {
+  if (admin && !isOwnSave) {
     loadBtn.textContent = "Visualizar";
     loadBtn.onclick = () => viewSaveReadOnly(s.user_id, s.slug);
   } else {
@@ -336,18 +338,19 @@ function renderSaveRow(s, { archived }) {
     loadBtn.onclick = () => loadSaveAsSession(s.slug);
   }
 
-  const toggleBtn = document.createElement("button");
-  toggleBtn.className = "secondary";
-  if (archived) {
-    toggleBtn.textContent = "Restaurar";
-    toggleBtn.onclick = () => unarchiveSave(s.slug);
-  } else {
-    toggleBtn.textContent = "Arquivar";
-    toggleBtn.onclick = () => archiveSave(s.slug);
-  }
-
   li.appendChild(meta);
-  li.appendChild(toggleBtn);
+  if (isOwnSave) {
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = "secondary";
+    if (archived) {
+      toggleBtn.textContent = "Restaurar";
+      toggleBtn.onclick = () => unarchiveSave(s.slug);
+    } else {
+      toggleBtn.textContent = "Arquivar";
+      toggleBtn.onclick = () => archiveSave(s.slug);
+    }
+    li.appendChild(toggleBtn);
+  }
   li.appendChild(loadBtn);
 
   // Admin-only delete (works on archived and non-archived alike).
