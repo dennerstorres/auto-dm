@@ -60,7 +60,8 @@ header h1 {
 
 input[type="text"],
 input[type="password"],
-select {
+select,
+textarea {
   flex: 1;
   background: #0c0e14;
   border: 1px solid #2a2e39;
@@ -71,8 +72,17 @@ select {
   font-size: inherit;
 }
 
+textarea {
+  display: block;
+  width: 100%;
+  min-height: 6rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: none;
   border-color: #c89b3c;
 }
