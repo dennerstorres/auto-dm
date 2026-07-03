@@ -14,22 +14,19 @@ Design:
   provider) or ``"fallback"`` (the ``chars // 3`` heuristic). Cost is
   **not** stored here; it's computed at persistence time from tokens ×
   the configured per-1k-token price (see ``web/usage.py``).
-- :func:`chat_with_usage` and :func:`iter_stream_with_usage` are free
-  helpers that prefer a provider's native ``*_with_usage`` method when
-  it exists, and otherwise fall back to wrapping ``chat``/``stream`` +
-  the heuristic. Centralizing that policy here means providers and
-  callers don't repeat themselves.
+- :func:`chat_with_usage` is a free helper that prefers a provider's
+  native ``chat_with_usage`` method when it exists and otherwise falls
+  back to wrapping ``chat`` + the heuristic. Centralizing that policy
+  here means providers and callers don't repeat themselves.
 
 We deliberately avoid a ``provider.last_usage`` attribute: the provider
-is a singleton shared across requests, and the SSE producer runs in a
-worker thread, so concurrent streams would race on shared mutable state.
-Returning usage *by value* is race-free.
+is a singleton shared across requests, so concurrent calls would race on
+shared mutable state. Returning usage *by value* is race-free.
 """
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from typing import Protocol
 
 from auto_dm.llm.base import Message
 
@@ -108,38 +105,3 @@ def chat_with_usage(provider: object, messages: list[Message]) -> tuple[str, Usa
         source="fallback",
     )
     return content, report
-
-
-def iter_stream_with_usage(
-    provider: object, messages: list[Message]
-) -> Iterator[tuple[str, Optional[UsageReport]]]:
-    """Stream tokens, yielding a final ``UsageReport``.
-
-    Yields ``(token, None)`` for each text chunk and exactly one
-    ``(usage_marker, report)`` near the end (the marker string is empty
-    when a real report is attached; callers distinguish by the non-None
-    second element). Prefers ``provider.iter_stream_with_usage``; falls
-    back to wrapping ``provider.stream`` + the chars//3 heuristic when
-    the provider doesn't report usage in-stream.
-    """
-    native = getattr(provider, "iter_stream_with_usage", None)
-    if callable(native):
-        yield from native(messages)
-        return
-    name, model = _provider_identity(provider)
-    prompt_tokens = 0
-    count = getattr(provider, "count_tokens", None)
-    if callable(count):
-        prompt_tokens = count(messages)
-    completion_chars = 0
-    for tok in provider.stream(messages):  # type: ignore[attr-defined]
-        completion_chars += len(tok)
-        yield tok, None
-    report = UsageReport(
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_chars // 3,
-        provider=name,
-        model=model,
-        source="fallback",
-    )
-    yield "", report

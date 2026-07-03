@@ -25,7 +25,6 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -42,7 +41,6 @@ from auto_dm.web.db import get_session
 from auto_dm.web.limits import check_quota
 from auto_dm.web.models import ActivityType, Save, User
 from auto_dm.web.sessions import SessionManager
-from auto_dm.web.sse import format_sse, stream_dm_narration, stream_dm_opening
 from auto_dm.web.usage import persist_usage_events
 
 logger = logging.getLogger(__name__)
@@ -96,13 +94,6 @@ class RollCheckOut(BaseModel):
     notation: str
     advantage: bool = False
     disadvantage: bool = False
-
-
-class StreamRequest(BaseModel):
-    """Body for POST /api/sessions/{sid}/stream — the same shape as
-    ``InputRequest`` but kept distinct so the OpenAPI schema is clear
-    that the response is a stream."""
-    line: str = Field(..., min_length=1, max_length=2000)
 
 
 class SaveRequest(BaseModel):
@@ -353,111 +344,6 @@ async def delete_session(
     await sm.delete(user.id, session_id)
 
 
-@router.post("/sessions/{session_id}/stream")
-async def session_stream(
-    session_id: str,
-    body: StreamRequest,
-    user: Annotated[User, Depends(current_user)],
-    sm: Annotated[SessionManager, Depends(get_session_manager)],
-    db: Annotated[AsyncSession, Depends(get_session)],
-) -> StreamingResponse:
-    """Stream the DM narration for a player input via Server-Sent Events.
-
-    The response is ``text/event-stream`` — each event is a JSON
-    object on a ``data:`` line:
-
-    - ``{"type": "start"}``                              — on open
-    - ``{"type": "token", "data": "<chunk>"}``           — as the LLM yields
-    - ``{"type": "usage", "data": {...}}``               — token counts (pre-done)
-    - ``{"type": "done", "data": "<state-json>"}``       — stream complete
-    - ``{"type": "error", "data": "<msg>"}``             — on failure
-
-    Note: this endpoint only streams the *narration* layer — it does
-    NOT parse actions, dispatch combat, or run companion turns.
-    Use ``POST /api/sessions/{sid}/input`` for the full game loop.
-    """
-    sess = await sm.get(user.id, session_id)
-    if sess is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found or expired",
-        )
-    # Quota check before opening the stream (can't abort mid-stream).
-    settings = get_settings()
-    exceeded = await check_quota(db, user, settings)
-    if exceeded is not None:
-        await log_activity(
-            db,
-            user_id=user.id,
-            event=ActivityType.LIMIT_BLOCKED,
-            meta={"endpoint": "stream", **{k: exceeded[k] for k in ("used", "limit", "unit")}},
-        )
-        raise HTTPException(status_code=429, detail=exceeded)
-
-    user_id = user.id
-
-    async def _event_generator():
-        # Send a `start` event immediately so the client knows the
-        # connection is live even before the first token arrives.
-        yield format_sse({"type": "start", "data": session_id})
-        usage_payload: dict | None = None
-        async for event in stream_dm_narration(sess, body.line):
-            if event.get("type") == "usage":
-                usage_payload = event.get("data")
-            yield format_sse(event)
-        # Best-effort state refresh — the LLM doesn't mutate the
-        # state during stream(), but the TTL on Redis should be
-        # refreshed periodically for an active player.
-        try:
-            await sm.save(sess)
-        except Exception as exc:  # pragma: no cover
-            logger.warning("Failed to refresh SSE session state: %s", exc)
-        # Persist the streamed turn's usage (best-effort).
-        if usage_payload:
-            try:
-                report = UsageReport(
-                    prompt_tokens=int(usage_payload.get("prompt_tokens", 0)),
-                    completion_tokens=int(usage_payload.get("completion_tokens", 0)),
-                    total_tokens=int(
-                        usage_payload.get("total_tokens")
-                        or (
-                            int(usage_payload.get("prompt_tokens", 0))
-                            + int(usage_payload.get("completion_tokens", 0))
-                        )
-                    ),
-                    provider=getattr(sess.dm_agent.provider, "name", "") or "",
-                    model=getattr(
-                        getattr(sess.dm_agent.provider, "config", None), "model", ""
-                    )
-                    or "",
-                    source=usage_payload.get("source", "fallback"),
-                )
-                from auto_dm.web.db import get_session_factory
-
-                async with get_session_factory()() as usage_db:
-                    await persist_usage_events(
-                        usage_db,
-                        user_id=user_id,
-                        endpoint=f"/api/sessions/{session_id}/stream",
-                        reports=[report],
-                        settings=get_settings(),
-                        session_id=session_id,
-                        kind="player",
-                    )
-            except Exception:  # noqa: BLE001
-                logger.exception("Failed to persist streamed usage")
-
-    return StreamingResponse(
-        _event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # nginx: disable buffering
-            "Connection": "keep-alive",
-        },
-    )
-
-
 @router.post("/sessions/{session_id}/opening")
 async def session_opening(
     session_id: str,
@@ -537,104 +423,6 @@ async def session_opening(
         "narration": result.narration,
         "state": sess.state.model_dump(mode="json"),
     }
-
-
-@router.post("/sessions/{session_id}/opening/stream")
-async def session_opening_stream(
-    session_id: str,
-    user: Annotated[User, Depends(current_user)],
-    sm: Annotated[SessionManager, Depends(get_session_manager)],
-    db: Annotated[AsyncSession, Depends(get_session)],
-) -> StreamingResponse:
-    """Stream the campaign opening narration via Server-Sent Events.
-
-    Same event sequence as ``POST /api/sessions/{sid}/stream``:
-    ``start`` → ``token``* → ``usage`` → ``done``. The ``done`` payload
-    is the final ``GameState`` JSON with the chosen ``current_location``
-    applied and the opening appended to ``narrative_log``.
-
-    Idempotent: if the opening was already generated, emits ``start``
-    then ``done`` with the existing state (no LLM call).
-    """
-    sess = await sm.get(user.id, session_id)
-    if sess is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found or expired",
-        )
-    settings = get_settings()
-    # Only enforce quota when we'll actually call the LLM.
-    will_call_llm = not sess.state.narrative_log
-    if will_call_llm:
-        exceeded = await check_quota(db, user, settings)
-        if exceeded is not None:
-            await log_activity(
-                db,
-                user_id=user.id,
-                event=ActivityType.LIMIT_BLOCKED,
-                meta={
-                    "endpoint": "opening/stream",
-                    **{k: exceeded[k] for k in ("used", "limit", "unit")},
-                },
-            )
-            raise HTTPException(status_code=429, detail=exceeded)
-
-    user_id = user.id
-
-    async def _event_generator():
-        yield format_sse({"type": "start", "data": session_id})
-        usage_payload: dict | None = None
-        async for event in stream_dm_opening(sess):
-            if event.get("type") == "usage":
-                usage_payload = event.get("data")
-            yield format_sse(event)
-        try:
-            await sm.save(sess)
-        except Exception as exc:  # pragma: no cover
-            logger.warning("Failed to refresh opening SSE session state: %s", exc)
-        if usage_payload and will_call_llm:
-            try:
-                report = UsageReport(
-                    prompt_tokens=int(usage_payload.get("prompt_tokens", 0)),
-                    completion_tokens=int(usage_payload.get("completion_tokens", 0)),
-                    total_tokens=int(
-                        usage_payload.get("total_tokens")
-                        or (
-                            int(usage_payload.get("prompt_tokens", 0))
-                            + int(usage_payload.get("completion_tokens", 0))
-                        )
-                    ),
-                    provider=getattr(sess.dm_agent.provider, "name", "") or "",
-                    model=getattr(
-                        getattr(sess.dm_agent.provider, "config", None), "model", ""
-                    )
-                    or "",
-                    source=usage_payload.get("source", "fallback"),
-                )
-                from auto_dm.web.db import get_session_factory
-
-                async with get_session_factory()() as usage_db:
-                    await persist_usage_events(
-                        usage_db,
-                        user_id=user_id,
-                        endpoint=f"/api/sessions/{session_id}/opening/stream",
-                        reports=[report],
-                        settings=get_settings(),
-                        session_id=session_id,
-                        kind="opening",
-                    )
-            except Exception:  # noqa: BLE001
-                logger.exception("Failed to persist streamed opening usage")
-
-    return StreamingResponse(
-        _event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
 
 
 # ============================================================================

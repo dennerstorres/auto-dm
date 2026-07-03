@@ -25,7 +25,7 @@ from typing import Optional, Protocol
 
 from auto_dm.agents.prompts import DM_SYSTEM_PROMPT, OPENING_INSTRUCTION, build_dm_context_block
 from auto_dm.llm.base import Message
-from auto_dm.llm.usage import UsageReport, chat_with_usage, iter_stream_with_usage
+from auto_dm.llm.usage import UsageReport, chat_with_usage
 from auto_dm.state.manager import StateManager
 from auto_dm.state.models import Action, ActionType
 
@@ -192,26 +192,6 @@ class DMAgent:
         raw, usage = chat_with_usage(self.provider, messages)
         return parse_dm_response(raw, usage=usage)
 
-    def stream(self, player_input: str):
-        """Yield narration tokens as they arrive (no action parsing).
-
-        Provided for the CLI's streaming UX. Use ``ask`` when you need
-        the structured Action.
-        """
-        for tok, _ in self.stream_with_usage(player_input):
-            if tok:
-                yield tok
-
-    def stream_with_usage(self, player_input: str):
-        """Like :meth:`stream` but also yields a final ``UsageReport``.
-
-        Yields ``(token, None)`` for each chunk and one
-        ``("", UsageReport)`` at the end. The web/SSE layer uses this to
-        bill streamed turns; the CLI uses the text-only :meth:`stream`.
-        """
-        messages = self._build_messages(player_input)
-        yield from iter_stream_with_usage(self.provider, messages)
-
     def generate_opening(self) -> DMResponse:
         """Generate the campaign opening narration (no player input).
 
@@ -224,18 +204,6 @@ class DMAgent:
         messages = self._build_messages(OPENING_INSTRUCTION)
         raw, usage = chat_with_usage(self.provider, messages)
         return parse_dm_response(raw, usage=usage)
-
-    def stream_opening_with_usage(self):
-        """Stream the opening narration token-by-token.
-
-        Like :meth:`stream_with_usage` but driven by the
-        :data:`OPENING_INSTRUCTION` trigger instead of player input.
-        Action parsing is the caller's responsibility (the stream only
-        yields text); the web opening-SSE producer accumulates the full
-        text and parses the ``move`` block at the end.
-        """
-        messages = self._build_messages(OPENING_INSTRUCTION)
-        yield from iter_stream_with_usage(self.provider, messages)
 
     # ----- Internals ---------------------------------------------------------
 

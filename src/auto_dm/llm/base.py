@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -84,15 +83,13 @@ class LLMProvider(Protocol):
 
     All providers must support:
     - `chat()` for synchronous single-shot completion
-    - `stream()` for token-by-token streaming
     - `count_tokens()` for budget estimation
 
-    Providers MAY additionally implement ``chat_with_usage`` /
-    ``iter_stream_with_usage`` (see :mod:`auto_dm.llm.usage`) to surface
-    real token usage from the API. The free helpers
-    :func:`auto_dm.llm.usage.chat_with_usage` and
-    :func:`auto_dm.llm.usage.iter_stream_with_usage` prefer those when
-    present and otherwise fall back to the chars//3 heuristic, so all
+    Providers MAY additionally implement ``chat_with_usage``
+    (see :mod:`auto_dm.llm.usage`) to surface real token usage from the
+    API. The free helper
+    :func:`auto_dm.llm.usage.chat_with_usage` prefers that method when
+    present and otherwise falls back to the chars//3 heuristic, so all
     providers report *some* usage without being forced to implement it.
     """
 
@@ -100,7 +97,5 @@ class LLMProvider(Protocol):
     config: LLMConfig
 
     def chat(self, messages: list[Message]) -> str: ...
-
-    def stream(self, messages: list[Message]) -> Iterator[str]: ...
 
     def count_tokens(self, messages: list[Message]) -> int: ...

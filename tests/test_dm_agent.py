@@ -829,14 +829,3 @@ class TestOpeningNarration:
         assert result.action is None
         assert state.state.current_location == ""
         assert state.state.narrative_log[-1].role == "dm"
-
-    def test_stream_opening_with_usage_uses_trigger(self, state):
-        # The streaming variant must also drive off the opening trigger.
-        # FakeProvider.stream yields a single chunk.
-        provider = FakeProvider(scripted=["Token a token."])
-        agent = DMAgent(provider=provider, state_manager=state)
-        chunks = list(agent.stream_opening_with_usage())
-        # Last message sent to the provider is the opening trigger.
-        last_user = [m for m in provider.calls[0] if m.role == "user"][-1]
-        assert last_user.content == OPENING_INSTRUCTION
-        assert any(c for c, _ in chunks)

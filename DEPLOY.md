@@ -176,9 +176,8 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
 
-    # API + static + SSE.
-    # IMPORTANT: SSE needs `proxy_buffering off` and `proxy_http_version 1.1`
-    # so the response body flushes chunk-by-chunk.
+    # API + static. Long read/send timeouts so a slow LLM turn (up to
+    # ~60s with extended thinking) doesn't get cut off by the proxy.
     location / {
         proxy_pass http://127.0.0.1:4004;
         proxy_http_version 1.1;
@@ -186,11 +185,8 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 300s;     # long enough for a slow LLM turn
+        proxy_read_timeout 300s;
         proxy_send_timeout 300s;
-        chunked_transfer_encoding on;
     }
 }
 ```
@@ -333,7 +329,7 @@ inside the container before rolling out the new code.
 | `500 DatabaseError` on signup          | Postgres unreachable from container, or wrong creds in `DATABASE_URL`. |
 | `500 no provider factory`              | `AUTO_DM_PROVIDER` / `AUTO_DM_API_KEY` / `AUTO_DM_MODEL` missing from env. |
 | CORS error in browser console          | `FRONTEND_URL` in backend `.env` doesn't list the Vercel origin. Add it + redeploy. |
-| SSE drops mid-stream                   | nginx is buffering. Confirm `proxy_buffering off` and `proxy_http_version 1.1`. |
+| SSE drops mid-stream                   | (Removido — endpoint SSE foi descontinuado; mensagens agora chegam inteiras via `/input`.) |
 | Slow first response after idle         | Cold-start; uvicorn worker has no warm cache. Acceptable for hobby use. |
 
 ---

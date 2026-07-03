@@ -3,8 +3,7 @@
 Covers:
 - :func:`chat_with_usage` prefers a provider's native ``chat_with_usage``
   (real API usage) and otherwise falls back to the chars//3 heuristic.
-- :func:`iter_stream_with_usage` emits a final ``UsageReport``.
-- :class:`DMAgent.ask` / :meth:`DMAgent.stream_with_usage` propagate usage.
+- :class:`DMAgent.ask` propagates usage to ``DMResponse``.
 - :class:`UsageReport` normalizes a zero ``total_tokens``.
 - :func:`compute_cost` derives USD from tokens × configured prices.
 """
@@ -14,11 +13,7 @@ import pytest
 
 from auto_dm.agents.dm import DMAgent
 from auto_dm.llm.base import LLMConfig, Message
-from auto_dm.llm.usage import (
-    UsageReport,
-    chat_with_usage,
-    iter_stream_with_usage,
-)
+from auto_dm.llm.usage import UsageReport, chat_with_usage
 from auto_dm.web.config import get_settings
 from auto_dm.web.usage import compute_cost
 
@@ -60,10 +55,6 @@ class _LegacyProvider:
     def count_tokens(self, messages):
         return sum(len(m.content) for m in messages)
 
-    def stream(self, messages):
-        for word in self._content.split():
-            yield word
-
 
 # ============================================================================
 # chat_with_usage
@@ -90,38 +81,6 @@ def test_chat_with_usage_falls_back_to_heuristic():
     assert report.prompt_tokens == 5
     assert report.completion_tokens == 11 // 3
     assert report.total_tokens == report.prompt_tokens + report.completion_tokens
-
-
-# ============================================================================
-# iter_stream_with_usage
-# ============================================================================
-
-
-def test_iter_stream_with_usage_emits_final_fallback_report():
-    provider = _LegacyProvider(content="one two three")  # 13 chars
-    out = list(iter_stream_with_usage(provider, [Message("user", "go")]))
-    tokens = [t for t, r in out if t]
-    reports = [r for _, r in out if r is not None]
-    assert tokens == ["one", "two", "three"]
-    assert len(reports) == 1
-    report = reports[0]
-    assert report.source == "fallback"
-    assert report.prompt_tokens == 2  # "go"
-
-
-def test_iter_stream_with_usage_uses_native_when_available():
-    class _StreamNative(_NativeProvider):
-        def iter_stream_with_usage(self, messages):
-            yield "tok", None
-            yield "", UsageReport(
-                prompt_tokens=1, completion_tokens=1, total_tokens=2,
-                provider="native", model="m", source="api",
-            )
-
-    provider = _StreamNative()
-    out = list(iter_stream_with_usage(provider, [Message("user", "x")]))
-    reports = [r for _, r in out if r is not None]
-    assert reports[0].source == "api"
 
 
 # ============================================================================
@@ -175,17 +134,6 @@ def test_dm_agent_ask_propagates_native_usage():
     resp = agent.ask("olhar")
     assert resp.usage is not None
     assert resp.usage.source == "api"
-
-
-def test_dm_agent_stream_with_usage_emits_report():
-    provider = _LegacyProvider(content="one two")
-    agent = _build_dm(provider)
-    out = list(agent.stream_with_usage("olhar"))
-    toks = [t for t, _ in out if t]
-    reports = [r for _, r in out if r is not None]
-    assert toks == ["one", "two"]
-    assert len(reports) == 1
-    assert reports[0].source == "fallback"
 
 
 # ============================================================================

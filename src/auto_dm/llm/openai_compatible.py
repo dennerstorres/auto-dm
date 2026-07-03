@@ -6,7 +6,6 @@ provider-specific `extra_body` (e.g. MiniMax's `thinking` field).
 """
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import Optional
 
 from openai import OpenAI
@@ -56,7 +55,7 @@ class OpenAICompatibleProvider:
             return {"thinking": {"type": thinking}}
         return None
 
-    def _request_kwargs(self, messages: list[Message], *, stream: bool) -> dict:
+    def _request_kwargs(self, messages: list[Message]) -> dict:
         kwargs: dict = {
             "model": self.config.model,
             "messages": [m.to_dict() for m in messages],
@@ -66,8 +65,6 @@ class OpenAICompatibleProvider:
         extra_body = self._build_extra_body()
         if extra_body:
             kwargs["extra_body"] = extra_body
-        if stream:
-            kwargs["stream"] = True
         return kwargs
 
     # -- usage helpers ----------------------------------------------------
@@ -112,7 +109,7 @@ class OpenAICompatibleProvider:
         carries no ``usage`` payload.
         """
         response = self.client.chat.completions.create(
-            **self._request_kwargs(messages, stream=False)
+            **self._request_kwargs(messages)
         )
         content = strip_thinking(response.choices[0].message.content)
         report = self._report_from_usage(getattr(response, "usage", None))
@@ -127,48 +124,6 @@ class OpenAICompatibleProvider:
         :meth:`chat_with_usage`, kept for the base :class:`LLMProvider`
         protocol and the CLI."""
         return self.chat_with_usage(messages)[0]
-
-    def iter_stream_with_usage(
-        self, messages: list[Message]
-    ) -> Iterator[tuple[str, Optional[UsageReport]]]:
-        """Stream tokens, attaching the real ``UsageReport`` at the end.
-
-        Asks the API for ``stream_options.include_usage`` so the final
-        chunk carries ``usage``. Some backends reject that option, so we
-        retry once without it. If no chunk reports usage, we emit a final
-        heuristic report (``source="fallback"``).
-        """
-        completion_chars = 0
-        report: Optional[UsageReport] = None
-        kwargs = self._request_kwargs(messages, stream=True)
-        kwargs["stream_options"] = {"include_usage": True}
-        try:
-            stream = self.client.chat.completions.create(**kwargs)
-        except Exception:
-            # Backend rejected stream_options — retry plain.
-            stream = self.client.chat.completions.create(
-                **self._request_kwargs(messages, stream=True)
-            )
-        for chunk in stream:
-            choices = getattr(chunk, "choices", None) or []
-            if choices:
-                delta = choices[0].delta
-                if delta and delta.content:
-                    completion_chars += len(delta.content)
-                    yield delta.content, None
-            # The usage-bearing chunk often has empty choices.
-            report = self._report_from_usage(getattr(chunk, "usage", None)) or report
-        if report is None:
-            report = self._fallback_report(messages, completion_chars)
-        yield "", report
-
-    def stream(self, messages: list[Message]) -> Iterator[str]:
-        # TODO: when extended thinking is on, the <think>...</think> may
-        # span chunks. For now we yield raw chunks; the caller can join +
-        # strip if it needs clean text. Text-only protocol variant.
-        for tok, _ in self.iter_stream_with_usage(messages):
-            if tok:
-                yield tok
 
     def count_tokens(self, messages: list[Message]) -> int:
         # Rough approximation: ~3 chars per token for pt-BR mixed text.

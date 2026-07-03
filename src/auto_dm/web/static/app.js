@@ -15,13 +15,12 @@
 //   POST   /api/sessions              {state}              -> {session_id, state}
 //   GET    /api/sessions/{sid}                             -> {state}
 //   POST   /api/sessions/{sid}/input  {line}               -> {result, state}
-//   POST   /api/sessions/{sid}/stream {line}               -> text/event-stream
 //   DELETE /api/sessions/{sid}                             -> 204
 
 const API_BASE = ""; // same origin (Vercel would be cross-origin, but
                     // for the dev server, same origin works)
 
-// Shown when the user hits their daily quota (429 from /input or /stream).
+// Shown when the user hits their daily quota (429 from /input).
 const LIMIT_REACHED_MSG =
   "Limite diário atingido. Volte amanhã ou peça ao administrador " +
   "para aumentar sua cota.";
@@ -146,8 +145,6 @@ function lockUi() {
   if (rollBtn) rollBtn.disabled = true;
   const rollCheck = document.getElementById("roll-check");
   if (rollCheck) rollCheck.disabled = true;
-  const toggle = document.getElementById("stream-toggle");
-  if (toggle) toggle.disabled = true;
 }
 
 function unlockUi() {
@@ -160,8 +157,6 @@ function unlockUi() {
   if (rollBtn) rollBtn.disabled = false;
   const rollCheck = document.getElementById("roll-check");
   if (rollCheck) rollCheck.disabled = false;
-  const toggle = document.getElementById("stream-toggle");
-  if (toggle) toggle.disabled = false;
 }
 
 function showTyping() {
@@ -492,8 +487,6 @@ function enterGame(opts = {}) {
     if (rollBtn) rollBtn.disabled = true;
     const rollCheck = document.getElementById("roll-check");
     if (rollCheck) rollCheck.disabled = true;
-    const toggle = document.getElementById("stream-toggle");
-    if (toggle) toggle.disabled = true;
     appendLog(
       "Sistema",
       `Modo visualização (somente leitura — admin)${ownerLabel ? ` · ${ownerLabel}` : ""}.`,
@@ -541,19 +534,14 @@ async function persistSave(state) {
 
 // Auto-generate the campaign opening narration right after a fresh game
 // is created, so the player sees the first scene without typing anything.
-// Respects the streaming toggle. Idempotent on the backend (a re-call on
-// an already-opened game just returns the existing narration).
+// Idempotent on the backend (a re-call on an already-opened game just
+// returns the existing narration).
 async function playOpening() {
   if (readOnlyMode || !currentSessionId) return;
-  const useStream = !!document.getElementById("stream-toggle")?.checked;
   lockUi();
   showTyping();
   try {
-    if (useStream) {
-      await playOpeningStream();
-    } else {
-      await playOpeningClassic();
-    }
+    await playOpeningClassic();
   } finally {
     unlockUi();
     hideTyping();
@@ -573,87 +561,6 @@ async function playOpeningClassic() {
       return;
     }
     appendLog("Erro", "Não foi possível gerar a abertura: " + e.message, "system");
-  }
-}
-
-// Streamed opening (mirrors sendInputStream, but POSTs to /opening/stream
-// with no player line and renders into a fresh DM entry).
-async function playOpeningStream() {
-  const out = output();
-  const entry = document.createElement("div");
-  entry.className = "entry narration";
-  const w = document.createElement("span");
-  w.className = "who";
-  w.textContent = "DM";
-  const b = document.createElement("span");
-  b.className = "body";
-  b.textContent = "";
-  entry.appendChild(w);
-  entry.appendChild(b);
-  out.appendChild(entry);
-  out.scrollTop = out.scrollHeight;
-
-  let finalState = null;
-  try {
-    const tok = getToken();
-    const res = await fetch(`/api/sessions/${currentSessionId}/opening/stream`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
-      },
-      body: JSON.stringify({}),
-    });
-    if (!res.ok) {
-      let detail = res.statusText;
-      try {
-        const j = await res.json();
-        detail = j.detail || JSON.stringify(j);
-      } catch (_) {}
-      b.textContent = res.status === 429 ? LIMIT_REACHED_MSG : `(erro ${res.status}: ${detail})`;
-      return;
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buf = "";
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf("\n\n")) !== -1) {
-        const raw = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        const dataLines = raw
-          .split("\n")
-          .filter((l) => l.startsWith("data:"))
-          .map((l) => l.slice(5).trim());
-        if (!dataLines.length) continue;
-        try {
-          const evt = JSON.parse(dataLines.join("\n"));
-          if (evt.type === "token") {
-            b.textContent = (b.textContent || "") + (evt.data || "");
-            out.scrollTop = out.scrollHeight;
-          } else if (evt.type === "error") {
-            b.textContent += `\n[erro: ${evt.data}]`;
-          } else if (evt.type === "done") {
-            finalState = evt.data;
-          }
-        } catch (_) {
-          /* not JSON; ignore */
-        }
-      }
-    }
-  } catch (e) {
-    b.textContent = (b.textContent || "") + `\n[falha: ${e.message}]`;
-  }
-  // The `done` payload is the serialized GameState (a JSON string).
-  if (finalState) {
-    let st = null;
-    try {
-      st = typeof finalState === "string" ? JSON.parse(finalState) : finalState;
-    } catch (_) {}
-    if (st) await persistSave(st);
   }
 }
 
@@ -913,13 +820,8 @@ async function sendInput() {
   }
   lockUi();
   showTyping();
-  const useStream = !!document.getElementById("stream-toggle")?.checked;
   try {
-    if (useStream) {
-      await sendInputStream(line);
-    } else {
-      await sendInputClassic(line);
-    }
+    await sendInputClassic(line);
   } finally {
     unlockUi();
     hideTyping();
@@ -962,89 +864,6 @@ async function sendInputClassic(line) {
       return;
     }
     appendLog("Erro", e.message, "system");
-  }
-}
-
-// --- Streaming narration via SSE (Phase 26b) ---
-//
-// `fetch` (not `EventSource`) is used because we need POST + the
-// Authorization header. The response body is read as a stream and
-// each SSE `data: {json}\n\n` chunk is parsed and appended live.
-async function sendInputStream(line) {
-  // Create an in-progress entry we'll append tokens into.
-  const out = output();
-  const entry = document.createElement("div");
-  entry.className = "entry narration";
-  const w = document.createElement("span");
-  w.className = "who";
-  w.textContent = "DM";
-  const b = document.createElement("span");
-  b.className = "body";
-  b.textContent = "";
-  entry.appendChild(w);
-  entry.appendChild(b);
-  out.appendChild(entry);
-  out.scrollTop = out.scrollHeight;
-
-  try {
-    const tok = getToken();
-    const res = await fetch(`/api/sessions/${currentSessionId}/stream`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
-      },
-      body: JSON.stringify({ line }),
-    });
-    if (!res.ok) {
-      let detail = res.statusText;
-      try {
-        const j = await res.json();
-        detail = j.detail || JSON.stringify(j);
-      } catch (_) {}
-      if (res.status === 429) {
-        b.textContent = LIMIT_REACHED_MSG;
-      } else {
-        b.textContent = `(erro ${res.status}: ${detail})`;
-      }
-      return;
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buf = "";
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      // SSE events are separated by a blank line (\n\n).
-      let idx;
-      while ((idx = buf.indexOf("\n\n")) !== -1) {
-        const raw = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        // raw may be one or more `data: <line>` lines.
-        const dataLines = raw
-          .split("\n")
-          .filter((l) => l.startsWith("data:"))
-          .map((l) => l.slice(5).trim());
-        if (!dataLines.length) continue;
-        const payload = dataLines.join("\n");
-        try {
-          const evt = JSON.parse(payload);
-          if (evt.type === "token") {
-            b.textContent = (b.textContent || "") + (evt.data || "");
-            out.scrollTop = out.scrollHeight;
-          } else if (evt.type === "error") {
-            b.textContent += `\n[erro: ${evt.data}]`;
-          } else if (evt.type === "done") {
-            // Stream complete — leave b.textContent as-is.
-          }
-        } catch (_) {
-          // Not JSON; ignore.
-        }
-      }
-    }
-  } catch (e) {
-    b.textContent = (b.textContent || "") + `\n[falha: ${e.message}]`;
   }
 }
 
