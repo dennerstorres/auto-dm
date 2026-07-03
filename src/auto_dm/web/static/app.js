@@ -425,7 +425,11 @@ async function loadSaveAsSession(slug) {
     currentSessionId = res.session_id;
     currentSlug = slug;
     currentGameState = res.state || null;
-    enterGame();
+    // Repassa o narrative_log persistido para que enterGame() o renderize.
+    // Sem isso, o jogador só vê "Sessão iniciada" e perde todo o histórico.
+    enterGame({
+      narrativeLog: (res.state && res.state.narrative_log) || [],
+    });
   } catch (e) {
     setMsg("lobby-msg", "Erro: " + e.message, "error");
   }
@@ -510,6 +514,12 @@ function enterGame(opts = {}) {
       "Jogo vazio iniciado — sem personagem definido. " +
       "Por enquanto, digite algo para começar (a IA narrará mesmo sem personagem).",
       "system");
+  }
+  // Renderiza o histórico narrativo persistido (carregado de save).
+  // Para jogos novos (wizard) e sessão vazia, narrativeLog está vazio e
+  // o loop é no-op — sem render duplicado da abertura.
+  if (narrativeLog && narrativeLog.length) {
+    renderNarrativeLog(narrativeLog);
   }
 }
 
