@@ -837,11 +837,11 @@ function renderSheetView(character) {
 // non-casters just show no magia section.
 function renderSpellsSection(sc) {
   if (!sc) return "";
-  const abilityLabel = abilityLabel(sc.ability || "");
+  const abilityName = abilityLabel(sc.ability || "");
   const parts = [];
   parts.push(
     `<strong>Magia:</strong> CD ${sc.save_dc ?? "—"} · ` +
-    `Ataque ${fmtMod(sc.attack_bonus ?? 0)} · ${escapeHtml(abilityLabel)}` +
+    `Ataque ${fmtMod(sc.attack_bonus ?? 0)} · ${escapeHtml(abilityName)}` +
     (sc.concentration ? ` · Concentrando em <em>${escapeHtml(sc.concentration)}</em>` : "") +
     (sc.ritual_casting ? " · Ritual" : ""),
   );
