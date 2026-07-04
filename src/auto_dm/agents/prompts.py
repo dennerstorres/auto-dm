@@ -231,6 +231,42 @@ def build_dm_context_block(state_manager: StateManager, *, last_n: int = 5) -> s
         )
     lines.append("")
 
+    # Phase 38 — shared party XP + level. The DM uses this to narrate
+    # "your experience grows" naturally, and to call out the level-up
+    # moment when party_xp crosses a PHB threshold. ASI-pending hint
+    # tells the DM to mention a "decision is available" without
+    # narrating the choice itself.
+    try:
+        from auto_dm.engine.progression import (
+            current_party_level,
+            xp_to_next_party_level,
+        )
+
+        party_lvl = current_party_level(state)
+        xp_remaining = xp_to_next_party_level(state)
+        lines.append("## Progressão da party")
+        lines.append(f"- XP da party: {state.party_xp}")
+        if xp_remaining is None:
+            lines.append("- Nível da party: L{} (cap L20)".format(party_lvl))
+        else:
+            lines.append(
+                f"- Nível da party: L{party_lvl} (próximo nível em {xp_remaining} XP)"
+            )
+        # Hint when the player has a queued ASI; companions auto-resolve.
+        player = next(
+            (c for c in state.party if c.id == state.player_character_id), None
+        )
+        if player and player.pending_asi and not player.pending_asi.get("resolved"):
+            lines.append(
+                "- ASI pendente para o jogador: peça para escolher "
+                "+2 a um atributo ou +1 a dois atributos diferentes. "
+                'Não narre a escolha — apenas mencione que "uma decisão '
+                'de aprimoramento está disponível".'
+            )
+        lines.append("")
+    except Exception:  # noqa: BLE001 — context block must never break narration
+        pass
+
     # NPCs
     lines.append("## NPCs presentes")
     if not state.npcs:

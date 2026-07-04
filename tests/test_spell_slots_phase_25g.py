@@ -739,7 +739,10 @@ class TestFullProgression:
         )
         for _ in range(19):
             from auto_dm.engine.progression import level_up
-            level_up(c, hp_roll=6)
+            # Phase 38 — defer_asi=False keeps the L1→L20 walk focused on
+            # HP/prof/features (this test predates the companion ASI
+            # auto-resolve and asserts capstone-only stat changes).
+            level_up(c, hp_roll=6, defer_asi=False)
         apply_class_features(c, at_level=20)
         assert c.level == 20
         assert c.has_primal_champion is True

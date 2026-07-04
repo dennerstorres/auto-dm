@@ -1046,6 +1046,64 @@ button.mini {
   width: 100%;
 }
 
+/* ============================================================ */
+/* Phase 38 — XP banner + ASI modal                              */
+/* ============================================================ */
+
+.levelup-banner {
+  background: #1a1e28;
+  border: 1px solid #c89b3c;
+  border-radius: 6px;
+  color: #c89b3c;
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem 0;
+  padding: 0.4rem 0.75rem;
+}
+
+#asi-modal .modal-card {
+  width: min(520px, 92vw);
+}
+
+.asi-mode-row {
+  display: flex;
+  gap: 1rem;
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.asi-status {
+  color: #888;
+  font-size: 0.85rem;
+  margin: 0.4rem 0;
+}
+
+.asi-pickers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.asi-pick {
+  align-items: center;
+  background: #1a1e28;
+  border: 1px solid #2a2e39;
+  border-radius: 4px;
+  display: flex;
+  font-size: 0.85rem;
+  margin: 0 !important;
+  padding: 0.45rem 0.6rem;
+}
+
+.asi-pick input {
+  margin-right: 0.5rem;
+  width: auto !important;
+}
+
+#asi-modal #asi-confirm {
+  margin-top: 0.5rem;
+}
+
 /* Detail drawer */
 .admin-detail-grid {
   display: grid;

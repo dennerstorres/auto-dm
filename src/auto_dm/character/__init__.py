@@ -1,7 +1,7 @@
-"""Character creation: stats, builder, and spell selection.
+"""Character creation: stats, builder, level-up helpers, and spell selection.
 
-The character builder is pure-Python and testable. The CLI / LLM
-prompts are layered on top later (Phase 6/9).
+The character builder is pure-Python and testable. The web layer prompts
+are layered on top later (Phase 26c).
 
 Usage:
     from auto_dm.character import CharacterBuilder
@@ -26,9 +26,13 @@ from auto_dm.character.builder import (
 )
 from auto_dm.character.level_up import (
     apply_subclass_features,
+    auto_resolve_companion_asi,
+    companion_asi_to_pending,
     features_gained_at_level,
     has_subclass_feature,
     list_subclass_features,
+    resolve_asi_choice,
+    update_spell_slots_for_level,
 )
 from auto_dm.character.spells import (
     SpellSelection,
@@ -43,9 +47,13 @@ __all__ = [
     "STAT_BLOCK_SIZE",
     "SpellSelection",
     "apply_subclass_features",
+    "auto_resolve_companion_asi",
+    "companion_asi_to_pending",
     "features_gained_at_level",
     "has_subclass_feature",
     "list_subclass_features",
     "prepare_caster_spells",
+    "resolve_asi_choice",
     "select_cantrips",
+    "update_spell_slots_for_level",
 ]

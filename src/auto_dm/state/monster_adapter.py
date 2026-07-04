@@ -111,4 +111,9 @@ def monster_to_npc(
         actions=[_format_action(a) for a in monster.actions],
         is_hostile=is_hostile,
         challenge_rating=monster.challenge_rating,
+        # Phase 38 — XP pre-debitado do PHB CR table (phb/models.py).
+        # CombatEngine.end_combat soma o xp de NPCs com hp_current <= 0
+        # e chama award_party_xp (engine/progression.py) para creditar
+        # na GameState.party_xp e disparar auto-level-up.
+        xp=monster.xp,
     )

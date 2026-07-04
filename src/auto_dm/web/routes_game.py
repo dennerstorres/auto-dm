@@ -1,4 +1,4 @@
-"""Game routes: sessions + saves (Phase 26).
+"""Game routes: sessions + saves (Phase 26) + Phase 38 XP/ASI endpoints.
 
 Endpoints (all require Authorization: Bearer <token>):
 
@@ -9,6 +9,8 @@ Endpoints (all require Authorization: Bearer <token>):
 - POST   /api/sessions/{sid}/roll-check→ roll a d20 check using a character sheet
 - POST   /api/sessions/{sid}/opening   → generate (or return) the campaign opening
 - POST   /api/sessions/{sid}/input     → send a player input line, returns NarrativeResult
+- POST   /api/sessions/{sid}/award-xp  → Phase 38 — manually credit XP to party pool
+- POST   /api/sessions/{sid}/resolve-asi→ Phase 38 — apply the player's queued ASI choice
 - DELETE /api/sessions/{sid}           → discard a session
 
 - GET    /api/saves                    → list persisted saves for the user (active only)
@@ -97,6 +99,33 @@ class RollCheckOut(BaseModel):
     notation: str
     advantage: bool = False
     disadvantage: bool = False
+
+
+class AwardXPRequest(BaseModel):
+    """Body for POST /api/sessions/{sid}/award-xp (Phase 38).
+
+    Grants `amount` XP to the party. Cross-threshold awards fire
+    auto-level-up for every member; the response surfaces the
+    LevelUpBatch so the frontend can show level-up entries and
+    pop the ASI modal if the player has a queued choice.
+    """
+
+    amount: int = Field(..., ge=1, le=100_000)
+
+
+class ResolveASIRequest(BaseModel):
+    """Body for POST /api/sessions/{sid}/resolve-asi (Phase 38).
+
+    `primary` is required (the +2 target, or one of the two +1 targets).
+    `secondary` is optional; when set, the player chose the +1 / +1
+    split. Both must be lowercase ability names: ``strength``,
+    ``dexterity``, ``constitution``, ``intelligence``, ``wisdom``,
+    ``charisma``.
+    """
+
+    character_id: str = Field(..., min_length=1, max_length=64)
+    primary: str = Field(..., min_length=3, max_length=12)
+    secondary: str | None = Field(default=None, max_length=12)
 
 
 class SaveRequest(BaseModel):
@@ -376,6 +405,166 @@ async def session_input(
     return {
         "session_id": session_id,
         "result": out,
+        "state": sess.state.model_dump(mode="json"),
+    }
+
+
+@router.post("/sessions/{session_id}/award-xp")
+async def session_award_xp(
+    session_id: str,
+    body: AwardXPRequest,
+    user: Annotated[User, Depends(current_user)],
+    sm: Annotated[SessionManager, Depends(get_session_manager)],
+) -> dict[str, Any]:
+    """Phase 38 — manually credit ``body.amount`` XP to the party pool.
+
+    Triggers the same auto-level-up loop as combat-end XP. Returns the
+    full :class:`LevelUpBatch` (one :class:`LevelUpReport` per party
+    member that advanced) plus the re-serialized state. The frontend
+    uses the batch to show level-up entries in the log and to pop the
+    ASI modal when ``batch.any_asi_pending`` is True.
+
+    No LLM call — costs no tokens. Per-session rate limit (10/min) is
+    enforced via a Redis counter to prevent runaway grants.
+    """
+    from auto_dm.engine.progression import award_party_xp
+    from auto_dm.web.rate_limit import check_rate_limit
+
+    sess = await sm.get(user.id, session_id)
+    if sess is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+
+    # Per-session rate limit (independent of the daily LLM-token quota,
+    # since this endpoint is a free, no-LLM action).
+    rate = await check_rate_limit(
+        scope=f"award-xp:{session_id}", limit=10, window_seconds=60,
+    )
+    if not rate.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "rate_limited",
+                "limit": rate.limit,
+                "window_seconds": rate.window_seconds,
+                "retry_after": rate.retry_after,
+            },
+        )
+
+    # Capture old level for narration; award_party_xp mutates state.
+    from auto_dm.engine.progression import current_party_level
+
+    old_level = current_party_level(sess.state)
+    batch = award_party_xp(
+        sess.state,
+        body.amount,
+        source="meta",
+    )
+
+    await sm.save(sess)
+    return {
+        "session_id": session_id,
+        "old_party_level": old_level,
+        "new_party_level": batch.new_party_level,
+        "xp_awarded": batch.xp_awarded,
+        "new_party_xp": batch.new_party_xp,
+        "any_leveled": batch.any_leveled,
+        "any_asi_pending": batch.any_asi_pending,
+        "reports": [
+            {
+                "character_id": r.character_id,
+                "character_name": r.character_name,
+                "is_player": r.is_player,
+                "old_level": r.old_level,
+                "new_level": r.new_level,
+                "hp_gained": r.hp_gained,
+                "features_gained": r.features_gained,
+                "asi_pending": r.asi_pending,
+                "asi_auto_resolved": r.asi_auto_resolved,
+            }
+            for r in batch.reports
+        ],
+        "state": sess.state.model_dump(mode="json"),
+    }
+
+
+@router.post("/sessions/{session_id}/resolve-asi")
+async def session_resolve_asi(
+    session_id: str,
+    body: ResolveASIRequest,
+    user: Annotated[User, Depends(current_user)],
+    sm: Annotated[SessionManager, Depends(get_session_manager)],
+) -> dict[str, Any]:
+    """Phase 38 — consume the player's queued ASI and apply it.
+
+    Body:
+        character_id: which party member (must match a member of the
+            session's party; 404 otherwise).
+        primary: ability name (``strength``, ``dexterity``, ...).
+        secondary: optional second ability for the +1 / +1 split.
+
+    Returns the re-serialized state. The frontend clears the modal
+    after this resolves successfully (200 + Character.pending_asi is
+    None). 422 if the choice is invalid (unknown ability, cap
+    exceeded, or no pending ASI for that character).
+    """
+    from auto_dm.character import resolve_asi_choice as _resolve
+    from auto_dm.state.models import Ability
+
+    sess = await sm.get(user.id, session_id)
+    if sess is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+
+    character = next(
+        (c for c in sess.state.party if c.id == body.character_id), None
+    )
+    if character is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Character not in party",
+        )
+
+    try:
+        primary = Ability(body.primary)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown primary ability: {body.primary}",
+        )
+    secondary: Ability | None = None
+    if body.secondary is not None:
+        try:
+            secondary = Ability(body.secondary)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown secondary ability: {body.secondary}",
+            )
+        if secondary == primary:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="ASI split must use two different abilities.",
+            )
+
+    try:
+        scores = _resolve(character, primary=primary, secondary=secondary)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+
+    await sm.save(sess)
+    return {
+        "session_id": session_id,
+        "character_id": character.id,
+        "character_name": character.name,
+        "abilities": scores.model_dump(mode="json"),
         "state": sess.state.model_dump(mode="json"),
     }
 

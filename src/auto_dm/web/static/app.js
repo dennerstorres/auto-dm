@@ -474,6 +474,241 @@ async function createEmptySession() {
     setMsg("lobby-msg", "Erro: " + e.message, "error");
   }
 }
+
+// ============================================================================
+// Phase 38 — XP, party level, ASI modal
+// ============================================================================
+//
+// ``award_party_xp`` (engine/progression.py) drives the auto-level loop
+// for both combat kills (in CombatEngine.end_combat) and the
+// player-facing `/award-xp <n>` meta-command. The frontend watches
+// `state.party_xp` and `state.player.pending_asi` and reacts here.
+
+const ASI_ABILITIES = [
+  { key: "strength",     label: "Força (STR)" },
+  { key: "dexterity",    label: "Destreza (DEX)" },
+  { key: "constitution", label: "Constituição (CON)" },
+  { key: "intelligence", label: "Inteligência (INT)" },
+  { key: "wisdom",       label: "Sabedoria (WIS)" },
+  { key: "charisma",     label: "Carisma (CHA)" },
+];
+
+function getPlayerCharacter(state) {
+  if (!state || !state.party || !state.player_character_id) return null;
+  return state.party.find((c) => c.id === state.player_character_id) || null;
+}
+
+// Compute the next PHB threshold and how much XP is needed to reach it.
+// Mirrors XP_THRESHOLDS in engine/progression.py.
+const PARTY_XP_THRESHOLDS = [
+  0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000,
+  85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000,
+];
+
+function partyLevelFromXp(xp) {
+  let lvl = 1;
+  for (let i = 1; i < PARTY_XP_THRESHOLDS.length; i++) {
+    if (xp >= PARTY_XP_THRESHOLDS[i]) lvl = i + 1;
+    else break;
+  }
+  return Math.min(lvl, 20);
+}
+
+function xpToNextPartyLevel(xp) {
+  const lvl = partyLevelFromXp(xp);
+  if (lvl >= 20) return null;
+  return PARTY_XP_THRESHOLDS[lvl] - xp;
+}
+
+// Refresh the small XP/level banner above the chat log.
+function updateLevelupBanner() {
+  const banner = document.getElementById("levelup-banner");
+  if (!banner) return;
+  const state = currentGameState;
+  if (!state) {
+    banner.style.display = "none";
+    return;
+  }
+  const xp = Number(state.party_xp || 0);
+  const lvl = partyLevelFromXp(xp);
+  const remaining = xpToNextPartyLevel(xp);
+  if (remaining === null) {
+    banner.textContent = `Party: L${lvl} · ${xp.toLocaleString("pt-BR")} XP (cap L20).`;
+  } else {
+    banner.textContent =
+      `Party: L${lvl} · ${xp.toLocaleString("pt-BR")} XP · ` +
+      `próximo nível em ${remaining.toLocaleString("pt-BR")} XP.`;
+  }
+  banner.style.display = "block";
+}
+
+// Hide the banner (used during the read-only admin view).
+function hideLevelupBanner() {
+  const banner = document.getElementById("levelup-banner");
+  if (banner) banner.style.display = "none";
+}
+
+// Run after every state mutation: if the player has a queued ASI, open
+// the modal. Idempotent (the modal stays open across re-renders until
+// the choice is confirmed or the level falls through).
+function checkPendingASI() {
+  if (readOnlyMode) return;
+  const player = getPlayerCharacter(currentGameState);
+  if (!player || !player.pending_asi || player.pending_asi.resolved) return;
+  openASIModal(player);
+}
+
+function openASIModal(player) {
+  const modal = document.getElementById("asi-modal");
+  const pickers = document.getElementById("asi-pickers");
+  const status = document.getElementById("asi-status");
+  const msg = document.getElementById("asi-msg");
+  if (!modal || !pickers || !status || !msg) return;
+
+  status.textContent = `Personagem: ${player.name} · Nível ${player.level}.`;
+  msg.textContent = "";
+  // Pre-fill the pickers every time the modal opens.
+  renderASIPickers(player);
+  modal.style.display = "flex";
+  modal.dataset.characterId = player.id;
+}
+
+function closeASIModal() {
+  const modal = document.getElementById("asi-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function renderASIPickers(player) {
+  const pickers = document.getElementById("asi-pickers");
+  if (!pickers) return;
+  pickers.innerHTML = "";
+  const mode = (document.querySelector('input[name="asi-mode"]:checked') || {}).value || "plus2";
+
+  ASI_ABILITIES.forEach((ab) => {
+    const wrap = document.createElement("label");
+    wrap.className = "asi-pick";
+    const input = document.createElement("input");
+    if (mode === "plus2") {
+      input.type = "radio";
+      input.name = "asi-primary";
+      input.value = ab.key;
+    } else {
+      input.type = "checkbox";
+      input.name = "asi-secondary";
+      input.value = ab.key;
+    }
+    const cur = (player.abilities && player.abilities[ab.key]) ?? 10;
+    const cap = cur >= 20 && mode === "plus2" ? " (cap)" : "";
+    const text = document.createTextNode(` ${ab.label} (atual: ${cur}${cap})`);
+    wrap.appendChild(input);
+    wrap.appendChild(text);
+    pickers.appendChild(wrap);
+  });
+
+  // Wiring: switching modes re-renders the picker list.
+  pickers.querySelectorAll('input[name="asi-mode"]').forEach((r) => {
+    r.onchange = () => renderASIPickers(player);
+  });
+}
+
+async function confirmASI() {
+  const modal = document.getElementById("asi-modal");
+  const msg = document.getElementById("asi-msg");
+  if (!modal || !msg) return;
+  const characterId = modal.dataset.characterId;
+  if (!characterId) return;
+
+  const mode = (document.querySelector('input[name="asi-mode"]:checked') || {}).value || "plus2";
+  let primary = null;
+  let secondary = null;
+  if (mode === "plus2") {
+    const sel = document.querySelector('input[name="asi-primary"]:checked');
+    if (!sel) {
+      msg.textContent = "Selecione o atributo que vai receber +2.";
+      return;
+    }
+    primary = sel.value;
+  } else {
+    const checked = Array.from(document.querySelectorAll('input[name="asi-secondary"]:checked'));
+    if (checked.length !== 2) {
+      msg.textContent = `Selecione exatamente dois atributos (você escolheu ${checked.length}).`;
+      return;
+    }
+    primary = checked[0].value;
+    secondary = checked[1].value;
+  }
+
+  msg.textContent = "Aplicando…";
+  const btn = document.getElementById("asi-confirm");
+  if (btn) btn.disabled = true;
+  try {
+    await resolveASI(characterId, primary, secondary);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function resolveASI(characterId, primary, secondary) {
+  try {
+    const body = { character_id: characterId, primary };
+    if (secondary) body.secondary = secondary;
+    const res = await api(
+      `/api/sessions/${currentSessionId}/resolve-asi`,
+      { method: "POST", body },
+    );
+    if (res && res.state) {
+      currentGameState = res.state;
+    }
+    renderCharacterTools();
+    updateLevelupBanner();
+    closeASIModal();
+    appendLog(
+      "Sistema",
+      secondary
+        ? `ASI aplicada: +1 ${primary}, +1 ${secondary} em ${res.character_name}.`
+        : `ASI aplicada: +2 ${primary} em ${res.character_name}.`,
+      "system",
+    );
+  } catch (e) {
+    setMsg("asi-msg", e.message, "error");
+  }
+}
+
+// Called from /award-xp (and indirectly from `/input` after combat ends).
+async function awardXP(amount) {
+  try {
+    const res = await api(
+      `/api/sessions/${currentSessionId}/award-xp`,
+      { method: "POST", body: { amount } },
+    );
+    if (res && res.state) {
+      currentGameState = res.state;
+    }
+    renderCharacterTools();
+    updateLevelupBanner();
+    appendLog(
+      "Sistema",
+      `+${amount} XP concedidos à party (total: ${res.new_party_xp.toLocaleString("pt-BR")}; ` +
+        `nível ${res.old_party_level} → ${res.new_party_level}).`,
+      "system",
+    );
+    if (res.any_leveled && Array.isArray(res.reports)) {
+      for (const r of res.reports) {
+        appendLog(
+          "Sistema",
+          `${r.character_name} subiu para o nível ${r.new_level} (HP +${r.hp_gained}).`,
+          "system",
+        );
+      }
+    }
+    // If the player got a queued ASI, pop the modal.
+    if (res.any_asi_pending) {
+      checkPendingASI();
+    }
+  } catch (e) {
+    appendLog("Erro", e.message, "system");
+  }
+}
 // opts:
 //   readOnly     — admin inspecting a save; input disabled, narrative
 //                  log replayed from the snapshot, no session/LLM.
@@ -509,6 +744,7 @@ function enterGame(opts = {}) {
     if (narrativeLog.length === 0) {
       appendLog("Sistema", "(sem histórico narrado neste save)", "system");
     }
+    hideLevelupBanner();  // Phase 38 — admin viewer doesn't show XP banner
     return;
   }
 
@@ -527,6 +763,10 @@ function enterGame(opts = {}) {
   if (narrativeLog && narrativeLog.length) {
     renderNarrativeLog(narrativeLog);
   }
+  // Phase 38 — surface any pending ASI choice made during the last
+  // turn, and refresh the XP/level banner.
+  checkPendingASI();
+  updateLevelupBanner();
 }
 
 // Persist the current GameState to the user's save (Postgres). Best-effort.
@@ -567,7 +807,12 @@ async function playOpeningClassic() {
       method: "POST",
     });
     if (res.narration) appendLog("DM", res.narration, "narration");
-    if (res.state) await persistSave(res.state);
+    if (res.state) {
+      currentGameState = res.state;
+      updateLevelupBanner();
+      checkPendingASI();
+      await persistSave(res.state);
+    }
   } catch (e) {
     if (e && e.status === 429) {
       appendLog("Sistema", LIMIT_REACHED_MSG, "system");
@@ -1003,6 +1248,8 @@ async function sendInputClassic(line) {
     if (res.state) {
       currentGameState = res.state;
       renderCharacterTools();
+      updateLevelupBanner();  // Phase 38
+      checkPendingASI();  // Phase 38 — combat-end may have queued an ASI
       await persistSave(res.state);
     }
     const r = res.result || {};
@@ -1137,6 +1384,20 @@ async function clientCommand(line) {
     }
     return true;
   }
+  if (cmd === "/award-xp" || cmd === "/award") {
+    // Phase 38 — manually credit XP to the party pool. Usage:
+    //   /award-xp 500
+    // The backend (/api/sessions/{sid}/award-xp) runs award_party_xp
+    // and may auto-level every party member. If the player gets a
+    // queued ASI we open the modal automatically.
+    const amount = parseInt(parts[1], 10);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      appendLog("Erro", "Uso: /award-xp <quantidade>", "system");
+      return true;
+    }
+    await awardXP(amount);
+    return true;
+  }
   return false;
 }
 
@@ -1192,6 +1453,11 @@ document.addEventListener("DOMContentLoaded", () => {
     suggestWizardName("campaign");
   document.getElementById("wz-char-name-ai").onclick = () =>
     suggestWizardName("character");
+  // Phase 38 — ASI modal handlers.
+  const asiClose = document.getElementById("asi-modal-close");
+  if (asiClose) asiClose.onclick = closeASIModal;
+  const asiConfirm = document.getElementById("asi-confirm");
+  if (asiConfirm) asiConfirm.onclick = confirmASI;
   const cmd = document.getElementById("cmd");
   cmd.addEventListener("keydown", (e) => {
     if (busy) return;

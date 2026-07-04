@@ -499,8 +499,24 @@ class Character(BaseModel):
     # on each long rest without consuming the daily use.
     has_divine_intervention_improvement: bool = False
 
+    # Capstone side-effect bookkeeping. Phase 38's auto-level loop
+    # calls ``apply_class_features`` after every level, so each capstone
+    # side effect (Primal Champion +4 STR/CON, Arcane Apotheosis cap
+    # raise, etc.) needs a guard flag to stay idempotent across
+    # repeated invocations.
+    primal_champion_applied: bool = False
+
     # Meta
     is_player: bool = False  # True only for the human-controlled character
+
+    # Phase 38 — XP/ASI queue. ``pending_asi`` is set by ``level_up``
+    # when the new level is in {4, 8, 12, 16, 19} (PHB p. 15) and the
+    # player has not yet chosen. Shape:
+    #     {"level": int, "choices": ["primary"] | ["primary", "secondary"],
+    #      "resolved": bool, "primary": str | None, "secondary": str | None}
+    # None means no choice is pending. Companion ASIs are auto-resolved
+    # immediately (they never leave a non-None ``pending_asi``).
+    pending_asi: Optional[dict] = Field(default=None)
 
 
 # ============================================================================
@@ -536,6 +552,11 @@ class NPC(BaseModel):
     actions: list[str] = Field(default_factory=list)  # attack names/descriptions
     is_hostile: bool = True
     challenge_rating: Optional[float] = None
+    # Phase 38 — XP awarded when this NPC is defeated. Populated by the
+    # ``monster_to_npc`` adapter from the source Monster.xp (PHB CR table).
+    # None for friendly/hand-crafted NPCs where the DM doesn't pre-load
+    # a defeat reward.
+    xp: Optional[int] = None
     # Mount NPC fields (Phase 25e). An NPC can serve as a mount for
     # one rider; ``rider_id`` tracks who is currently mounted on it.
     is_mount: bool = False
@@ -722,3 +743,10 @@ class GameState(BaseModel):
     # (narrative_log vazio), para o DM usar como base autoritativa da abertura.
     # Default "" preserva saves antigos (Pydantic preenche ao validar).
     initial_scenario: str = ""
+
+    # Phase 38 — XP da party (compartilhado entre todos os membros).
+    # Combat kills (Monster.xp) depositam aqui no `end_combat`, e o
+    # meta-comando `/award-xp <n>` permite grants narrativos fora de
+    # combate. Cruza os thresholds PHB p. 15 → auto-level-up de todos.
+    # Default 0 preserva saves antigos.
+    party_xp: int = 0

@@ -89,6 +89,11 @@ class EncounterSummary:
     party_defeated: list[str] = field(default_factory=list)
     loot: list[str] = field(default_factory=list)
     xp_awarded: int = 0
+    # Phase 38 — populated by end_combat when combat kills award party
+    # XP that crosses one or more thresholds. ``level_up_batch`` is the
+    # full LevelUpBatch from award_party_xp; routes_game surfaces it so
+    # the frontend can show level-up events and trigger the ASI modal.
+    level_up_batch: Optional["LevelUpBatch"] = None  # noqa: F821 (forward ref)
 
 
 # ============================================================================
@@ -158,6 +163,14 @@ class CombatEngine:
         """Wrap up the encounter: build a summary, reset state.
 
         If combat wasn't active, returns an empty summary.
+
+        Phase 38 — flushes XP from defeated enemies into the party pool
+        via :func:`award_party_xp` (engine/progression). The award may
+        cross one or more PHB thresholds, in which case every party
+        member advances one or more levels immediately. Companion ASIs
+        auto-resolve; the player's is queued via ``Character.pending_asi``
+        for the frontend modal to consume via
+        ``POST /api/sessions/{sid}/resolve-asi``.
         """
         if not state_manager.state.in_combat:
             return EncounterSummary(rounds_elapsed=0)
@@ -169,12 +182,32 @@ class CombatEngine:
         enemies_defeated = [n.id for n in enemies if n.hp_current <= 0]
         party_defeated = [c.id for c in state_manager.state.party if c.hp_current <= 0]
 
+        # Phase 38 — sum XP across all defeated NPCs (those with
+        # ``hp_current <= 0`` whose ``xp`` was set at spawn by
+        # monster_to_npc). Award to the party pool. ``award_party_xp``
+        # internally walks every party member across any crossed
+        # thresholds and returns a LevelUpBatch for narration + UI.
+        from auto_dm.engine.progression import award_party_xp
+
+        defeated_npcs = [n for n in enemies if n.hp_current <= 0]
+        xp_total = sum((n.xp or 0) for n in defeated_npcs)
+        level_up_batch = None
+        if xp_total > 0:
+            level_up_batch = award_party_xp(
+                state_manager.state,
+                xp_total,
+                source="combat",
+                rng=self.rng,
+            )
+
         self._summary = EncounterSummary(
             rounds_elapsed=state_manager.state.round_number,
             survivors_party=party_alive,
             survivors_enemies=enemies_alive,
             enemies_defeated=enemies_defeated,
             party_defeated=party_defeated,
+            xp_awarded=xp_total,
+            level_up_batch=level_up_batch,
         )
         state_manager.end_combat()
         return self._summary

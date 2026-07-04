@@ -16,13 +16,212 @@ level — ``has_aura_of_protection`` (Paladin L6), ``has_feral_instinct``
 (Barbarian L7), ``aura_of_courage_active`` (Paladin L10), and so on.
 The builder calls these at character creation; ``level_up`` calls them
 after incrementing the level so the flags stay in sync.
+
+Phase 38 — also owns ``auto_resolve_companion_asi`` (deterministic,
+no LLM, picks the most-likely ASI for a given class so companions can
+level up without player intervention), ``update_spell_slots_for_level``
+(legible wrapper around the PHB slot table refresh), and
+``resolve_asi_choice`` (the player-facing entry point that consumes
+the queued ASI and clears ``Character.pending_asi``).
 """
 from __future__ import annotations
 
 from typing import Optional
 
 from auto_dm.phb import ClassFeature, get_subclass
-from auto_dm.state.models import Character
+from auto_dm.state.models import Ability, AbilityScores, Character
+
+
+# ============================================================================
+# Phase 38 — Companion ASI auto-resolve + spell-slot refresh + ASI queue
+# ============================================================================
+
+
+# Per-class primary (+2) target. The heuristic for companion ASIs is
+# deterministic and matches PHB build conventions:
+#   martial classes pump STR (or DEX for rogue/ranger/monk),
+#   paladins/goad casters pump their casting stat,
+#   full casters pump INT/WIS/CHA.
+_COMPANION_ASI_PRIMARY: dict[str, Ability] = {
+    "barbarian": Ability.STR,
+    "fighter": Ability.STR,
+    "paladin": Ability.STR,
+    "ranger": Ability.DEX,
+    "rogue": Ability.DEX,
+    "monk": Ability.DEX,
+    "cleric": Ability.WIS,
+    "druid": Ability.WIS,
+    "wizard": Ability.INT,
+    "sorcerer": Ability.CHA,
+    "warlock": Ability.CHA,
+    "bard": Ability.CHA,
+}
+
+# When the primary target is at 18+ and a +2 would exceed cap (20
+# post-ASI), the companion takes +1 to primary + +1 to secondary
+# instead. ``_COMPANION_ASI_SECONDARY_PAIR`` is the secondary target
+# for that split.
+_COMPANION_ASI_SECONDARY_PAIR: dict[str, Ability] = {
+    "barbarian": Ability.CON,
+    "fighter": Ability.CON,
+    "paladin": Ability.CHA,
+    "ranger": Ability.WIS,
+    "rogue": Ability.DEX,  # DEX already high; route to WIS instead via fallback
+    "monk": Ability.WIS,
+    "cleric": Ability.CON,
+    "druid": Ability.CON,
+    "wizard": Ability.INT,
+    "sorcerer": Ability.CON,
+    "warlock": Ability.CON,
+    "bard": Ability.DEX,
+}
+
+
+def auto_resolve_companion_asi(character: Character) -> dict:
+    """Pick and apply an ASI for a non-player character.
+
+    The companion gets one of:
+
+    * ``+2 to primary`` — when ``primary_value <= 19`` (so the +2
+      stays at or below cap 20).
+    * ``+1 to primary + +1 to secondary`` — when ``primary_value == 20``
+      (capped) or when ``primary_value == 19`` and we *prefer* the
+      1/1 split to spread durability.
+    * ``+1 to CON fallback`` — universal last resort. If both primary
+      and the designated secondary are at cap, take +1 to CON. CON
+      stays universally valuable (HP per level + concentration
+      checks). Errors from ``apply_asi`` are swallowed silently so
+      the level-up chain always succeeds.
+
+    Returns:
+        A dict ``{"primary": Ability, "secondary": Optional[Ability],
+        "applied": bool}`` describing the choice. ``applied=False``
+        only when the cap was unavoidable — the function still runs to
+        completion so the level-up loop can finish.
+    """
+    from auto_dm.engine.progression import apply_asi  # local to avoid cycle
+
+    cls = (character.class_ or "").strip().lower()
+    primary = _COMPANION_ASI_PRIMARY.get(cls, Ability.STR)
+    secondary = _COMPANION_ASI_SECONDARY_PAIR.get(cls, Ability.CON)
+
+    primary_value = getattr(character.abilities, primary.value, 10)
+    # secondary is only consulted inside the apply_asi calls below
+    # (Path B split). No need to pre-read here.
+
+    chosen_primary: Optional[Ability] = None
+    chosen_secondary: Optional[Ability] = None
+    applied = False
+
+    # Path A: room for +2 to primary.
+    if primary_value <= 18:
+        try:
+            apply_asi(character, primary=primary)
+            chosen_primary = primary
+            applied = True
+        except ValueError:
+            pass
+
+    # Path B: primary is 19 or 20 → try 1/1 split.
+    if not applied:
+        try:
+            apply_asi(character, primary=primary, secondary=secondary)
+            chosen_primary = primary
+            chosen_secondary = secondary
+            applied = True
+        except ValueError:
+            pass
+
+    # Path C: universal CON fallback. Last-resort to keep chain alive.
+    if not applied:
+        try:
+            apply_asi(character, primary=Ability.CON)
+            chosen_primary = Ability.CON
+            applied = True
+        except ValueError:
+            pass
+
+    return {
+        "primary": chosen_primary,
+        "secondary": chosen_secondary,
+        "applied": applied,
+    }
+
+
+def companion_asi_to_pending(choice: dict) -> dict:
+    """Map a companion ASI choice dict into the pending_asi queue shape.
+
+    Used by ``engine/progression.py::_level_up_party_member`` to mark
+    the auto-resolved choice in ``character.pending_asi`` so the
+    frontend can show what changed in the narrative log.
+
+    Returns a dict with: ``{"level", "choices", "resolved", "primary",
+    "secondary"}`` where ``choices`` is ``["primary","secondary"]``
+    for split, ``["primary"]`` for single.
+    """
+    primary = choice.get("primary")
+    secondary = choice.get("secondary")
+    choices = ["primary", "secondary"] if secondary else ["primary"]
+    return {
+        "level": 0,  # Filled in by the caller (engine layer)
+        "choices": choices,
+        "resolved": True,
+        "primary": primary.value if primary is not None else None,
+        "secondary": secondary.value if secondary is not None else None,
+    }
+
+
+def update_spell_slots_for_level(character: Character, level: int) -> None:
+    """Refresh ``spell_slots`` / ``spell_slots_max`` for ``level``.
+
+    Direct wrapper around ``engine.progression._refresh_spell_slots``
+    for callers (tests, web endpoints) that want to refresh slots
+    without going through the full ``level_up()`` chain. Idempotent.
+    """
+    from auto_dm.engine.progression import _refresh_spell_slots
+
+    _refresh_spell_slots(character, level)
+
+
+def resolve_asi_choice(
+    character: Character,
+    primary: Ability,
+    secondary: Optional[Ability] = None,
+) -> AbilityScores:
+    """Consume ``character.pending_asi`` and apply the player's choice.
+
+    Args:
+        character: Mutated in place.
+        primary: The +2 or +1 ability target.
+        secondary: Optional second ability for the +1/+1 split.
+
+    Returns:
+        The updated :class:`AbilityScores`.
+
+    Raises:
+        ValueError: If the character has no pending ASI choice (queue
+            empty), or if the chosen split exceeds the 20-cap per
+            ``apply_asi``.
+
+    Side effects:
+        Clears ``character.pending_asi`` to ``None`` after a
+        successful apply. If apply raises, the queue is preserved so
+        the player can retry.
+    """
+    from auto_dm.engine.progression import apply_asi
+
+    if character.pending_asi is None:
+        raise ValueError(
+            f"{character.name} não tem ASI pendente para resolver."
+        )
+    if character.pending_asi.get("resolved"):
+        raise ValueError(
+            f"ASI de {character.name} já foi resolvida."
+        )
+
+    scores = apply_asi(character, primary=primary, secondary=secondary)
+    character.pending_asi = None
+    return scores
 
 
 def list_subclass_features(class_name: str, subclass_name: str) -> list[ClassFeature]:
@@ -200,13 +399,19 @@ def _apply_capstone_side_effects(character: Character, class_lower: str, cap: in
 
     E.g. Barbarian L20: Primal Champion adds 4 to STR/CON.
     """
-    if class_lower == "barbarian" and cap >= 20 and character.has_primal_champion:
+    if (
+        class_lower == "barbarian"
+        and cap >= 20
+        and character.has_primal_champion
+        and not character.primal_champion_applied
+    ):
         # PHB: +4 to STR and CON; max ability score becomes 24.
-        # Only adjust if not already adjusted (idempotent guard).
-        if character.abilities.strength <= 20:
-            character.abilities.strength = min(24, character.abilities.strength + 4)
-        if character.abilities.constitution <= 20:
-            character.abilities.constitution = min(24, character.abilities.constitution + 4)
+        # Idempotency is enforced by ``primal_champion_applied`` so the
+        # bonus fires exactly once even though ``apply_class_features``
+        # runs on every level-up.
+        character.abilities.strength = min(24, character.abilities.strength + 4)
+        character.abilities.constitution = min(24, character.abilities.constitution + 4)
+        character.primal_champion_applied = True
 
 
 def _gate_to_display_name(class_name: str, level: int) -> str:

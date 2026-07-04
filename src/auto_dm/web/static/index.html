@@ -4,7 +4,7 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Auto DM — Console</title>
-        <link rel="stylesheet" href="/style.css?v=48" />
+        <link rel="stylesheet" href="/style.css?v=49" />
     </head>
     <body>
         <div id="app">
@@ -652,8 +652,42 @@
                     <div id="admin-modal-body"></div>
                 </div>
             </div>
+
+            <!-- Phase 38 — ASI (Ability Score Improvement) modal. Shown when
+                 the player's pending_ASI queue is non-null (level 4/8/12/16/19). -->
+            <div id="asi-modal" class="modal" style="display: none">
+                <div class="modal-card">
+                    <div class="row">
+                        <h3>Aprimoramento de Atributo (ASI)</h3>
+                        <button id="asi-modal-close" class="secondary">×</button>
+                    </div>
+                    <p class="hint">
+                        Você atingiu um nível de aprimoramento (PHB p. 15). Escolha como
+                        distribuir entre os seis atributos.
+                    </p>
+                    <div id="asi-status" class="asi-status"></div>
+                    <div class="row asi-mode-row">
+                        <label>
+                            <input type="radio" name="asi-mode" value="plus2" checked />
+                            +2 em um atributo
+                        </label>
+                        <label>
+                            <input type="radio" name="asi-mode" value="plus1" />
+                            +1 em dois atributos diferentes
+                        </label>
+                    </div>
+                    <div id="asi-pickers" class="asi-pickers"></div>
+                    <div class="row">
+                        <button id="asi-confirm" class="primary">Confirmar</button>
+                    </div>
+                    <div id="asi-msg" class="msg"></div>
+                </div>
+            </div>
+
+            <!-- Phase 38 — short banner above the chat showing level-up XP progress. -->
+            <div id="levelup-banner" class="levelup-banner" style="display: none"></div>
         </div>
 
-        <script src="/app.js?v=48" type="module"></script>
+        <script src="/app.js?v=49" type="module"></script>
     </body>
 </html>
