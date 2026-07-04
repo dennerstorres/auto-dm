@@ -53,7 +53,11 @@ services:
       AUTO_DM_BASE_URL: "${AUTO_DM_BASE_URL:-}"
       AUTO_DM_MODEL: "${AUTO_DM_MODEL:-MiniMax-Text-01}"
       AUTO_DM_TEMPERATURE: "${AUTO_DM_TEMPERATURE:-0.8}"
-      AUTO_DM_MAX_TOKENS: "${AUTO_DM_MAX_TOKENS:-2048}"
+      # 8192: MiniMax thinking tokens share this budget with the visible
+      # narration — 2048 truncated long openings mid-word.
+      # Set AUTO_DM_MAX_TOKENS=0 in .env for "sem limite" (omits the cap
+      # from the request; the model's own output ceiling applies).
+      AUTO_DM_MAX_TOKENS: "${AUTO_DM_MAX_TOKENS:-8192}"
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx, os; r = httpx.get(f'http://localhost:{os.environ.get(\"PORT\", 4004)}/api/health', timeout=3); r.raise_for_status()"]
       interval: 30s

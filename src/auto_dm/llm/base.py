@@ -26,7 +26,11 @@ class LLMConfig:
     model: str
     base_url: str | None = None
     temperature: float = 0.8
-    max_tokens: int = 2048
+    # 8192, not 2048: MiniMax thinking tokens (<think>...</think>) share this
+    # budget with the visible narration — 2048 truncated long openings mid-word.
+    # 0 (or negative) = sem limite: the request omits max_tokens entirely and
+    # the model's own output ceiling applies (admin escape hatch).
+    max_tokens: int = 8192
     # Provider-specific thinking mode. For MiniMax, "adaptive" enables extended
     # thinking. Other providers may ignore this. None means "use provider default".
     thinking: str | None = None
@@ -43,7 +47,8 @@ class LLMConfig:
         - ``{prefix}MODEL``         — model name
         - ``{prefix}BASE_URL``      — optional custom endpoint
         - ``{prefix}TEMPERATURE``   — default 0.8
-        - ``{prefix}MAX_TOKENS``    — default 2048
+        - ``{prefix}MAX_TOKENS``    — default 8192; ``0`` = sem limite
+          (omite o campo da request; vale o teto do próprio modelo)
         - ``{prefix}THINKING``      — optional thinking mode
 
         The default ``AUTO_DM_`` prefix matches what the backend
@@ -63,9 +68,9 @@ class LLMConfig:
         except ValueError:
             temperature = 0.8
         try:
-            max_tokens = int(os.environ.get(f"{prefix}MAX_TOKENS", "2048"))
+            max_tokens = int(os.environ.get(f"{prefix}MAX_TOKENS", "8192"))
         except ValueError:
-            max_tokens = 2048
+            max_tokens = 8192
         thinking = os.environ.get(f"{prefix}THINKING") or None
         return cls(
             name=name,

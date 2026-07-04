@@ -22,7 +22,7 @@ def test_from_env_minimal():
         assert cfg.api_key == "sk-test-1234567890"
         assert cfg.model == "MiniMax-Text-01"
         assert cfg.temperature == pytest.approx(0.8)
-        assert cfg.max_tokens == 2048
+        assert cfg.max_tokens == 8192
         assert cfg.base_url is None
         assert cfg.thinking is None
     finally:
@@ -56,6 +56,28 @@ def test_from_env_with_optionals():
             os.environ.pop(k, None)
 
 
+def test_from_env_zero_max_tokens_means_unlimited():
+    """AUTO_DM_MAX_TOKENS=0 is the admin escape hatch: the provider omits
+    max_tokens from the request and the model's own ceiling applies."""
+    from auto_dm.llm.base import LLMConfig
+    import os
+
+    env = {
+        "AUTO_DM_PROVIDER": "minimax",
+        "AUTO_DM_API_KEY": "sk-test",
+        "AUTO_DM_MODEL": "m",
+        "AUTO_DM_MAX_TOKENS": "0",
+    }
+    for k, v in env.items():
+        os.environ[k] = v
+    try:
+        cfg = LLMConfig.from_env()
+        assert cfg.max_tokens == 0
+    finally:
+        for k in env:
+            os.environ.pop(k, None)
+
+
 def test_from_env_missing_required():
     from auto_dm.llm.base import LLMConfig
     import os
@@ -84,7 +106,7 @@ def test_from_env_invalid_numbers_fall_back_to_defaults():
     try:
         cfg = LLMConfig.from_env()
         assert cfg.temperature == 0.8
-        assert cfg.max_tokens == 2048
+        assert cfg.max_tokens == 8192
     finally:
         for k in ("AUTO_DM_PROVIDER", "AUTO_DM_API_KEY", "AUTO_DM_MODEL",
                   "AUTO_DM_TEMPERATURE", "AUTO_DM_MAX_TOKENS"):

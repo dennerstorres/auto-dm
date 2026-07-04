@@ -62,7 +62,7 @@ def load_app_config(
         model=raw["model"],
         base_url=raw.get("base_url"),
         temperature=raw.get("temperature", 0.8),
-        max_tokens=raw.get("max_tokens", 2048),
+        max_tokens=raw.get("max_tokens", 8192),
     )
 
     return AppConfig(

@@ -9,6 +9,8 @@ Covers:
 """
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from auto_dm.agents.dm import DMAgent
@@ -134,6 +136,88 @@ def test_dm_agent_ask_propagates_native_usage():
     resp = agent.ask("olhar")
     assert resp.usage is not None
     assert resp.usage.source == "api"
+
+
+# ============================================================================
+# Truncation warning (finish_reason == "length")
+# ============================================================================
+
+
+def _minimax_with_fake_response(finish_reason: str, content: str, max_tokens: int = 8192):
+    from types import SimpleNamespace
+
+    from auto_dm.llm.minimax import MinimaxProvider
+
+    provider = MinimaxProvider(
+        LLMConfig(name="minimax", api_key="k", model="m", max_tokens=max_tokens)
+    )
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason=finish_reason,
+                message=SimpleNamespace(content=content),
+            )
+        ],
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+    )
+    provider.client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **kwargs: response)
+        )
+    )
+    return provider
+
+
+def test_chat_with_usage_warns_when_truncated_by_max_tokens(caplog):
+    provider = _minimax_with_fake_response("length", "narração cortada no mei")
+    with caplog.at_level(logging.WARNING, logger="auto_dm.llm.openai_compatible"):
+        content, report = provider.chat_with_usage([Message("user", "x")])
+    assert content == "narração cortada no mei"
+    assert "max_tokens" in caplog.text
+
+
+def test_chat_with_usage_does_not_warn_on_normal_stop(caplog):
+    provider = _minimax_with_fake_response("stop", "narração completa.")
+    with caplog.at_level(logging.WARNING, logger="auto_dm.llm.openai_compatible"):
+        content, _ = provider.chat_with_usage([Message("user", "x")])
+    assert content == "narração completa."
+    assert "max_tokens" not in caplog.text
+
+
+def test_chat_with_usage_warns_on_model_ceiling_when_uncapped(caplog):
+    provider = _minimax_with_fake_response("length", "cortou mesmo sem ca", max_tokens=0)
+    with caplog.at_level(logging.WARNING, logger="auto_dm.llm.openai_compatible"):
+        content, _ = provider.chat_with_usage([Message("user", "x")])
+    assert content == "cortou mesmo sem ca"
+    assert "own output ceiling" in caplog.text
+
+
+# ============================================================================
+# max_tokens = 0 → "sem limite" (field omitted from the request)
+# ============================================================================
+
+
+def _minimax(max_tokens: int):
+    from auto_dm.llm.minimax import MinimaxProvider
+
+    return MinimaxProvider(
+        LLMConfig(name="minimax", api_key="k", model="m", max_tokens=max_tokens)
+    )
+
+
+def test_request_kwargs_includes_positive_cap():
+    kwargs = _minimax(8192)._request_kwargs([Message("user", "x")])
+    assert kwargs["max_tokens"] == 8192
+
+
+def test_request_kwargs_omits_cap_when_zero():
+    kwargs = _minimax(0)._request_kwargs([Message("user", "x")])
+    assert "max_tokens" not in kwargs
+
+
+def test_request_kwargs_omits_cap_when_negative():
+    kwargs = _minimax(-1)._request_kwargs([Message("user", "x")])
+    assert "max_tokens" not in kwargs
 
 
 # ============================================================================

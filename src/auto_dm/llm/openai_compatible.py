@@ -6,6 +6,7 @@ provider-specific `extra_body` (e.g. MiniMax's `thinking` field).
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from openai import OpenAI
@@ -13,6 +14,9 @@ from openai import OpenAI
 from auto_dm.llm.base import LLMConfig, Message
 from auto_dm.llm.usage import UsageReport
 from auto_dm.llm.utils import strip_thinking
+
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAICompatibleProvider:
@@ -60,8 +64,11 @@ class OpenAICompatibleProvider:
             "model": self.config.model,
             "messages": [m.to_dict() for m in messages],
             "temperature": self.config.temperature,
-            "max_tokens": self.config.max_tokens,
         }
+        # max_tokens <= 0 means "sem limite": omit the field so the API
+        # falls back to the model's own output ceiling.
+        if self.config.max_tokens > 0:
+            kwargs["max_tokens"] = self.config.max_tokens
         extra_body = self._build_extra_body()
         if extra_body:
             kwargs["extra_body"] = extra_body
@@ -111,11 +118,28 @@ class OpenAICompatibleProvider:
         response = self.client.chat.completions.create(
             **self._request_kwargs(messages)
         )
-        content = strip_thinking(response.choices[0].message.content)
+        choice = response.choices[0]
+        if getattr(choice, "finish_reason", None) == "length":
+            if self.config.max_tokens > 0:
+                logger.warning(
+                    "%s response truncated by max_tokens=%s (thinking tokens "
+                    "share this budget) — narration may be cut mid-sentence. "
+                    "Raise AUTO_DM_MAX_TOKENS, or set it to 0 for no cap.",
+                    self.name,
+                    self.config.max_tokens,
+                )
+            else:
+                logger.warning(
+                    "%s response truncated at the model's own output ceiling "
+                    "(no max_tokens cap was sent) — narration may be cut "
+                    "mid-sentence.",
+                    self.name,
+                )
+        content = strip_thinking(choice.message.content)
         report = self._report_from_usage(getattr(response, "usage", None))
         if report is None:
             report = self._fallback_report(
-                messages, len(response.choices[0].message.content or "")
+                messages, len(choice.message.content or "")
             )
         return content, report
 
