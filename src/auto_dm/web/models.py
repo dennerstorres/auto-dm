@@ -54,6 +54,7 @@ class UsageKind(str, Enum):
     COMPANION = "companion"  # companion turn decision
     OPENING = "opening"  # campaign opening narration (no player input)
     SUMMARIZER = "summarizer"  # Phase 33 — periodic narrative summarizer LLM call
+    NAMING = "naming"  # AI-suggested campaign/character names in the wizard
 
 
 class ActivityType(str, Enum):

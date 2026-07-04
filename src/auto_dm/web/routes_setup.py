@@ -17,12 +17,16 @@ This keeps the backend stateless and avoids saving half-built drafts.
 """
 from __future__ import annotations
 
+import json
 import logging
+import re
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from auto_dm.character.spells import (
     get_cantrips_known,
@@ -38,11 +42,18 @@ from auto_dm.companions import (
     list_companion_keys,
     roll_party_candidates,
 )
+from auto_dm.llm.base import Message
+from auto_dm.llm.usage import chat_with_usage
 from auto_dm.phb import get_class, get_race, get_spells_for_class
 from auto_dm.state.models import AbilityScores, Character, GameState
+from auto_dm.web.activity import log_activity
 from auto_dm.web.auth import current_user
-from auto_dm.web.models import User
+from auto_dm.web.config import get_settings
+from auto_dm.web.db import get_session
+from auto_dm.web.limits import check_quota
+from auto_dm.web.models import ActivityType, UsageKind, User
 from auto_dm.web.sessions import SessionManager
+from auto_dm.web.usage import persist_usage_events
 
 logger = logging.getLogger(__name__)
 
@@ -512,3 +523,163 @@ async def create_session_with_character(
         slug=slugify(body.campaign_name),
         state=sess.state.model_dump(mode="json"),
     )
+
+
+# ============================================================================
+# AI name suggestions (wizard QoL)
+# ============================================================================
+
+
+class SuggestNamesRequest(BaseModel):
+    """Which name(s) the wizard wants the LLM to invent.
+
+    ``kind`` selects the field; ``theme`` is an optional free-text hint
+    (a tone, a setting, a culture) used to steer the suggestion. Everything
+    is optional so a one-click "surprise me" with no body works.
+    """
+
+    kind: Literal["campaign", "character", "both"] = "both"
+    theme: Optional[str] = Field(default=None, max_length=200)
+
+
+class SuggestNamesResponse(BaseModel):
+    campaign_name: Optional[str] = None
+    character_name: Optional[str] = None
+
+
+# One short, evocative example per field keeps the model on-style without
+# dragging the prompt up by much (these are tiny completions either way).
+_NAMING_SYSTEM = (
+    "Você é um especialista em nomes de fantasia para uma campanha de "
+    "D&D 5e em português do Brasil. Gere nomes próprios, evocativos e "
+    "originais — nunca genéricos como 'Herói' ou 'Aventura'. "
+    "Responda APENAS com um objeto JSON válido, sem comentários, sem "
+    "markdown, sem texto antes ou depois."
+)
+
+
+def _naming_user_prompt(kind: str, theme: Optional[str]) -> str:
+    want = {
+        "campaign": '"campaign_name" (um título épico de campanha, 2 a 5 palavras)',
+        "character": '"character_name" (um nome de personagem próprio, nome + opcional sobrenome)',
+        "both": (
+            '"campaign_name" (título épico de campanha, 2 a 5 palavras) e '
+            '"character_name" (nome de personagem próprio, nome + opcional sobrenome). '
+            "Os dois devem combinar tematicamente."
+        ),
+    }[kind]
+    theme_line = ""
+    if theme and theme.strip():
+        theme_line = (
+            f"\nInclinação temática sugerida pelo jogador: {theme.strip()}. "
+            "Use como inspiração, mas mantenha adequado a fantasia medieval."
+        )
+    keys = (
+        ["campaign_name"]
+        if kind == "campaign"
+        else ["character_name"]
+        if kind == "character"
+        else ["campaign_name", "character_name"]
+    )
+    return (
+        f"Gere {'o seguinte' if len(keys) == 1 else 'os seguintes'}: {want}."
+        f"{theme_line}\n"
+        f'Devolva JSON com {"apenas a chave" if len(keys) == 1 else "as chaves"} '
+        f"{keys}. Sem aspas extras, sem explicações."
+    )
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    """Pull the first ``{...}`` blob out of an LLM reply and parse it.
+
+    Models occasionally wrap JSON in ```json fences or add stray prose in
+    spite of the system prompt; this keeps parsing robust without ever
+    raising to the caller (we let the route turn a parse miss into a 502).
+    """
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    raw = match.group(0) if match else text
+    return json.loads(raw)
+
+
+def _clean_name(value: Any) -> Optional[str]:
+    """Normalize an LLM-proposed name: strip quotes/whitespace, cap length."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().strip('"').strip("'").strip()
+    if not cleaned:
+        return None
+    return cleaned[:80]
+
+
+@router.post("/suggest-names", response_model=SuggestNamesResponse)
+async def suggest_names(
+    body: SuggestNamesRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> SuggestNamesResponse:
+    """Invent a campaign and/or character name with the LLM.
+
+    A small quality-of-life hook for the wizard's first step: a ✨ button
+    next to each name field calls this so the player doesn't have to stare
+    at a blank input. Enforces the daily quota (429 when exceeded) and
+    records token usage tagged ``kind="naming"`` so admins see the cost
+    separately from player turns.
+    """
+    settings = get_settings()
+    exceeded = await check_quota(db, user, settings)
+    if exceeded is not None:
+        await log_activity(
+            db,
+            user_id=user.id,
+            event=ActivityType.LIMIT_BLOCKED,
+            meta={"endpoint": "suggest-names", **{k: exceeded[k] for k in ("used", "limit", "unit")}},
+        )
+        raise HTTPException(status_code=429, detail=exceeded)
+
+    from auto_dm.web.server import get_app_state
+
+    factory = getattr(get_app_state(), "provider_factory", None)
+    if factory is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Provedor de LLM não configurado.",
+        )
+    messages = [
+        Message(role="system", content=_NAMING_SYSTEM),
+        Message(role="user", content=_naming_user_prompt(body.kind, body.theme)),
+    ]
+    try:
+        content, report = chat_with_usage(factory(), messages)
+        # UsageReport is frozen; tag the kind via replace so the persisted
+        # event is billed under "naming" instead of the default "player".
+        report = replace(report, kind=UsageKind.NAMING.value)
+        parsed = _extract_json_object(content)
+    except Exception as exc:  # noqa: BLE001 — surface any LLM/parse failure as 502
+        logger.warning("suggest-names LLM/parse failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível gerar nomes agora. Tente novamente.",
+        )
+
+    campaign = _clean_name(parsed.get("campaign_name"))
+    character = _clean_name(parsed.get("character_name"))
+    # If the model dropped a requested key, fail loudly rather than return
+    # an empty field the UI would silently apply.
+    if body.kind in ("campaign", "both") and not campaign:
+        raise HTTPException(status_code=502, detail="Nome de campanha veio vazio.")
+    if body.kind in ("character", "both") and not character:
+        raise HTTPException(status_code=502, detail="Nome de personagem veio vazio.")
+
+    try:
+        await persist_usage_events(
+            db,
+            user_id=user.id,
+            endpoint="/api/suggest-names",
+            reports=[report],
+            settings=settings,
+            kind=UsageKind.NAMING.value,
+        )
+    except Exception:  # noqa: BLE001 — billing must never break the wizard
+        logger.exception("Failed to persist naming usage event")
+
+    return SuggestNamesResponse(campaign_name=campaign, character_name=character)

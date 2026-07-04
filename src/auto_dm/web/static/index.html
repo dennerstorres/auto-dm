@@ -1,380 +1,651 @@
 <!doctype html>
 <html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Auto DM — Console</title>
-  <link rel="stylesheet" href="/style.css?v=44" />
-</head>
-<body>
-  <div id="app">
-    <header>
-      <h1>Auto DM</h1>
-      <div id="user-info">
-        <span id="who"></span>
-        <button id="logout-btn" style="display:none">Sair</button>
-      </div>
-    </header>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Auto DM — Console</title>
+        <link rel="stylesheet" href="/style.css?v=45" />
+    </head>
+    <body>
+        <div id="app">
+            <header>
+                <h1>Auto DM</h1>
+                <div id="user-info">
+                    <span id="who"></span>
+                    <button id="logout-btn" style="display: none">Sair</button>
+                </div>
+            </header>
 
-    <!-- Auth screen -->
-    <section id="auth-screen" class="screen">
-      <h2>Entrar</h2>
-      <div class="row">
-        <input id="auth-username" type="text" placeholder="Usuário" autocomplete="username" />
-        <input id="auth-password" type="password" placeholder="Senha" autocomplete="current-password" />
-      </div>
-      <div class="row">
-        <input id="auth-invite" type="text" placeholder="Código de convite (somente para cadastro)" autocomplete="off" />
-      </div>
-      <div class="row">
-        <button id="login-btn">Entrar</button>
-        <button id="signup-btn">Criar conta</button>
-      </div>
-      <div id="auth-msg" class="msg"></div>
-    </section>
+            <!-- Auth screen -->
+            <section id="auth-screen" class="screen">
+                <h2>Entrar</h2>
+                <div class="row">
+                    <input
+                        id="auth-username"
+                        type="text"
+                        placeholder="Usuário"
+                        autocomplete="username"
+                    />
+                    <input
+                        id="auth-password"
+                        type="password"
+                        placeholder="Senha"
+                        autocomplete="current-password"
+                    />
+                </div>
+                <div class="row">
+                    <input
+                        id="auth-invite"
+                        type="text"
+                        placeholder="Código de convite (somente para cadastro)"
+                        autocomplete="off"
+                    />
+                </div>
+                <div class="row">
+                    <button id="login-btn">Entrar</button>
+                    <button id="signup-btn">Criar conta</button>
+                </div>
+                <div id="auth-msg" class="msg"></div>
+            </section>
 
-    <!-- New / load game screen -->
-    <section id="lobby-screen" class="screen" style="display:none">
-      <h2>Jogos salvos</h2>
-      <ul id="saves-list"></ul>
-      <div class="row">
-        <button id="archive-toggle" class="secondary">Mostrar arquivados</button>
-      </div>
-      <div id="archived-wrap" style="display:none">
-        <h3 class="archived-title">Arquivados</h3>
-        <ul id="archived-list"></ul>
-      </div>
-      <hr class="lobby-divider" />
+            <!-- New / load game screen -->
+            <section id="lobby-screen" class="screen" style="display: none">
+                <h2>Jogos salvos</h2>
+                <ul id="saves-list"></ul>
+                <div class="row">
+                    <button id="archive-toggle" class="secondary">
+                        Mostrar arquivados
+                    </button>
+                </div>
+                <div id="archived-wrap" style="display: none">
+                    <h3 class="archived-title">Arquivados</h3>
+                    <ul id="archived-list"></ul>
+                </div>
+                <hr class="lobby-divider" />
 
-      <div class="lobby-cta">
-        <h3>Começar um novo jogo</h3>
-        <p class="lobby-hint">
-          Crie seu personagem e inicie a campanha em poucos passos guiados.
-          Esta é a forma recomendada de começar.
-        </p>
-        <div class="row">
-          <button id="wizard-btn">Criar novo personagem (assistente)</button>
+                <div class="lobby-cta">
+                    <h3>Começar um novo jogo</h3>
+                    <p class="lobby-hint">
+                        Crie seu personagem e inicie a campanha em poucos passos
+                        guiados. Esta é a forma recomendada de começar.
+                    </p>
+                    <div class="row">
+                        <button id="wizard-btn">
+                            Criar novo personagem (assistente)
+                        </button>
+                    </div>
+                </div>
+
+                <details class="lobby-advanced">
+                    <summary>Opções avançadas</summary>
+                    <p class="lobby-hint">
+                        Criar um jogo vazio (sem personagem) a partir de um
+                        slug. Útil para testes ou para iniciar do zero
+                        manualmente — a maioria dos jogadores deve usar o
+                        assistente acima.
+                    </p>
+                    <div class="row">
+                        <input
+                            id="new-slug"
+                            type="text"
+                            placeholder="slug-do-save (ex: campanha-elfa)"
+                        />
+                        <button id="new-game-btn" class="secondary">
+                            Criar jogo vazio
+                        </button>
+                    </div>
+                    <label>
+                        <span class="lbl">Cenário inicial (opcional)</span>
+                        <span class="hint"
+                            >Descreva onde a party começa, o que tem no mundo…
+                            Deixe em branco para o mestre decidir
+                            livremente.</span
+                        >
+                        <textarea
+                            id="new-scenario"
+                            rows="3"
+                            maxlength="2000"
+                        ></textarea>
+                    </label>
+                </details>
+
+                <div class="lobby-admin" style="display: none">
+                    <hr class="lobby-divider" />
+                    <h3>Administração</h3>
+                    <p class="lobby-hint">
+                        Gerencie usuários, limites de uso, custo e atividade.
+                    </p>
+                    <div class="row">
+                        <button id="admin-panel-btn" class="secondary">
+                            Painel admin →
+                        </button>
+                    </div>
+                </div>
+
+                <div id="lobby-msg" class="msg"></div>
+            </section>
+
+            <!-- Wizard screen (Phase 26c) -->
+            <section id="wizard-screen" class="screen" style="display: none">
+                <div id="wizard-progress" class="wizard-progress"></div>
+
+                <div id="wizard-step-1" class="wizard-step active">
+                    <h2>1. Nome</h2>
+                    <label>
+                        <span class="lbl">Nome da campanha</span>
+                        <div class="input-with-ai">
+                            <input
+                                id="wz-campaign-name"
+                                type="text"
+                                placeholder="Crônicas da Aliança"
+                            />
+                            <button
+                                type="button"
+                                id="wz-campaign-name-ai"
+                                class="ai-suggest-btn"
+                                title="Gerar nome com IA"
+                            >
+                                ✨<span class="sr-only">Gerar</span>
+                            </button>
+                        </div>
+                    </label>
+                    <label>
+                        <span class="lbl">Nome do personagem</span>
+                        <div class="input-with-ai">
+                            <input
+                                id="wz-char-name"
+                                type="text"
+                                placeholder="Aragorn"
+                            />
+                            <button
+                                type="button"
+                                id="wz-char-name-ai"
+                                class="ai-suggest-btn"
+                                title="Gerar nome com IA"
+                            >
+                                ✨<span class="sr-only">Gerar</span>
+                            </button>
+                        </div>
+                    </label>
+                    <label>
+                        <span class="lbl">Comprimento da narração do DM</span>
+                        <span class="hint"
+                            >Dentro de cada nível, tensão fica mais seca e
+                            exploração mais descritiva.</span
+                        >
+                        <select id="wz-narration-length">
+                            <option value="curto">
+                                Curto (1-2 frases, tensão ainda mais seca)
+                            </option>
+                            <option value="medio">
+                                Médio (3-5 frases, com detalhe sensorial
+                                moderado)
+                            </option>
+                            <option value="longo" selected>
+                                Longo (1-2 parágrafos, prosa rica — modo atual)
+                            </option>
+                        </select>
+                    </label>
+                    <label>
+                        <span class="lbl">Cenário inicial (opcional)</span>
+                        <span class="hint"
+                            >Descreva onde a party começa, o que tem no mundo,
+                            facções, clima… Deixe em branco para o mestre
+                            decidir livremente.</span
+                        >
+                        <textarea
+                            id="wz-initial-scenario"
+                            rows="4"
+                            maxlength="2000"
+                            placeholder="Ex: A party começa numa cidade flutuante de gnomos chamada Vellumbra. A religião do deus-sol foi proibida há 10 anos. Os companheiros são da guilda das Sombras…"
+                        ></textarea>
+                    </label>
+                </div>
+
+                <div id="wizard-step-2" class="wizard-step">
+                    <h2>2. Raça</h2>
+                    <div id="wz-races" class="choices"></div>
+                    <label id="wz-subrace-wrap" style="display: none">
+                        <span class="lbl">Sub-raça</span>
+                        <select id="wz-subrace"></select>
+                    </label>
+                </div>
+
+                <div id="wizard-step-3" class="wizard-step">
+                    <h2>3. Classe</h2>
+                    <div id="wz-classes" class="choices"></div>
+                </div>
+
+                <div id="wizard-step-4" class="wizard-step">
+                    <h2>4. Subclasse (opcional)</h2>
+                    <div id="wz-subclasses" class="choices"></div>
+                </div>
+
+                <div id="wizard-step-5" class="wizard-step">
+                    <h2>5. Background</h2>
+                    <div id="wz-backgrounds" class="choices"></div>
+                </div>
+
+                <div id="wizard-step-6" class="wizard-step">
+                    <h2>6. Alinhamento</h2>
+                    <div id="wz-alignments" class="choices"></div>
+                </div>
+
+                <div id="wizard-step-7" class="wizard-step">
+                    <h2>7. Nível inicial</h2>
+                    <div id="wz-levels" class="choices"></div>
+                </div>
+
+                <div id="wizard-step-8" class="wizard-step">
+                    <h2>8. Atributos</h2>
+                    <div id="wz-stats-methods" class="choices"></div>
+                    <div id="wz-stats-info" class="msg"></div>
+                </div>
+
+                <div id="wizard-step-9" class="wizard-step">
+                    <h2>9. Perícias</h2>
+                    <div id="wz-skills-info" class="msg"></div>
+                    <div id="wz-skills" class="skills-grid"></div>
+                </div>
+
+                <div id="wizard-step-10" class="wizard-step">
+                    <h2>10. Magias</h2>
+                    <div id="wz-spells-info" class="msg"></div>
+                    <div id="wz-spells" class="spell-picker"></div>
+                </div>
+
+                <div id="wizard-step-11" class="wizard-step">
+                    <h2>11. Companheiros</h2>
+                    <div id="wz-companions" class="checkbox-list"></div>
+                </div>
+
+                <div id="wizard-step-12" class="wizard-step">
+                    <h2>12. Confirmar</h2>
+                    <div id="wz-summary"></div>
+                </div>
+
+                <div class="wizard-nav">
+                    <button id="wz-prev" class="secondary">← Voltar</button>
+                    <div>
+                        <span
+                            id="wz-step-counter"
+                            class="msg"
+                            style="display: inline-block; margin-right: 1rem"
+                        ></span>
+                        <button id="wz-next">Próximo →</button>
+                        <button id="wz-finish" style="display: none">
+                            Criar personagem!
+                        </button>
+                    </div>
+                </div>
+                <div id="wizard-msg" class="msg"></div>
+            </section>
+
+            <!-- Game screen -->
+            <section id="game-screen" class="screen" style="display: none">
+                <div class="game-top">
+                    <button id="lobby-btn" class="secondary">
+                        ← Voltar ao lobby
+                    </button>
+                </div>
+                <div id="table-tools" class="table-tools" style="display: none">
+                    <details class="sheet-panel" open>
+                        <summary>Ficha</summary>
+                        <div id="sheet-summary" class="sheet-summary"></div>
+                    </details>
+                    <div class="roll-panel">
+                        <label>
+                            <span class="lbl">Teste pedido pelo DM</span>
+                            <select id="roll-check"></select>
+                        </label>
+                        <div class="roll-options">
+                            <label
+                                ><input id="roll-adv" type="checkbox" />
+                                Vantagem</label
+                            >
+                            <label
+                                ><input id="roll-dis" type="checkbox" />
+                                Desvantagem</label
+                            >
+                        </div>
+                        <div id="roll-preview" class="roll-preview"></div>
+                        <button id="roll-btn" class="secondary">
+                            Rolar teste
+                        </button>
+                    </div>
+                </div>
+                <div id="output" class="output"></div>
+                <div class="input-row">
+                    <input
+                        id="cmd"
+                        type="text"
+                        placeholder="O que você faz?"
+                        autocomplete="off"
+                    />
+                    <button id="send-btn">Enviar</button>
+                </div>
+                <details id="play-guide" class="play-guide">
+                    <summary>Guia de jogo e comandos</summary>
+                    <div class="guide-grid">
+                        <section>
+                            <h3>Como jogar</h3>
+                            <ol>
+                                <li>
+                                    Leia a narração do DM e decida a intenção do
+                                    personagem.
+                                </li>
+                                <li>
+                                    Digite uma ação em linguagem natural, como
+                                    "examino a porta" ou "converso com o
+                                    guarda".
+                                </li>
+                                <li>
+                                    Quando o DM pedir um teste, use o painel
+                                    "Teste pedido pelo DM" ou o comando
+                                    <code>/roll</code>.
+                                </li>
+                                <li>
+                                    Depois da resposta do DM, continue
+                                    descrevendo a próxima ação.
+                                </li>
+                                <li>
+                                    Use comandos para consultar ficha, rolar
+                                    dados, salvar, carregar ou sair.
+                                </li>
+                            </ol>
+                        </section>
+                        <section>
+                            <h3>Comandos principais</h3>
+                            <dl class="command-list">
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/help"
+                                        >
+                                            /help
+                                        </button>
+                                    </dt>
+                                    <dd>Abre este guia durante a sessão.</dd>
+                                </div>
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/status"
+                                        >
+                                            /status
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Mostra a situação atual da campanha e do
+                                        grupo.
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/look"
+                                        >
+                                            /look
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Relembra o ambiente quando você estiver
+                                        sem saber o que fazer.
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/inventory"
+                                        >
+                                            /inventory
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Confere itens antes de usar equipamento
+                                        ou consumir recursos.
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/conditions"
+                                        >
+                                            /conditions
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Confere efeitos ativos, ferimentos,
+                                        buffs e penalidades.
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/spells"
+                                        >
+                                            /spells
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Mostra magias e recursos de conjuração.
+                                    </dd>
+                                </div>
+                            </dl>
+                        </section>
+                        <section>
+                            <h3>Dados e combate</h3>
+                            <dl class="command-list">
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/roll furtividade"
+                                        >
+                                            /roll &lt;teste&gt;
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Role quando o DM pedir um teste.
+                                        Exemplos:
+                                        <code>/roll furtividade</code>,
+                                        <code>/roll save destreza</code>.
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/encounter goblin"
+                                        >
+                                            /encounter &lt;monstro&gt;
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Inicia encontro manual. Use só quando
+                                        quiser forçar um combate.
+                                    </dd>
+                                </div>
+                            </dl>
+                        </section>
+                        <section>
+                            <h3>Saves e sessão</h3>
+                            <dl class="command-list">
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/save"
+                                        >
+                                            /save [nome]
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Salve antes de sair ou em momentos
+                                        importantes. Sem nome, usa o save atual.
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/list"
+                                        >
+                                            /list
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Lista seus saves quando você não lembrar
+                                        o nome.
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/load "
+                                        >
+                                            /load &lt;nome&gt;
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Carrega outro save pelo nome mostrado em
+                                        <code>/list</code>.
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>
+                                        <button
+                                            class="command-chip"
+                                            type="button"
+                                            data-command="/quit"
+                                        >
+                                            /quit
+                                        </button>
+                                    </dt>
+                                    <dd>
+                                        Volta ao lobby. O jogo também é salvo
+                                        automaticamente após suas ações.
+                                    </dd>
+                                </div>
+                            </dl>
+                        </section>
+                    </div>
+                </details>
+                <div class="hints">
+                    Comandos: <code>/help</code> <code>/status</code>
+                    <code>/look</code> <code>/inventory</code>
+                    <code>/conditions</code> <code>/spells</code>
+                    <code>/encounter &lt;monstro&gt;</code>
+                    <code>/roll furtividade</code>
+                    <code>/save [slug]</code>
+                    <code>/list</code> <code>/load &lt;slug&gt;</code>
+                    <code>/quit</code>
+                </div>
+            </section>
+
+            <!-- Admin panel (Phase 30) -->
+            <section
+                id="admin-panel-screen"
+                class="screen"
+                style="display: none"
+            >
+                <div class="game-top">
+                    <button id="admin-back-btn" class="secondary">
+                        ← Voltar ao lobby
+                    </button>
+                    <h2 style="margin-left: 1rem">Painel administrativo</h2>
+                </div>
+
+                <div id="admin-summary" class="admin-cards"></div>
+
+                <div class="row">
+                    <input
+                        id="admin-q"
+                        type="text"
+                        placeholder="Filtrar por usuário…"
+                        autocomplete="off"
+                    />
+                    <button id="admin-create-btn">+ Criar usuário</button>
+                    <button id="admin-refresh-btn" class="secondary">
+                        Atualizar
+                    </button>
+                </div>
+
+                <div class="admin-table-wrap">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Usuário</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Tokens hoje / limite</th>
+                                <th>Custo (mês)</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-users-tbody"></tbody>
+                    </table>
+                </div>
+
+                <div id="admin-msg" class="msg"></div>
+
+                <!-- User detail drawer (activity + usage) -->
+                <div id="admin-detail" style="display: none">
+                    <hr class="lobby-divider" />
+                    <div class="row">
+                        <h3 id="admin-detail-title">Atividade</h3>
+                        <button id="admin-detail-close" class="secondary">
+                            Fechar
+                        </button>
+                    </div>
+                    <div class="admin-detail-grid">
+                        <div>
+                            <h4>Atividade recente</h4>
+                            <ul
+                                id="admin-activity-list"
+                                class="admin-list"
+                            ></ul>
+                        </div>
+                        <div>
+                            <h4>Uso (30 dias)</h4>
+                            <ul id="admin-usage-list" class="admin-list"></ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Modals -->
+            <div id="admin-modal" class="modal" style="display: none">
+                <div class="modal-card">
+                    <div class="row">
+                        <h3 id="admin-modal-title">Usuário</h3>
+                        <button id="admin-modal-close" class="secondary">
+                            ×
+                        </button>
+                    </div>
+                    <div id="admin-modal-body"></div>
+                </div>
+            </div>
         </div>
-      </div>
 
-      <details class="lobby-advanced">
-        <summary>Opções avançadas</summary>
-        <p class="lobby-hint">
-          Criar um jogo vazio (sem personagem) a partir de um slug.
-          Útil para testes ou para iniciar do zero manualmente — a maioria
-          dos jogadores deve usar o assistente acima.
-        </p>
-        <div class="row">
-          <input id="new-slug" type="text" placeholder="slug-do-save (ex: campanha-elfa)" />
-          <button id="new-game-btn" class="secondary">Criar jogo vazio</button>
-        </div>
-        <label>
-          <span class="lbl">Cenário inicial (opcional)</span>
-          <span class="hint">Descreva onde a party começa, o que tem no mundo… Deixe em branco para o mestre decidir livremente.</span>
-          <textarea id="new-scenario" rows="3" maxlength="2000"></textarea>
-        </label>
-      </details>
-
-      <div class="lobby-admin" style="display:none">
-        <hr class="lobby-divider" />
-        <h3>Administração</h3>
-        <p class="lobby-hint">
-          Gerencie usuários, limites de uso, custo e atividade.
-        </p>
-        <div class="row">
-          <button id="admin-panel-btn" class="secondary">Painel admin →</button>
-        </div>
-      </div>
-
-      <div id="lobby-msg" class="msg"></div>
-    </section>
-
-    <!-- Wizard screen (Phase 26c) -->
-    <section id="wizard-screen" class="screen" style="display:none">
-      <div id="wizard-progress" class="wizard-progress"></div>
-
-      <div id="wizard-step-1" class="wizard-step active">
-        <h2>1. Nome</h2>
-        <label>
-          <span class="lbl">Nome da campanha</span>
-          <input id="wz-campaign-name" type="text" placeholder="Crônicas da Aliança" />
-        </label>
-        <label>
-          <span class="lbl">Nome do personagem</span>
-          <input id="wz-char-name" type="text" placeholder="Aragorn" />
-        </label>
-        <label>
-          <span class="lbl">Comprimento da narração do DM</span>
-          <span class="hint">Dentro de cada nível, tensão fica mais seca e exploração mais descritiva.</span>
-          <select id="wz-narration-length">
-            <option value="curto">Curto (1-2 frases, tensão ainda mais seca)</option>
-            <option value="medio">Médio (3-5 frases, com detalhe sensorial moderado)</option>
-            <option value="longo" selected>Longo (1-2 parágrafos, prosa rica — modo atual)</option>
-          </select>
-        </label>
-        <label>
-          <span class="lbl">Cenário inicial (opcional)</span>
-          <span class="hint">Descreva onde a party começa, o que tem no mundo, facções, clima… Deixe em branco para o mestre decidir livremente.</span>
-          <textarea id="wz-initial-scenario" rows="4" maxlength="2000"
-            placeholder="Ex: A party começa numa cidade flutuante de gnomos chamada Vellumbra. A religião do deus-sol foi proibida há 10 anos. Os companheiros são da guilda das Sombras…"></textarea>
-        </label>
-      </div>
-
-      <div id="wizard-step-2" class="wizard-step">
-        <h2>2. Raça</h2>
-        <div id="wz-races" class="choices"></div>
-        <label id="wz-subrace-wrap" style="display:none">
-          <span class="lbl">Sub-raça</span>
-          <select id="wz-subrace"></select>
-        </label>
-      </div>
-
-      <div id="wizard-step-3" class="wizard-step">
-        <h2>3. Classe</h2>
-        <div id="wz-classes" class="choices"></div>
-      </div>
-
-      <div id="wizard-step-4" class="wizard-step">
-        <h2>4. Subclasse (opcional)</h2>
-        <div id="wz-subclasses" class="choices"></div>
-      </div>
-
-      <div id="wizard-step-5" class="wizard-step">
-        <h2>5. Background</h2>
-        <div id="wz-backgrounds" class="choices"></div>
-      </div>
-
-      <div id="wizard-step-6" class="wizard-step">
-        <h2>6. Alinhamento</h2>
-        <div id="wz-alignments" class="choices"></div>
-      </div>
-
-      <div id="wizard-step-7" class="wizard-step">
-        <h2>7. Nível inicial</h2>
-        <div id="wz-levels" class="choices"></div>
-      </div>
-
-      <div id="wizard-step-8" class="wizard-step">
-        <h2>8. Atributos</h2>
-        <div id="wz-stats-methods" class="choices"></div>
-        <div id="wz-stats-info" class="msg"></div>
-      </div>
-
-      <div id="wizard-step-9" class="wizard-step">
-        <h2>9. Perícias</h2>
-        <div id="wz-skills-info" class="msg"></div>
-        <div id="wz-skills" class="skills-grid"></div>
-      </div>
-
-      <div id="wizard-step-10" class="wizard-step">
-        <h2>10. Magias</h2>
-        <div id="wz-spells-info" class="msg"></div>
-        <div id="wz-spells" class="spell-picker"></div>
-      </div>
-
-      <div id="wizard-step-11" class="wizard-step">
-        <h2>11. Companheiros</h2>
-        <div id="wz-companions" class="checkbox-list"></div>
-      </div>
-
-      <div id="wizard-step-12" class="wizard-step">
-        <h2>12. Confirmar</h2>
-        <div id="wz-summary"></div>
-      </div>
-
-      <div class="wizard-nav">
-        <button id="wz-prev" class="secondary">← Voltar</button>
-        <div>
-          <span id="wz-step-counter" class="msg" style="display:inline-block;margin-right:1rem"></span>
-          <button id="wz-next">Próximo →</button>
-          <button id="wz-finish" style="display:none">Criar personagem!</button>
-        </div>
-      </div>
-      <div id="wizard-msg" class="msg"></div>
-    </section>
-
-    <!-- Game screen -->
-    <section id="game-screen" class="screen" style="display:none">
-      <div class="game-top">
-        <button id="lobby-btn" class="secondary">← Voltar ao lobby</button>
-      </div>
-      <div id="table-tools" class="table-tools" style="display:none">
-        <details class="sheet-panel" open>
-          <summary>Ficha</summary>
-          <div id="sheet-summary" class="sheet-summary"></div>
-        </details>
-        <div class="roll-panel">
-          <label>
-            <span class="lbl">Teste pedido pelo DM</span>
-            <select id="roll-check"></select>
-          </label>
-          <div class="roll-options">
-            <label><input id="roll-adv" type="checkbox" /> Vantagem</label>
-            <label><input id="roll-dis" type="checkbox" /> Desvantagem</label>
-          </div>
-          <div id="roll-preview" class="roll-preview"></div>
-          <button id="roll-btn" class="secondary">Rolar teste</button>
-        </div>
-      </div>
-      <div id="output" class="output"></div>
-      <div class="input-row">
-        <input id="cmd" type="text" placeholder="O que você faz?" autocomplete="off" />
-        <button id="send-btn">Enviar</button>
-      </div>
-      <details id="play-guide" class="play-guide">
-        <summary>Guia de jogo e comandos</summary>
-        <div class="guide-grid">
-          <section>
-            <h3>Como jogar</h3>
-            <ol>
-              <li>Leia a narração do DM e decida a intenção do personagem.</li>
-              <li>Digite uma ação em linguagem natural, como "examino a porta" ou "converso com o guarda".</li>
-              <li>Quando o DM pedir um teste, use o painel "Teste pedido pelo DM" ou o comando <code>/roll</code>.</li>
-              <li>Depois da resposta do DM, continue descrevendo a próxima ação.</li>
-              <li>Use comandos para consultar ficha, rolar dados, salvar, carregar ou sair.</li>
-            </ol>
-          </section>
-          <section>
-            <h3>Comandos principais</h3>
-            <dl class="command-list">
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/help">/help</button></dt>
-                <dd>Abre este guia durante a sessão.</dd>
-              </div>
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/status">/status</button></dt>
-                <dd>Mostra a situação atual da campanha e do grupo.</dd>
-              </div>
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/look">/look</button></dt>
-                <dd>Relembra o ambiente quando você estiver sem saber o que fazer.</dd>
-              </div>
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/inventory">/inventory</button></dt>
-                <dd>Confere itens antes de usar equipamento ou consumir recursos.</dd>
-              </div>
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/conditions">/conditions</button></dt>
-                <dd>Confere efeitos ativos, ferimentos, buffs e penalidades.</dd>
-              </div>
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/spells">/spells</button></dt>
-                <dd>Mostra magias e recursos de conjuração.</dd>
-              </div>
-            </dl>
-          </section>
-          <section>
-            <h3>Dados e combate</h3>
-            <dl class="command-list">
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/roll furtividade">/roll &lt;teste&gt;</button></dt>
-                <dd>Role quando o DM pedir um teste. Exemplos: <code>/roll furtividade</code>, <code>/roll save destreza</code>.</dd>
-              </div>
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/encounter goblin">/encounter &lt;monstro&gt;</button></dt>
-                <dd>Inicia encontro manual. Use só quando quiser forçar um combate.</dd>
-              </div>
-            </dl>
-          </section>
-          <section>
-            <h3>Saves e sessão</h3>
-            <dl class="command-list">
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/save">/save [nome]</button></dt>
-                <dd>Salve antes de sair ou em momentos importantes. Sem nome, usa o save atual.</dd>
-              </div>
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/list">/list</button></dt>
-                <dd>Lista seus saves quando você não lembrar o nome.</dd>
-              </div>
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/load ">/load &lt;nome&gt;</button></dt>
-                <dd>Carrega outro save pelo nome mostrado em <code>/list</code>.</dd>
-              </div>
-              <div>
-                <dt><button class="command-chip" type="button" data-command="/quit">/quit</button></dt>
-                <dd>Volta ao lobby. O jogo também é salvo automaticamente após suas ações.</dd>
-              </div>
-            </dl>
-          </section>
-        </div>
-      </details>
-      <div class="hints">
-        Comandos: <code>/help</code> <code>/status</code>
-        <code>/look</code> <code>/inventory</code>
-        <code>/conditions</code> <code>/spells</code>
-        <code>/encounter &lt;monstro&gt;</code> <code>/roll furtividade</code>
-        <code>/save [slug]</code>
-        <code>/list</code> <code>/load &lt;slug&gt;</code>
-        <code>/quit</code>
-      </div>
-    </section>
-
-    <!-- Admin panel (Phase 30) -->
-    <section id="admin-panel-screen" class="screen" style="display:none">
-      <div class="game-top">
-        <button id="admin-back-btn" class="secondary">← Voltar ao lobby</button>
-        <h2 style="margin-left:1rem">Painel administrativo</h2>
-      </div>
-
-      <div id="admin-summary" class="admin-cards"></div>
-
-      <div class="row">
-        <input id="admin-q" type="text" placeholder="Filtrar por usuário…" autocomplete="off" />
-        <button id="admin-create-btn">+ Criar usuário</button>
-        <button id="admin-refresh-btn" class="secondary">Atualizar</button>
-      </div>
-
-      <div class="admin-table-wrap">
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th>Usuário</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Tokens hoje / limite</th>
-              <th>Custo (mês)</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody id="admin-users-tbody"></tbody>
-        </table>
-      </div>
-
-      <div id="admin-msg" class="msg"></div>
-
-      <!-- User detail drawer (activity + usage) -->
-      <div id="admin-detail" style="display:none">
-        <hr class="lobby-divider" />
-        <div class="row">
-          <h3 id="admin-detail-title">Atividade</h3>
-          <button id="admin-detail-close" class="secondary">Fechar</button>
-        </div>
-        <div class="admin-detail-grid">
-          <div>
-            <h4>Atividade recente</h4>
-            <ul id="admin-activity-list" class="admin-list"></ul>
-          </div>
-          <div>
-            <h4>Uso (30 dias)</h4>
-            <ul id="admin-usage-list" class="admin-list"></ul>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Modals -->
-    <div id="admin-modal" class="modal" style="display:none">
-      <div class="modal-card">
-        <div class="row">
-          <h3 id="admin-modal-title">Usuário</h3>
-          <button id="admin-modal-close" class="secondary">×</button>
-        </div>
-        <div id="admin-modal-body"></div>
-      </div>
-    </div>
-  </div>
-
-  <script src="/app.js?v=44" type="module"></script>
-</body>
+        <script src="/app.js?v=45" type="module"></script>
+    </body>
 </html>

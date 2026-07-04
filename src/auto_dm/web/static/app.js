@@ -1025,6 +1025,11 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("wz-prev").onclick = wizardPrev;
   document.getElementById("wz-next").onclick = wizardNext;
   document.getElementById("wz-finish").onclick = wizardFinish;
+  // Phase 35: ✨ AI name suggestions in the wizard's first step.
+  document.getElementById("wz-campaign-name-ai").onclick = () =>
+    suggestWizardName("campaign");
+  document.getElementById("wz-char-name-ai").onclick = () =>
+    suggestWizardName("character");
   const cmd = document.getElementById("cmd");
   cmd.addEventListener("keydown", (e) => {
     if (busy) return;
@@ -1508,6 +1513,46 @@ function renderWizardName() {
     scenario.oninput = (e) => {
       wizardState.initial_scenario = e.target.value;
     };
+  }
+}
+
+// Phase 35: ask the backend LLM to invent a campaign/character name and
+// fill the matching input. `kind` is "campaign" | "character". Each ✨
+// button next to a name field calls this. Best-effort UX: the button shows
+// a spinner while waiting, failures land in #wizard-msg (never throw).
+async function suggestWizardName(kind) {
+  const btnId = kind === "campaign" ? "wz-campaign-name-ai" : "wz-char-name-ai";
+  const btn = document.getElementById(btnId);
+  const inputId = kind === "campaign" ? "wz-campaign-name" : "wz-char-name";
+  const input = document.getElementById(inputId);
+  if (!btn || !input) return;
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = "⏳";
+  setMsg("wizard-msg", "Gerando nome com IA...", "");
+  try {
+    const res = await api("/api/suggest-names", {
+      method: "POST",
+      body: { kind },
+    });
+    const value = kind === "campaign" ? res.campaign_name : res.character_name;
+    if (!value) {
+      setMsg("wizard-msg", "A IA retornou um nome vazio. Tente novamente.", "error");
+      return;
+    }
+    input.value = value;
+    if (kind === "campaign") wizardState.campaign_name = value;
+    else wizardState.name = value;
+    setMsg("wizard-msg", "", "");
+  } catch (e) {
+    if (e && e.status === 429) {
+      setMsg("wizard-msg", LIMIT_REACHED_MSG, "error");
+    } else {
+      setMsg("wizard-msg", "Não foi possível gerar o nome: " + e.message, "error");
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = original;
   }
 }
 
