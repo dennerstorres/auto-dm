@@ -129,6 +129,11 @@ function clearLog() {
 let currentSessionId = null;
 let currentSlug = null;
 let currentGameState = null;
+// Phase 36: which character's sheet is currently visible in the
+// tabbed ficha panel. Survives across renderCharacterTools() calls
+// so the player's view doesn't snap back to the player after every
+// input. Reset only when a new game session starts.
+let activeSheetId = null;
 // Read-only view (admin inspecting a save). When true, input is disabled
 // and sendInput() bails out — the admin can look but not play.
 let readOnlyMode = false;
@@ -479,6 +484,10 @@ async function createEmptySession() {
 function enterGame(opts = {}) {
   const { readOnly = false, narrativeLog = [], ownerLabel = "", empty = false } = opts;
   readOnlyMode = readOnly;
+  // Reset which character sheet is visible — only persists within the
+  // same game session (between /input calls). A new session always
+  // opens on the player tab.
+  activeSheetId = null;
   show("game-screen");
   clearLog();
   renderCharacterTools();
@@ -620,6 +629,19 @@ function fmtMod(n) {
   return `${n >= 0 ? "+" : ""}${n}`;
 }
 
+// Minimal HTML-escape for text injected via innerHTML in the character
+// sheet (tab labels + free-text fields like name/race/class). We use
+// textContent everywhere else — this exists specifically because the
+// sheet panel builds HTML strings for performance (innerHTML batch).
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function abilityShort(key) {
   return ABILITY_OPTIONS.find((a) => a.key === key)?.short || key;
 }
@@ -711,32 +733,172 @@ function populateRollOptions() {
 function renderCharacterTools() {
   const tools = document.getElementById("table-tools");
   if (!tools) return;
-  const character = getPlayerCharacter();
-  if (!character) {
+  const player = getPlayerCharacter();
+  const party = (currentGameState && Array.isArray(currentGameState.party)) ? currentGameState.party : [];
+  const companions = party.filter((c) => !c.is_player);
+  const chars = player ? [player, ...companions] : companions;
+  if (chars.length === 0) {
     tools.style.display = "none";
     return;
   }
   tools.style.display = "";
   populateRollOptions();
 
-  const summary = document.getElementById("sheet-summary");
-  if (summary) {
-    const abilities = ABILITY_OPTIONS.map((a) => {
-      const score = character.abilities?.[a.key] ?? 10;
-      return `<div class="sheet-stat"><span>${a.short}</span><strong>${score}</strong><em>${fmtMod(scoreModifier(score))}</em></div>`;
-    }).join("");
-    const profSkills = (character.proficiencies?.skills || [])
-      .map(skillLabel)
-      .sort()
-      .join(", ") || "nenhuma";
-    summary.innerHTML =
-      `<div class="sheet-head"><strong>${character.name}</strong>` +
-      `<span>${character.race} ${character.class || ""} ${character.level || ""}</span></div>` +
-      `<div class="sheet-meta">PV ${character.hp_current}/${character.hp_max} · CA ${character.armor_class} · Prof ${fmtMod(character.proficiency_bonus || 0)}</div>` +
-      `<div class="sheet-stats">${abilities}</div>` +
-      `<div class="sheet-meta">Pericias: ${profSkills}</div>`;
+  const tabsHost = document.getElementById("char-tabs");
+  const sheetHost = document.getElementById("sheet-host");
+  if (!tabsHost || !sheetHost) return;
+
+  tabsHost.innerHTML = chars
+    .map((c) => {
+      const cls = c.class || "";
+      const sub = c.subclass ? ` · ${c.subclass}` : "";
+      const isPlayerTag = c.is_player ? ' <span class="tab-tag">você</span>' : "";
+      return (
+        `<button type="button" class="char-tab" role="tab" data-char-id="${escapeHtml(c.id)}" title="${escapeHtml(c.name)}">` +
+        `<span class="tab-name">${escapeHtml(c.name)}</span>` +
+        `<span class="tab-meta">${escapeHtml(c.race)} ${escapeHtml(cls)}${c.level ? ` ${c.level}` : ""}${escapeHtml(sub)}</span>` +
+        `${isPlayerTag}` +
+        `</button>`
+      );
+    })
+    .join("");
+
+  sheetHost.innerHTML = chars.map(renderSheetView).join("");
+
+  // Keep the previously selected tab if its character is still in the
+  // party, otherwise default to the player (or first available).
+  const stillActive = chars.find((c) => c.id === activeSheetId);
+  const target = stillActive || chars[0];
+  setActiveSheetTab(target.id);
+
+  for (const btn of tabsHost.querySelectorAll(".char-tab")) {
+    btn.addEventListener("click", () => setActiveSheetTab(btn.dataset.charId));
   }
   updateRollPreview();
+}
+
+function setActiveSheetTab(charId) {
+  activeSheetId = charId;
+  const tabsHost = document.getElementById("char-tabs");
+  const sheetHost = document.getElementById("sheet-host");
+  if (!tabsHost || !sheetHost) return;
+  for (const t of tabsHost.querySelectorAll(".char-tab")) {
+    t.classList.toggle("active", t.dataset.charId === charId);
+    t.setAttribute("aria-selected", t.dataset.charId === charId ? "true" : "false");
+  }
+  for (const v of sheetHost.querySelectorAll(".sheet-view")) {
+    v.classList.toggle("active", v.dataset.charId === charId);
+  }
+}
+
+// Build the HTML for one character's tab content. Mirrors the player
+// sheet (HP/CA/Prof/Speed + abilities + skills), adds conditions as
+// colored pills, plus optional spells (casters only) and inventory
+// sections — both rendered identically for the player and each
+// companion so the table-tools tab view stays symmetric.
+function renderSheetView(character) {
+  const isPlayer = character.is_player ? " is-player" : "";
+  const cls = character.class || "";
+  const sub = character.subclass ? ` · ${character.subclass}` : "";
+  const bg = character.background ? ` · ${character.background}` : "";
+  const abilities = ABILITY_OPTIONS.map((a) => {
+    const score = character.abilities?.[a.key] ?? 10;
+    return `<div class="sheet-stat"><span>${a.short}</span><strong>${score}</strong><em>${fmtMod(scoreModifier(score))}</em></div>`;
+  }).join("");
+  const profSkills = (character.proficiencies?.skills || [])
+    .map(skillLabel)
+    .sort()
+    .join(", ") || "nenhuma";
+  const conditions = character.conditions || [];
+  const conditionsHtml = conditions.length
+    ? `<div class="sheet-meta sheet-conds">Condicoes: ${conditions
+        .map((c) => `<span class="cond-pill">${escapeHtml(c)}</span>`)
+        .join(" ")}</div>`
+    : "";
+  const spellsHtml = renderSpellsSection(character.spellcasting);
+  const inventoryHtml = renderInventorySection(character.inventory);
+  return (
+    `<div class="sheet-view${isPlayer}" data-char-id="${escapeHtml(character.id)}">` +
+      `<div class="sheet-head"><strong>${escapeHtml(character.name)}</strong>` +
+      `<span>${escapeHtml(character.race)} ${escapeHtml(cls)}${character.level ? ` ${character.level}` : ""}${escapeHtml(sub)}${escapeHtml(bg)}</span></div>` +
+      `<div class="sheet-meta">PV ${character.hp_current}/${character.hp_max}${character.temp_hp ? ` (+${character.temp_hp} temp)` : ""} · CA ${character.armor_class} · Prof ${fmtMod(character.proficiency_bonus || 0)} · Desl ${character.speed || 30} ft</div>` +
+      `<div class="sheet-stats">${abilities}</div>` +
+      `<div class="sheet-meta">Pericias: ${profSkills}</div>` +
+      conditionsHtml +
+      spellsHtml +
+      inventoryHtml +
+    `</div>`
+  );
+}
+
+// Render the spells (CD, attack bonus, ability, concentration, ritual),
+// cantrips, prepared/known spells (split by level), spellbook (Wizard),
+// and slot table. Returns an empty string when ``sc`` is missing — so
+// non-casters just show no magia section.
+function renderSpellsSection(sc) {
+  if (!sc) return "";
+  const abilityLabel = abilityLabel(sc.ability || "");
+  const parts = [];
+  parts.push(
+    `<strong>Magia:</strong> CD ${sc.save_dc ?? "—"} · ` +
+    `Ataque ${fmtMod(sc.attack_bonus ?? 0)} · ${escapeHtml(abilityLabel)}` +
+    (sc.concentration ? ` · Concentrando em <em>${escapeHtml(sc.concentration)}</em>` : "") +
+    (sc.ritual_casting ? " · Ritual" : ""),
+  );
+  const cantrips = sc.cantrips_known || [];
+  if (cantrips.length) {
+    parts.push(`Truques: ${cantrips.map(formatSpellName).join(", ")}`);
+  }
+  // Prepared (Cleric/Druid/Paladin) takes precedence over known (Bard/Sorcerer/Warlock).
+  const prepared = sc.spells_prepared || [];
+  const known = sc.spells_known || [];
+  if (prepared.length) {
+    parts.push(`Preparadas (${prepared.length}): ${prepared.map(formatSpellName).join(", ")}`);
+  } else if (known.length) {
+    parts.push(`Conhecidas (${known.length}): ${known.map(formatSpellName).join(", ")}`);
+  }
+  const spellbook = sc.spellbook || [];
+  if (spellbook.length) {
+    parts.push(`Livro (${spellbook.length}): ${spellbook.map(formatSpellName).join(", ")}`);
+  }
+  const slotsMax = sc.spell_slots_max || {};
+  const slotsCur = sc.spell_slots || {};
+  const slotRows = Object.keys(slotsMax)
+    .map((k) => Number(k))
+    .filter((k) => k > 0 && (slotsMax[k] || 0) > 0)
+    .sort((a, b) => a - b)
+    .map((k) => `${k}º: ${slotsCur[k] ?? 0}/${slotsMax[k]}`)
+    .join(" · ");
+  if (slotRows) {
+    parts.push(`Slots: ${slotRows}`);
+  }
+  return parts
+    .map((p) => `<div class="sheet-meta sheet-spells">${p}</div>`)
+    .join("");
+}
+
+// Phase 37: render the inventory list as a compact comma-separated
+// line. Each item shows quantity (×N) when > 1, and magic items get a
+// colored rarity dot. Returns "" if inventory is empty or missing.
+function renderInventorySection(inventory) {
+  if (!Array.isArray(inventory) || inventory.length === 0) return "";
+  const items = inventory.map((it) => {
+    const nm = escapeHtml(it.name || "—");
+    const qty = Number(it.quantity || 0);
+    const qStr = qty > 1 ? ` <span class="inv-qty">×${qty}</span>` : "";
+    const magic = it.rarity && it.rarity !== "common"
+      ? ` <span class="inv-magic" title="${escapeHtml(it.rarity)}">●</span>`
+      : "";
+    return `<span class="inv-item">${nm}${qStr}${magic}</span>`;
+  });
+  return `<div class="sheet-meta sheet-inv"><strong>Inventario:</strong> ${items.join(", ")}</div>`;
+}
+
+// Convert a spell slug ("magic-missile") or stored name ("fire bolt")
+// into a Title Case display label ("Magic Missile" / "Fire Bolt").
+// Stable for already-titled names.
+function formatSpellName(s) {
+  return escapeHtml(String(s || "")).replace(/(^|[\s-])\w/g, (c) => c.toUpperCase());
 }
 
 function parseRollSelection(value) {

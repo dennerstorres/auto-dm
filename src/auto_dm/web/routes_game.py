@@ -5,6 +5,9 @@ Endpoints (all require Authorization: Bearer <token>):
 - POST   /api/sessions                 → create a new session from GameState JSON
 - GET    /api/sessions                 → list active session ids
 - GET    /api/sessions/{sid}           → load a session's current state
+- GET    /api/sessions/{sid}/companions→ load AI companions' character sheets
+- POST   /api/sessions/{sid}/roll-check→ roll a d20 check using a character sheet
+- POST   /api/sessions/{sid}/opening   → generate (or return) the campaign opening
 - POST   /api/sessions/{sid}/input     → send a player input line, returns NarrativeResult
 - DELETE /api/sessions/{sid}           → discard a session
 
@@ -186,6 +189,36 @@ async def get_session_state(
             detail="Session not found or expired",
         )
     return {"session_id": session_id, "state": sess.state.model_dump(mode="json")}
+
+
+@router.get("/sessions/{session_id}/companions")
+async def get_session_companions(
+    session_id: str,
+    user: Annotated[User, Depends(current_user)],
+    sm: Annotated[SessionManager, Depends(get_session_manager)],
+) -> dict[str, Any]:
+    """Return the AI companions' character sheets for a session.
+
+    Read-only mirror of ``state.party`` filtered to non-player members.
+    Used by the table-tools UI to render the per-companion tabs in the
+    ficha panel — each entry has the same shape as the player
+    character (``name``, ``class``, ``hp_current``, ``armor_class``,
+    ``abilities``, ``proficiencies``, ``conditions``, etc.) so the
+    frontend can reuse the same rendering helpers.
+
+    No LLM calls. Same auth and lifetime semantics as
+    ``GET /sessions/{sid}``.
+    """
+    sess = await sm.get(user.id, session_id)
+    if sess is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+    companions = [
+        c.model_dump(mode="json") for c in sess.state.party if not c.is_player
+    ]
+    return {"session_id": session_id, "companions": companions}
 
 
 @router.post("/sessions/{session_id}/roll-check", response_model=RollCheckOut)

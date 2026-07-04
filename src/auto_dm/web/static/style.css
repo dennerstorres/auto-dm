@@ -196,6 +196,144 @@ button:disabled {
   padding: 0.75rem;
 }
 
+/* Phase 36: tabs for the player character + each companion inside
+   #table-tools. The sheet-panel that follows holds N <div class=
+   "sheet-view"> elements — only .sheet-view.active is visible. */
+.sheet-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.char-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: #0a0c12;
+  border: 1px solid #2a2e39;
+  border-radius: 4px;
+}
+
+.char-tab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #8f96a3;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  padding: 0.3rem 0.55rem;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.char-tab:hover:not(:disabled):not(.active) {
+  background: rgba(200, 155, 60, 0.08);
+  color: #d4d4d4;
+}
+
+.char-tab.active {
+  background: #1a1e28;
+  border-color: #c89b3c;
+  color: #e8e8e8;
+}
+
+.char-tab .tab-name {
+  font-weight: 600;
+  color: inherit;
+}
+
+.char-tab .tab-meta {
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
+.char-tab .tab-tag {
+  font-size: 0.65rem;
+  background: #c89b3c;
+  border-radius: 2px;
+  color: #0a0c12;
+  font-weight: 700;
+  margin-top: 0.15rem;
+  padding: 0.05rem 0.35rem;
+  text-transform: uppercase;
+}
+
+.sheet-host {
+  display: contents; /* allow .sheet-panel padding to remain on parent */
+}
+
+.sheet-view {
+  display: none;
+}
+
+.sheet-view.active {
+  display: block;
+}
+
+.sheet-view.is-player .sheet-head strong::before {
+  content: "⚔";
+  color: #c89b3c;
+  margin-right: 0.35rem;
+}
+
+.sheet-conds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.cond-pill {
+  background: #5c2a2a;
+  border: 1px solid #8a3a3a;
+  border-radius: 3px;
+  color: #f0c0c0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+}
+
+/* Phase 37: spells + inventory sections inside each sheet view. They
+   reuse the generic .sheet-meta typography but need their own hooks
+   for the inline pill / count / rarity-dot styling. */
+.sheet-spells strong {
+  color: #c89b3c;
+}
+
+.sheet-spells em {
+  color: #d4d4d4;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.sheet-inv strong {
+  color: #c89b3c;
+}
+
+.inv-item {
+  white-space: nowrap;
+}
+
+.inv-qty {
+  color: #c89b3c;
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.inv-magic {
+  color: #6f8cd6;  /* default to "uncommon" blue; rarity tooltip carries the precise tier */
+  font-size: 0.7rem;
+  margin-left: 0.2rem;
+}
+
 .sheet-panel summary {
   cursor: pointer;
   color: #c89b3c;

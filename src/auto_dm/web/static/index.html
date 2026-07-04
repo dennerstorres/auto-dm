@@ -4,7 +4,7 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Auto DM — Console</title>
-        <link rel="stylesheet" href="/style.css?v=45" />
+        <link rel="stylesheet" href="/style.css?v=47" />
     </head>
     <body>
         <div id="app">
@@ -289,10 +289,18 @@
                     </button>
                 </div>
                 <div id="table-tools" class="table-tools" style="display: none">
-                    <details class="sheet-panel" open>
-                        <summary>Ficha</summary>
-                        <div id="sheet-summary" class="sheet-summary"></div>
-                    </details>
+                    <div class="sheet-stack">
+                        <div
+                            id="char-tabs"
+                            class="char-tabs"
+                            role="tablist"
+                            aria-label="Fichas do jogador e companheiros"
+                        ></div>
+                        <details class="sheet-panel" open>
+                            <summary>Ficha</summary>
+                            <div id="sheet-host" class="sheet-host"></div>
+                        </details>
+                    </div>
                     <div class="roll-panel">
                         <label>
                             <span class="lbl">Teste pedido pelo DM</span>
@@ -646,6 +654,6 @@
             </div>
         </div>
 
-        <script src="/app.js?v=45" type="module"></script>
+        <script src="/app.js?v=47" type="module"></script>
     </body>
 </html>
