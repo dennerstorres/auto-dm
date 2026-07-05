@@ -411,14 +411,24 @@ Um jogador consegue:
 
 ---
 
-## 12. Pós-MVP: segunda onda (Fases 34–39)
+## 12. Pós-MVP: segunda onda (Fases 39–43, renumerada)
 
 > Incrementos depois das Fases 0–33. Todas as features abaixo respeitam
 > os três princípios inegociáveis (mecânica autoritativa, contexto
 > gerenciado, configurabilidade) e adicionam zero acoplamento de
 > provider LLM — funcionam igual com Minimax, Claude, OpenAI etc.
+>
+> **Renumeração (2026-07):** a onda foi planejada como Fases 34–39, mas
+> esses números foram usados por outras entregas (ver CLAUDE.md). O
+> mapeamento atual: §12.2 → Fase 39, §12.3 → Fase 40, §12.4 → Fase 41,
+> §12.5 → Fase 42, §12.6 → Fase 43. A §12.1 foi **removida do roadmap**.
 
-### 12.1 Painel de personagem em tempo real (Fase 34)
+### 12.1 Painel de personagem em tempo real (REMOVIDA)
+
+> **Removida por decisão do usuário (2026-07):** as fichas com abas das
+> Fases 36/37 (reais) já cobrem a parte visual, e o jogo turn-based
+> re-renderiza as fichas a cada `/input` — o live-polling (ETag /
+> `X-State-Rev`) deixou de valer o custo. Texto mantido como histórico.
 
 **Problema:** a console web mostra apenas a narrativa. Para saber HP
 atual, AC, spell slots, conditions, recursos (ki, sorcery points,
@@ -475,12 +485,12 @@ real durante o jogo.
 profile do usuário em `users.preferences` (JSONB opcional, migração
 idempotente no `lifespan`).
 
-**Fora do escopo da Fase 34:** edição de equipamento pelo painel (vai
-para Fase 35), drag-and-drop de magias (mantém-se modal discreto).
+**Fora do escopo desta seção:** edição de equipamento (vai para a
+Fase 39), drag-and-drop de magias (mantém-se modal discreto).
 
 ---
 
-### 12.2 Inventário & equipamento na web (Fase 35)
+### 12.2 Inventário & equipamento na web (Fase 39)
 
 **Problema:** loot, equipar/desequipar, comprar/vender ainda não têm
 fluxo na web. O jogador que está na web não consegue consumir o `bag of
@@ -548,13 +558,13 @@ idempotente, default 0).
 - Stack de consumíveis (poções, ammo) usa `Item.quantity: int` (novo,
   default 1).
 
-**Fora do escopo da Fase 35:** crafting, encumbrance tracking (PHB
+**Fora do escopo da Fase 39:** crafting, encumbrance tracking (PHB
 cap. 5 variante), separação por container (saco de carga é trivial:
 `bag_of_holding` vira token na ficha, não expande lista).
 
 ---
 
-### 12.3 Encontros aleatórios + tesouros em viagem (Fase 36)
+### 12.3 Encontros aleatórios + tesouros em viagem (Fase 40)
 
 **Problema:** o DM narra viagens curtas. Para "viajem três dias pela
 Estrada do Rei", falta o motor rolar encontros (PHB cap. 5, com tabelas
@@ -625,7 +635,7 @@ tags processadas:
 - `MEC: encounter <table> <roll> <monsters>` → spawn no `npcs[]`,
   adiciona entrada no `narrative_log` antes do turno do jogador.
 - `LOOT: hoard <tier> <roll>` → executa tabela, dá ouro e items
-  direto via `add_item_to_inventory` (Fase 35 reaproveita API).
+  direto via `add_item_to_inventory` (Fase 39 reaproveita API).
 - `WEATHER: <table> <roll>` → atualiza `state.weather`.
 
 **Determinismo:** seed de randomização baseado em
@@ -642,13 +652,13 @@ tag depois. Engine confia na tag (validada por regex estrita);
 falha de validação → log warning + encontro padrão nível 1 do bioma
 (`cr_for_level(state.party_level)`).
 
-**Fora do escopo da Fase 36:** tabelas específicas por setting
+**Fora do escopo da Fase 40:** tabelas específicas por setting
 (Forgotten Realms, Eberron) — só biomas genéricos. Travel via
 `fast-travel` mágico (`Teleport`, `Word of Recall`) ignora encontros.
 
 ---
 
-### 12.4 Reações além de Opportunity Attack (Fase 37)
+### 12.4 Reações além de Opportunity Attack (Fase 41)
 
 **Problema:** hoje `engine/combat_engine.py` só dispara uma reação
 explícita: `OPPORTUNITY_ATTACK`. O `_reaction_used` flag é setado,
@@ -722,12 +732,12 @@ reações elegíveis via `state.pending_reaction: Optional[...]`.
 como `**Casting Time**: 1 reaction`. O parser do PHB já captura o
 casting time — falta apenas estender o `cast_spell` engine branch.
 
-**Fora do escopo da Fase 37:** Sentinels, Warcaster feats, Blade
+**Fora do escopo da Fase 41:** Sentinels, Warcaster feats, Blade
 Pact attacks (complexos demais). Adicionados em backlog.
 
 ---
 
-### 12.5 Narração por voz + música ambiente (Fase 38)
+### 12.5 Narração por voz + música ambiente (Fase 42)
 
 **Problema:** sessões D&D solo se beneficiam muito de narração por
 voz (imersão, cansaço visual reduzido). Hoje o jogador lê.
@@ -798,13 +808,13 @@ botões na UI (play, pause, volume, mute).
 **Persistência:** ambos os blocos adicionados em
 `users.preferences` (JSONB), migração idempotente.
 
-**Fora do escopo da Fase 38:** geração dinâmica de música por IA, mix
+**Fora do escopo da Fase 42:** geração dinâmica de música por IA, mix
 adaptativo por estado de combate, voice cloning. Upmixes ficam em
 backlog.
 
 ---
 
-### 12.6 End-to-end do fluxo completo (Fase 39)
+### 12.6 End-to-end do fluxo completo (Fase 43)
 
 **Problema:** 1 700+ testes unitários estão sólidos, mas nenhum exercita
 o caminho **signup → wizard 11 passos → combate com 3 turnos do
@@ -839,12 +849,12 @@ runs).
    Variante: Wizard Sorcerer L3, companions: Kael (Wizard) +
    Garrick (Paladin) + Mira (Cleric). Cobre: spell slots, sneak
    attack, aoo saving throw, concentration break.
-2. **Painel lateral reflete state em tempo real** (após Fase 34).
-   Polling até `hp_current` mudar; verifica que DOM mostra barra
-   atualizada.
-3. **Loja: comprar/vender sem saldo** (após Fase 35). Verifica 402
+2. **Fichas refletem HP após ataque** (fichas das Fases 36/37 reais).
+   Após turno com dano, `GET /sessions/{id}` + `/companions` mostram
+   `hp_current` atualizado.
+3. **Loja: comprar/vender sem saldo** (após Fase 39). Verifica 402
    quando `gold_gp < price`, e happy path com successo 200.
-4. **Viagem de 3 dias dispara encontro + loot** (após Fase 36).
+4. **Viagem de 3 dias dispara encontro + loot** (após Fase 40).
    Seed fixa; verifica que `npcs[]` ganha 2 enemies + `gold_gp`
    aumenta; engine tag MEC resolvida.
 
@@ -857,9 +867,9 @@ verde. Flake rate <0.5 % (rerun automático em falha única).
 - `playwright` opcional (frontend visual)
 - `pytest-xdist --maxfail=1` (paraleliza)
 
-**Fora do escopo da Fase 39:** stress tests (1000 campanhas),
-fuzz da API, multi-tenancy security tests (deixados para Fase 40
-— segurança pós-painel/listo).
+**Fora do escopo da Fase 43:** stress tests (1000 campanhas),
+fuzz da API, multi-tenancy security tests (deixados para uma fase
+futura de segurança).
 
 ---
 

@@ -28,6 +28,7 @@ from auto_dm.web.redis_client import dispose_redis, init_redis
 from auto_dm.web.routes_admin import router as admin_router
 from auto_dm.web.routes_auth import router as auth_router
 from auto_dm.web.routes_game import router as game_router
+from auto_dm.web.routes_inventory import router as inventory_router
 from auto_dm.web.routes_setup import router as setup_router
 from auto_dm.web.sessions import SessionManager
 
@@ -386,6 +387,7 @@ def create_app(provider_factory: Optional[Callable] = None) -> FastAPI:
     # Routers
     app.include_router(auth_router)
     app.include_router(game_router)
+    app.include_router(inventory_router)
     app.include_router(setup_router)
     app.include_router(admin_router)
 

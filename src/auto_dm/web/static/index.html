@@ -4,7 +4,7 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Auto DM — Console</title>
-        <link rel="stylesheet" href="/style.css?v=50" />
+        <link rel="stylesheet" href="/style.css?v=51" />
     </head>
     <body>
         <div id="app">
@@ -300,6 +300,11 @@
                             <summary>Ficha</summary>
                             <div id="sheet-host" class="sheet-host"></div>
                         </details>
+                        <div
+                            id="shop-buttons"
+                            class="shop-buttons"
+                            style="display: none"
+                        ></div>
                     </div>
                     <div class="roll-panel">
                         <label>
@@ -686,8 +691,32 @@
 
             <!-- Phase 38 — short banner above the chat showing level-up XP progress. -->
             <div id="levelup-banner" class="levelup-banner" style="display: none"></div>
+
+            <!-- Phase 39 — item inspection modal (equip/attune/drop/sell). -->
+            <div id="item-modal" class="modal" style="display: none">
+                <div class="modal-card">
+                    <div class="row">
+                        <h3 id="item-modal-title">Item</h3>
+                        <button id="item-modal-close" class="secondary">×</button>
+                    </div>
+                    <div id="item-modal-body"></div>
+                    <div id="item-modal-actions" class="item-actions"></div>
+                </div>
+            </div>
+
+            <!-- Phase 39 — vendor shop overlay (catalog + buy buttons). -->
+            <div id="shop-modal" class="modal" style="display: none">
+                <div class="modal-card">
+                    <div class="row">
+                        <h3 id="shop-modal-title">Loja</h3>
+                        <button id="shop-modal-close" class="secondary">×</button>
+                    </div>
+                    <div id="shop-gold" class="shop-gold"></div>
+                    <div id="shop-stock" class="shop-stock"></div>
+                </div>
+            </div>
         </div>
 
-        <script src="/app.js?v=50" type="module"></script>
+        <script src="/app.js?v=51" type="module"></script>
     </body>
 </html>

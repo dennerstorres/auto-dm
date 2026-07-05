@@ -1015,6 +1015,12 @@ function renderCharacterTools() {
   for (const btn of tabsHost.querySelectorAll(".char-tab")) {
     btn.addEventListener("click", () => setActiveSheetTab(btn.dataset.charId));
   }
+  // Phase 39: inventory items open the inspection modal.
+  for (const btn of sheetHost.querySelectorAll(".inv-item-btn")) {
+    btn.addEventListener("click", () =>
+      openItemModal(btn.dataset.charId, btn.dataset.itemName));
+  }
+  renderShopButtons();
   updateRollPreview();
 }
 
@@ -1057,7 +1063,7 @@ function renderSheetView(character) {
         .join(" ")}</div>`
     : "";
   const spellsHtml = renderSpellsSection(character.spellcasting);
-  const inventoryHtml = renderInventorySection(character.inventory);
+  const inventoryHtml = renderInventorySection(character);
   return (
     `<div class="sheet-view${isPlayer}" data-char-id="${escapeHtml(character.id)}">` +
       `<div class="sheet-head"><strong>${escapeHtml(character.name)}</strong>` +
@@ -1118,21 +1124,49 @@ function renderSpellsSection(sc) {
     .join("");
 }
 
-// Phase 37: render the inventory list as a compact comma-separated
-// line. Each item shows quantity (×N) when > 1, and magic items get a
-// colored rarity dot. Returns "" if inventory is empty or missing.
-function renderInventorySection(inventory) {
-  if (!Array.isArray(inventory) || inventory.length === 0) return "";
-  const items = inventory.map((it) => {
-    const nm = escapeHtml(it.name || "—");
-    const qty = Number(it.quantity || 0);
-    const qStr = qty > 1 ? ` <span class="inv-qty">×${qty}</span>` : "";
-    const magic = it.rarity && it.rarity !== "common"
-      ? ` <span class="inv-magic" title="${escapeHtml(it.rarity)}">●</span>`
-      : "";
-    return `<span class="inv-item">${nm}${qStr}${magic}</span>`;
-  });
-  return `<div class="sheet-meta sheet-inv"><strong>Inventario:</strong> ${items.join(", ")}</div>`;
+// Phase 39: interactive inventory — gold, equipped summary, and each
+// item as a button that opens the inspection modal (equip / attune /
+// drop / sell). Quantity shows as ×N, magic items get a rarity dot,
+// attuned items a ◈ marker.
+function renderInventorySection(character) {
+  const inventory = Array.isArray(character.inventory) ? character.inventory : [];
+  const parts = [];
+  parts.push(
+    `<div class="sheet-meta sheet-gold"><strong>Ouro:</strong> ${fmtGold(character.gold_gp)} gp</div>`,
+  );
+  const equipped = character.equipped || {};
+  const equippedBits = Object.keys(SLOT_LABELS)
+    .filter((slot) => equipped[slot])
+    .map((slot) =>
+      `<span class="equip-pill">${escapeHtml(SLOT_LABELS[slot])}: ${escapeHtml(equipped[slot].name)}</span>`);
+  if (equippedBits.length) {
+    parts.push(
+      `<div class="sheet-meta sheet-equip"><strong>Equipado:</strong> ${equippedBits.join(" ")}</div>`,
+    );
+  }
+  if (inventory.length) {
+    const attunedNames = character.attuned_items || [];
+    const items = inventory.map((it) => {
+      const nm = escapeHtml(it.name || "—");
+      const qty = Number(it.quantity || 0);
+      const qStr = qty > 1 ? ` <span class="inv-qty">×${qty}</span>` : "";
+      const magic = it.rarity && it.rarity !== "common"
+        ? ` <span class="inv-magic" title="${escapeHtml(it.rarity)}">●</span>`
+        : "";
+      const att = attunedNames.includes(it.name)
+        ? ' <span class="inv-attuned" title="sintonizado">◈</span>'
+        : "";
+      return (
+        `<button type="button" class="inv-item-btn" ` +
+        `data-char-id="${escapeHtml(character.id)}" data-item-name="${escapeHtml(it.name)}">` +
+        `${nm}${qStr}${magic}${att}</button>`
+      );
+    });
+    parts.push(
+      `<div class="sheet-meta sheet-inv"><strong>Inventario:</strong> ${items.join(" ")}</div>`,
+    );
+  }
+  return parts.join("");
 }
 
 // Convert a spell slug ("magic-missile") or stored name ("fire bolt")
@@ -1140,6 +1174,283 @@ function renderInventorySection(inventory) {
 // Stable for already-titled names.
 function formatSpellName(s) {
   return escapeHtml(String(s || "")).replace(/(^|[\s-])\w/g, (c) => c.toUpperCase());
+}
+
+// ============================================================================
+// Phase 39 — inventário interativo + loja
+// ============================================================================
+//
+// Toda mutação passa pelas rotas de web/routes_inventory.py (engine
+// autoritativa, sem LLM). A resposta traz o Character atualizado; o
+// front substitui a entrada da party e re-renderiza as fichas via
+// persistSave() (que também sincroniza o save no Postgres).
+
+// Mirrors engine/inventory.py::RARITY_PRICE_GP (fallback when the item
+// has no explicit value_gp) and SELL_RATE (0.5).
+const RARITY_PRICE_GP = {
+  common: 100, uncommon: 500, rare: 5000, very_rare: 50000, legendary: 500000,
+};
+const SLOT_LABELS = {
+  main_hand: "Mão principal", off_hand: "Mão inábil", armor: "Armadura",
+  amulet: "Amuleto", ring_1: "Anel 1", ring_2: "Anel 2",
+  cloak: "Capa", boots: "Botas",
+};
+
+function fmtGold(v) {
+  return Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+}
+
+function listPrice(item) {
+  if (Number(item.value_gp) > 0) return Number(item.value_gp);
+  if (item.rarity && RARITY_PRICE_GP[item.rarity]) return RARITY_PRICE_GP[item.rarity];
+  return 0;
+}
+
+function inferSlots(item) {
+  if (item.weapon) return ["main_hand", "off_hand"];
+  if (item.armor && item.armor.is_shield) return ["off_hand"];
+  if (item.armor) return ["armor"];
+  return ["amulet", "ring_1", "ring_2", "cloak", "boots"];
+}
+
+function getPartyCharacter(charId) {
+  const st = currentGameState;
+  if (!st || !Array.isArray(st.party)) return null;
+  return st.party.find((c) => c.id === charId) || null;
+}
+
+// Replace the party entry with the server-updated character, then
+// re-render the sheets and sync the save (persistSave does both).
+async function applyCharacterUpdate(character) {
+  if (!currentGameState || !Array.isArray(currentGameState.party) || !character) return;
+  const idx = currentGameState.party.findIndex((c) => c.id === character.id);
+  if (idx >= 0) currentGameState.party[idx] = character;
+  await persistSave(currentGameState);
+}
+
+// --- Item inspection modal ---
+
+let itemModalCtx = null; // { charId, itemName }
+
+function closeItemModal() {
+  document.getElementById("item-modal").style.display = "none";
+  itemModalCtx = null;
+}
+
+function openItemModal(charId, itemName) {
+  const ch = getPartyCharacter(charId);
+  if (!ch) return;
+  const item = (ch.inventory || []).find((i) => i.name === itemName);
+  if (!item) return;
+  itemModalCtx = { charId, itemName };
+  document.getElementById("item-modal-title").textContent = item.name;
+
+  const attuned = (ch.attuned_items || []).includes(item.name);
+  const equippedSlots = Object.keys(SLOT_LABELS).filter(
+    (s) => ch.equipped && ch.equipped[s] && ch.equipped[s].name === item.name,
+  );
+  const meta = [];
+  if (item.type) meta.push(item.type);
+  if (item.rarity) meta.push(item.rarity.replace("_", " "));
+  if (item.magic_bonus) meta.push(`+${item.magic_bonus}`);
+  if (item.requires_attunement) meta.push(attuned ? "sintonizado ◈" : "requer sintonização");
+  if (Number(item.quantity) > 1) meta.push(`×${item.quantity}`);
+
+  const lines = [];
+  if (meta.length) lines.push(`<p class="hint">${meta.map(escapeHtml).join(" · ")}</p>`);
+  if (item.weapon) {
+    lines.push(
+      `<p class="hint">Dano: ${escapeHtml(item.weapon.damage_dice)} ${escapeHtml(item.weapon.damage_type)}</p>`,
+    );
+  }
+  if (item.armor) {
+    lines.push(
+      `<p class="hint">CA base: ${item.armor.base_ac}${item.armor.is_shield ? " (escudo: +2 CA)" : ""}</p>`,
+    );
+  }
+  if (item.description) {
+    lines.push(`<p class="item-desc">${escapeHtml(item.description)}</p>`);
+  }
+  document.getElementById("item-modal-body").innerHTML = lines.join("");
+
+  const actions = document.getElementById("item-modal-actions");
+  if (readOnlyMode) {
+    actions.innerHTML = "";
+    document.getElementById("item-modal").style.display = "";
+    return;
+  }
+  const sellPrice = listPrice(item) * 0.5;
+  const slotOpts = inferSlots(item)
+    .map((s) => `<option value="${s}">${SLOT_LABELS[s]}</option>`)
+    .join("");
+  const parts = [];
+  parts.push(
+    `<div class="row item-equip-row"><select id="item-slot-select">${slotOpts}</select>` +
+    `<button id="item-equip-btn">Equipar</button></div>`,
+  );
+  for (const s of equippedSlots) {
+    parts.push(
+      `<button class="secondary item-unequip-btn" data-slot="${s}">Desequipar (${SLOT_LABELS[s]})</button>`,
+    );
+  }
+  if (item.requires_attunement) {
+    parts.push(attuned
+      ? '<button class="secondary" id="item-unattune-btn">Remover sintonia</button>'
+      : '<button class="secondary" id="item-attune-btn">Sintonizar</button>');
+  }
+  parts.push('<button class="secondary" id="item-drop-btn">Soltar 1</button>');
+  parts.push(
+    `<button class="secondary" id="item-sell-btn">Vender 1 (${fmtGold(sellPrice)} gp)</button>`,
+  );
+  actions.innerHTML = parts.join(" ");
+
+  document.getElementById("item-equip-btn").onclick = () =>
+    itemAction("equip", {
+      item_id: itemName,
+      slot: document.getElementById("item-slot-select").value,
+    });
+  for (const b of actions.querySelectorAll(".item-unequip-btn")) {
+    b.onclick = () => itemAction("unequip", { slot: b.dataset.slot });
+  }
+  const attuneBtn = document.getElementById("item-attune-btn");
+  if (attuneBtn) attuneBtn.onclick = () => itemAction("attune", { item_id: itemName });
+  const unattuneBtn = document.getElementById("item-unattune-btn");
+  if (unattuneBtn) unattuneBtn.onclick = () => itemAction("unattune", { item_id: itemName });
+  document.getElementById("item-drop-btn").onclick = () => {
+    if (confirm(`Soltar 1× ${itemName}?`)) {
+      itemAction("drop", { item_id: itemName, quantity: 1 });
+    }
+  };
+  document.getElementById("item-sell-btn").onclick = () =>
+    itemAction("sell", { item_id: itemName, quantity: 1 });
+
+  document.getElementById("item-modal").style.display = "";
+}
+
+async function itemAction(action, body) {
+  if (!currentSessionId || !itemModalCtx) return;
+  const { charId, itemName } = itemModalCtx;
+  try {
+    const res = await api(
+      `/api/sessions/${currentSessionId}/inventory/${action}`,
+      { method: "POST", body: { ...body, character_id: charId } },
+    );
+    closeItemModal();
+    for (const w of (res.result && res.result.warnings) || []) {
+      appendLog("Sistema", w, "system");
+    }
+    if (res.result && res.result.ac_delta) {
+      appendLog(
+        "Sistema",
+        `CA de ${res.character.name}: ${res.result.ac_before} → ${res.result.ac_after}.`,
+        "system",
+      );
+    }
+    if (action === "sell") {
+      appendLog(
+        "Sistema",
+        `${res.character.name} vendeu ${itemName} (ouro: ${fmtGold(res.result.gold_gp)} gp).`,
+        "system",
+      );
+    }
+    await applyCharacterUpdate(res.character);
+  } catch (e) {
+    appendLog("Erro", e.message, "system");
+  }
+}
+
+// --- Shop overlay ---
+
+let shopVendorId = null;
+
+function closeShopModal() {
+  document.getElementById("shop-modal").style.display = "none";
+  shopVendorId = null;
+}
+
+// One "Loja" button per vendor NPC currently in the state. The DM can
+// flag vendors mid-game; the strip refreshes on every state update.
+function renderShopButtons() {
+  const host = document.getElementById("shop-buttons");
+  if (!host) return;
+  const npcs = (currentGameState && currentGameState.npcs) || [];
+  const vendors = npcs.filter((n) => n.vendor && (n.shop_inventory || []).length);
+  if (readOnlyMode || vendors.length === 0) {
+    host.style.display = "none";
+    host.innerHTML = "";
+    return;
+  }
+  host.style.display = "";
+  host.innerHTML = vendors
+    .map((v) =>
+      `<button type="button" class="secondary shop-open-btn" data-vendor-id="${escapeHtml(v.id)}">🛒 Loja: ${escapeHtml(v.name)}</button>`)
+    .join(" ");
+  for (const btn of host.querySelectorAll(".shop-open-btn")) {
+    btn.addEventListener("click", () => openShop(btn.dataset.vendorId));
+  }
+}
+
+async function openShop(vendorId) {
+  if (!currentSessionId) return;
+  try {
+    const res = await api(
+      `/api/sessions/${currentSessionId}/shop/${encodeURIComponent(vendorId)}`,
+    );
+    shopVendorId = vendorId;
+    renderShopModal(res);
+    document.getElementById("shop-modal").style.display = "";
+  } catch (e) {
+    appendLog("Erro", "Não foi possível abrir a loja: " + e.message, "system");
+  }
+}
+
+function renderShopModal(data) {
+  document.getElementById("shop-modal-title").textContent = `Loja — ${data.vendor_name}`;
+  document.getElementById("shop-gold").textContent = `Seu ouro: ${fmtGold(data.gold_gp)} gp`;
+  const host = document.getElementById("shop-stock");
+  const rows = (data.stock || []).map((s) => {
+    const known = !!s.item;
+    const name = known ? s.item.name : s.item_id;
+    const afford = known && Number(data.gold_gp) >= Number(s.price_gp);
+    const magic = known && s.item.rarity && s.item.rarity !== "common"
+      ? ` <span class="inv-magic" title="${escapeHtml(s.item.rarity)}">●</span>`
+      : "";
+    return (
+      '<div class="shop-row">' +
+      `<span class="shop-name">${escapeHtml(name)}${magic}</span>` +
+      `<span class="shop-price">${fmtGold(s.price_gp)} gp</span>` +
+      `<button class="shop-buy-btn" data-item-id="${escapeHtml(s.item_id)}"${afford ? "" : " disabled"}>Comprar</button>` +
+      "</div>"
+    );
+  });
+  host.innerHTML = rows.join("") || '<p class="hint">Sem estoque.</p>';
+  for (const b of host.querySelectorAll(".shop-buy-btn")) {
+    b.addEventListener("click", () => buyFromShop(b.dataset.itemId));
+  }
+}
+
+async function buyFromShop(itemId) {
+  if (!currentSessionId || !shopVendorId) return;
+  const vendorId = shopVendorId;
+  try {
+    const res = await api(`/api/sessions/${currentSessionId}/inventory/buy`, {
+      method: "POST",
+      body: { vendor_id: vendorId, item_id: itemId, quantity: 1 },
+    });
+    appendLog(
+      "Sistema",
+      `Comprou ${itemId} (ouro: ${fmtGold(res.result.gold_gp)} gp).`,
+      "system",
+    );
+    await applyCharacterUpdate(res.character);
+    await openShop(vendorId); // refresh stock affordances with new gold
+  } catch (e) {
+    if (e && e.status === 402) {
+      appendLog("Sistema", "Ouro insuficiente para essa compra.", "system");
+      return;
+    }
+    appendLog("Erro", e.message, "system");
+  }
 }
 
 function parseRollSelection(value) {
@@ -1454,6 +1765,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (asiClose) asiClose.onclick = closeASIModal;
   const asiConfirm = document.getElementById("asi-confirm");
   if (asiConfirm) asiConfirm.onclick = confirmASI;
+  // Phase 39 — item + shop modal handlers.
+  const itemClose = document.getElementById("item-modal-close");
+  if (itemClose) itemClose.onclick = closeItemModal;
+  const shopClose = document.getElementById("shop-modal-close");
+  if (shopClose) shopClose.onclick = closeShopModal;
   const cmd = document.getElementById("cmd");
   cmd.addEventListener("keydown", (e) => {
     if (busy) return;

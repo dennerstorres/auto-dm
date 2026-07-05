@@ -148,6 +148,18 @@ class EquippedSlots(BaseModel):
     boots: Optional[Item] = None
 
 
+class ShopItem(BaseModel):
+    """One line of a vendor NPC's stock (Phase 39).
+
+    ``item_id`` is the catalog name resolved against the PHB tables
+    (weapons, armor, gear, magic items) by ``engine/inventory.py``.
+    """
+
+    item_id: str
+    price_gp: float
+    restock_daily: bool = False
+
+
 # ============================================================================
 # Spellcasting
 # ============================================================================
@@ -290,6 +302,11 @@ class Character(BaseModel):
     # Equipment
     inventory: list[Item] = Field(default_factory=list)
     equipped: EquippedSlots = Field(default_factory=EquippedSlots)
+    # Phase 39 — gold + attunement. Gold is a float because PHB prices
+    # go below 1 gp (1 sp = 0.1 gp). Attuned items are stored by item
+    # name; the PHB p. 138 cap of 3 is enforced by engine/inventory.py.
+    gold_gp: float = 0.0
+    attuned_items: list[str] = Field(default_factory=list)
 
     # Magic
     spellcasting: Optional[Spellcasting] = None
@@ -566,6 +583,10 @@ class NPC(BaseModel):
     # engine apply vehicle-specific rules (cover, AC, etc.).
     is_vehicle: bool = False
     vehicle_type: Optional[str] = None  # "land" | "water"
+    # Vendor NPC (Phase 39): the DM flags an NPC as a merchant and the
+    # shop endpoints expose ``shop_inventory`` as its stock.
+    vendor: bool = False
+    shop_inventory: list[ShopItem] = Field(default_factory=list)
 
 
 # ============================================================================

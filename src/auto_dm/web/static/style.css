@@ -1575,3 +1575,105 @@ select {
     flex-basis: 100%;
   }
 }
+
+/* ============================================================================
+   Phase 39 — inventário interativo + loja
+   ============================================================================ */
+
+.sheet-gold strong,
+.sheet-equip strong {
+  color: #c89b3c;
+}
+
+.equip-pill {
+  background: #24304a;
+  border: 1px solid #3a4d78;
+  border-radius: 3px;
+  color: #b9c8ea;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  white-space: nowrap;
+}
+
+.inv-item-btn {
+  background: #1a1e28;
+  border: 1px solid #2e3648;
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.45rem;
+  white-space: nowrap;
+}
+
+.inv-item-btn:hover {
+  border-color: #c89b3c;
+}
+
+.inv-attuned {
+  color: #c89b3c;
+  font-size: 0.72rem;
+  margin-left: 0.2rem;
+}
+
+.item-desc {
+  color: #aab3c5;
+  font-size: 0.82rem;
+  max-height: 12rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.item-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.item-equip-row {
+  align-items: center;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.shop-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.shop-gold {
+  color: #c89b3c;
+  font-weight: 600;
+  margin: 0.4rem 0;
+}
+
+.shop-stock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.shop-row {
+  align-items: center;
+  border-bottom: 1px solid #232a3a;
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+}
+
+.shop-name {
+  flex: 1;
+}
+
+.shop-price {
+  color: #c89b3c;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
