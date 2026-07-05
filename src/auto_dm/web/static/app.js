@@ -493,11 +493,6 @@ const ASI_ABILITIES = [
   { key: "charisma",     label: "Carisma (CHA)" },
 ];
 
-function getPlayerCharacter(state) {
-  if (!state || !state.party || !state.player_character_id) return null;
-  return state.party.find((c) => c.id === state.player_character_id) || null;
-}
-
 // Compute the next PHB threshold and how much XP is needed to reach it.
 // Mirrors XP_THRESHOLDS in engine/progression.py.
 const PARTY_XP_THRESHOLDS = [
@@ -553,7 +548,7 @@ function hideLevelupBanner() {
 // the choice is confirmed or the level falls through).
 function checkPendingASI() {
   if (readOnlyMode) return;
-  const player = getPlayerCharacter(currentGameState);
+  const player = getPlayerCharacter();
   if (!player || !player.pending_asi || player.pending_asi.resolved) return;
   openASIModal(player);
 }
@@ -605,8 +600,9 @@ function renderASIPickers(player) {
     pickers.appendChild(wrap);
   });
 
-  // Wiring: switching modes re-renders the picker list.
-  pickers.querySelectorAll('input[name="asi-mode"]').forEach((r) => {
+  // Wiring: switching modes re-renders the picker list. The mode radios
+  // live in .asi-mode-row (outside #asi-pickers), so query the document.
+  document.querySelectorAll('input[name="asi-mode"]').forEach((r) => {
     r.onchange = () => renderASIPickers(player);
   });
 }
