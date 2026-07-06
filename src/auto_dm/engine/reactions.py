@@ -611,21 +611,32 @@ def publish_reaction_trigger(
     *,
     fired_at: Optional[int] = None,
     candidates: Optional[list[str]] = None,
+    engine: "Optional[CombatEngine]" = None,
 ) -> list[str]:
-    """Find party members eligible to react and stamp ``pending_reaction``.
+    """Find party members eligible to react and surface the trigger.
 
     Iterates over party ``Character``\\s (optionally restricted to
-    ``candidates``) and, for each one with at least one eligible
-    reaction, records the trigger on its ``pending_reaction`` via
-    :func:`build_pending_reaction`. Returns the ids of the characters
-    that now hold an open trigger (the web layer prompts the first one;
-    Phase 41c wires the modal).
+    ``candidates``, player-first) and, for the first one with at least one
+    eligible reaction, either:
 
-    Only the *first* eligible responder gets the published trigger — the
-    MVP interaction model is one prompt per event. ``fired_at`` should be
-    a real epoch from the web layer; without it the TTL is unrecoverable
-    and publication is a no-op (see ``build_pending_reaction``).
+    * **Player** — records the trigger on ``pending_reaction`` via
+      :func:`build_pending_reaction` so the web layer (Phase 41c modal)
+      can prompt the human and call back.
+    * **Companion** (``engine`` provided) — auto-resolves the reaction
+      immediately via :func:`auto_resolve_companion_reaction`
+      (Phase 41c heuristic). The companion never gets a stashed
+      ``pending_reaction``; only the player is prompted.
+
+    Returns the ids of the characters that reacted (one in the MVP — the
+    first eligible responder). ``fired_at`` should be a real epoch from
+    the web layer; without it the player-path TTL is unrecoverable and
+    publication is a no-op (see ``build_pending_reaction``).
+
+    Without ``engine`` (e.g. unit tests, non-combat callers) companions
+    are skipped rather than prompted — the human only ever answers for
+    their own character.
     """
+    from auto_dm.engine.companion_reactions import auto_resolve_companion_reaction
 
     published: list[str] = []
     party = state_manager.state.party
@@ -638,6 +649,23 @@ def publish_reaction_trigger(
     for ch in ordered:
         eligible = eligible_reactions(ch, trigger)
         if not eligible:
+            continue
+
+        # Companion: auto-resolve and move on (no stashed prompt).
+        if not ch.is_player:
+            if engine is None:
+                # No engine → can't resolve; skip companions entirely so
+                # nothing is left dangling for the web modal (which only
+                # handles the player).
+                continue
+            auto_resolve_companion_reaction(engine, state_manager, ch, trigger, eligible)
+            published.append(ch.id)
+            break  # one responder per trigger (MVP)
+
+        # Player: stash and let the web modal prompt. Don't clobber an
+        # already-open prompt from an earlier trigger this turn — the
+        # player can only answer one modal at a time.
+        if ch.pending_reaction is not None:
             continue
         pending = build_pending_reaction(trigger, eligible, fired_at=fired_at)
         if pending is None:

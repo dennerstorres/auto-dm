@@ -532,6 +532,8 @@ def _handle_attack(
     # Shield / Uncanny Dodge / Parry. ``publish_reaction_trigger`` is a
     # no-op when nobody is eligible, so it's safe to call unconditionally.
     # Damage-reduction reactions resolve as a refund (see engine/reactions).
+    # Phase 41c: companions auto-resolve via the heuristic; only the player
+    # gets a stashed ``pending_reaction`` + web modal.
     reaction_note = ""
     if (
         atk.is_hit
@@ -551,10 +553,43 @@ def _handle_attack(
             is_crit=atk.is_crit,
         )
         responders = publish_reaction_trigger(
-            state_manager, trigger, fired_at=int(time.time()),
+            state_manager, trigger, fired_at=int(time.time()), engine=engine,
         )
         if responders:
-            reaction_note = " [reação disponível]"
+            responder = state_manager.get_character(responders[0])
+            if responder is not None and not responder.is_player:
+                # Companion used its reaction automatically.
+                reaction_note = f" [{responder.name} reagiu]"
+            else:
+                reaction_note = " [reação disponível]"
+
+    # Phase 41c — if a party member just dropped to 0 HP, publish OnAllyDown
+    # so a cleric/druid/bard companion (or the player, if no self-trigger is
+    # already pending) can Healing Word them back up out of turn. Re-check HP
+    # *after* the hit-reaction above: an Uncanny Dodge refund may have already
+    # pulled the target above 0, in which case there's nothing to revive.
+    if (
+        isinstance(target, Character)
+        and target.hp_current == 0
+        and any(c.id == target.id for c in state_manager.state.party)
+    ):
+        from auto_dm.engine.actions import OnAllyDown
+        from auto_dm.engine.reactions import publish_reaction_trigger
+        import time
+        ally_trigger = OnAllyDown(ally_id=target.id)
+        ally_responders = publish_reaction_trigger(
+            state_manager, ally_trigger, fired_at=int(time.time()),
+            engine=engine,
+            candidates=[
+                c.id for c in state_manager.state.party if c.id != target.id
+            ],
+        )
+        if ally_responders and not reaction_note:
+            responder = state_manager.get_character(ally_responders[0])
+            if responder is not None and not responder.is_player:
+                reaction_note = f" [{responder.name} usou Palavra Curativa]"
+            else:
+                reaction_note = " [reação disponível]"
 
     return ActionResult(
         success=True,
@@ -934,6 +969,7 @@ def _handle_cast_spell(
         )
         responders = publish_reaction_trigger(
             state_manager, trigger, fired_at=int(time.time()),
+            engine=engine,
             # Only the player is prompted (companions countering enemy
             # spells is a rare case handled by future heuristic).
             candidates=[state_manager.state.player_character_id],
