@@ -63,16 +63,23 @@ class UserOut(BaseModel):
     username: str
     role: str
     created_at: str
+    # Phase 42 — preferences blob (defaults back-filled). Surfaced on /me,
+    # /login, /signup so the client can init TTS/music without an extra round
+    # trip.
+    preferences: dict = Field(default_factory=dict)
 
     model_config = {"from_attributes": True}
 
     @classmethod
     def from_user(cls, user: User) -> "UserOut":
+        from auto_dm.web.preferences import merge_defaults
+
         return cls(
             id=user.id,
             username=user.username,
             role=user.role,
             created_at=user.created_at.isoformat() if user.created_at else "",
+            preferences=merge_defaults(getattr(user, "preferences", None)),
         )
 
 

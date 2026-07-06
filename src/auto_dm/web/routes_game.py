@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auto_dm.agents import generate_opening, process_player_action
 from auto_dm.engine.checks import ABILITY_LABELS, roll_character_check
+from auto_dm.engine.combat_engine import CombatEngine
 from auto_dm.llm.usage import UsageReport
 from auto_dm.state.models import GameState
 from auto_dm.web.activity import log_activity
@@ -126,6 +127,24 @@ class ResolveASIRequest(BaseModel):
     character_id: str = Field(..., min_length=1, max_length=64)
     primary: str = Field(..., min_length=3, max_length=12)
     secondary: str | None = Field(default=None, max_length=12)
+
+
+class ReactionRequest(BaseModel):
+    """Body for POST /api/sessions/{sid}/reaction (Phase 41c).
+
+    The responder is whichever party member currently holds an open
+    ``pending_reaction`` (only one trigger is published per event). The
+    client passes the chosen ``kind`` (a ``ReactionKind`` value) plus,
+    for spell reactions, an optional ``slot_level`` (upcast) and, for
+    Counterspell, an optional ``check_roll`` (the d20+mod ability check
+    total — when omitted the engine rolls deterministically).
+    """
+
+    kind: str = Field(..., min_length=1, max_length=32)
+    slot_level: int | None = Field(default=None, ge=1, le=9)
+    check_roll: int | None = Field(default=None, ge=1, le=40)
+    # ``decline=True`` lets the client pass (auto-pass) without resolving.
+    decline: bool = False
 
 
 class SaveRequest(BaseModel):
@@ -565,6 +584,112 @@ async def session_resolve_asi(
         "character_id": character.id,
         "character_name": character.name,
         "abilities": scores.model_dump(mode="json"),
+        "state": sess.state.model_dump(mode="json"),
+    }
+
+
+@router.post("/sessions/{session_id}/reaction")
+async def session_reaction(
+    session_id: str,
+    body: ReactionRequest,
+    user: Annotated[User, Depends(current_user)],
+    sm: Annotated[SessionManager, Depends(get_session_manager)],
+) -> dict[str, Any]:
+    """Phase 41c — answer a published reaction trigger.
+
+    Finds the party member holding an open ``pending_reaction`` (the
+    player, normally). ``decline=True`` clears it without resolving
+    (auto-pass / explicit pass). Otherwise resolves ``kind`` via
+    ``apply_reaction``, clears ``pending_reaction`` and persists.
+
+    Returns the resolution (message, success, mechanical), the updated
+    character, and the full state. 404 if no trigger is open; 422 if the
+    chosen ``kind`` is not in ``reactions_eligible`` or is unknown.
+    """
+    import time as _time
+    from dataclasses import asdict
+    from auto_dm.engine.actions import (
+        ReactionKind,
+        pending_reaction_is_expired,
+        trigger_from_payload,
+    )
+    from auto_dm.engine.reactions import apply_reaction
+
+    sess = await sm.get(user.id, session_id)
+    if sess is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+
+    responder = next(
+        (c for c in sess.state.party if c.pending_reaction), None,
+    )
+    if responder is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pending reaction for this session.",
+        )
+
+    pending = responder.pending_reaction
+    # Expired triggers are silently declined (auto-pass).
+    if pending_reaction_is_expired(pending, now_epoch=int(_time.time())):
+        responder.pending_reaction = None
+        await sm.save(sess)
+        raise HTTPException(
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            detail="Reaction window expired.",
+        )
+
+    if body.decline:
+        responder.pending_reaction = None
+        await sm.save(sess)
+        return {
+            "session_id": session_id,
+            "declined": True,
+            "character_id": responder.id,
+            "character_name": responder.name,
+            "state": sess.state.model_dump(mode="json"),
+        }
+
+    try:
+        kind = ReactionKind(body.kind)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown reaction kind: {body.kind}",
+        )
+
+    eligible = pending.get("reactions_eligible") or []
+    if kind.value not in eligible:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{kind.value} is not eligible for this trigger.",
+        )
+
+    trigger = trigger_from_payload(pending.get("trigger") or {})
+    combat_engine = sess.combat_engine or CombatEngine()
+    resolution = apply_reaction(
+        combat_engine,
+        sess.state_manager,
+        responder.id,
+        kind,
+        trigger,
+        slot_level=body.slot_level,
+        check_roll=body.check_roll,
+    )
+    # ``apply_reaction`` already cleared pending_reaction on success; on
+    # failure clear it too so the player isn't re-prompted with a broken
+    # option. The narration reports what went wrong.
+    responder.pending_reaction = None
+    await sm.save(sess)
+
+    return {
+        "session_id": session_id,
+        "declined": False,
+        "character_id": responder.id,
+        "character_name": responder.name,
+        "resolution": asdict(resolution),
         "state": sess.state.model_dump(mode="json"),
     }
 

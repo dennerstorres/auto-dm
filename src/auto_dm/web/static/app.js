@@ -573,6 +573,139 @@ function closeASIModal() {
   if (modal) modal.style.display = "none";
 }
 
+// ============================================================================
+// Phase 41c — Reaction modal. When an enemy attack hits the player or an
+// enemy casts a spell, the engine publishes ``pending_reaction`` on the
+// character. We surface a modal listing eligible reactions with a 30s
+// countdown; the player picks one (or passes) and we POST /reaction.
+// ============================================================================
+
+const REACTION_LABELS = {
+  shield: "Shield (+5 CA, imune a Magic Missile)",
+  counterspell: "Counterspell (anular magia)",
+  hellish_rebuke: "Hellish Rebuke (2d10 fogo)",
+  healing_word: "Healing Word (1d4 cura)",
+  uncanny_dodge: "Uncanny Dodge (dano à metade)",
+  parry: "Parry (reduzir dano)",
+  opportunity_attack: "Ataque de oportunidade",
+};
+
+let reactionTimerId = null;
+
+function checkPendingReaction() {
+  if (readOnlyMode) return;
+  // Only prompt the human player (companions handled by future heuristic).
+  const player = getPlayerCharacter();
+  if (!player || !player.pending_reaction) return;
+  const pr = player.pending_reaction;
+  if (pr.resolved) return;
+  const eligible = Array.isArray(pr.reactions_eligible) ? pr.reactions_eligible : [];
+  if (!eligible.length) return;
+  openReactionModal(player, pr);
+}
+
+function openReactionModal(player, pending) {
+  const modal = document.getElementById("reaction-modal");
+  const options = document.getElementById("reaction-options");
+  const promptEl = document.getElementById("reaction-prompt");
+  const timerEl = document.getElementById("reaction-timer");
+  const msg = document.getElementById("reaction-msg");
+  if (!modal || !options || !promptEl || !timerEl || !msg) return;
+
+  msg.textContent = "";
+  promptEl.textContent = describeReactionTrigger(pending.trigger);
+  options.innerHTML = "";
+  (pending.reactions_eligible || []).forEach((kind) => {
+    const btn = document.createElement("button");
+    btn.className = "primary reaction-option";
+    btn.textContent = REACTION_LABELS[kind] || kind;
+    btn.onclick = () => resolveReaction(kind);
+    options.appendChild(btn);
+  });
+  modal.style.display = "flex";
+
+  // 30s countdown → auto-pass. We track expiry from the server's
+  // ``expires_at`` so client/server stay aligned even if the tab was
+  // backgrounded, falling back to a local 30s timer.
+  const ttlMs = Math.max(
+    1000,
+    Math.min(30000, ((pending.expires_at || 0) - Math.floor(Date.now() / 1000)) * 1000 || 30000),
+  );
+  let remaining = Math.ceil(ttlMs / 1000);
+  timerEl.textContent = `${remaining}s`;
+  if (reactionTimerId) clearInterval(reactionTimerId);
+  reactionTimerId = setInterval(() => {
+    remaining -= 1;
+    timerEl.textContent = `${remaining}s`;
+    if (remaining <= 0) {
+      closeReactionModal(true);
+    }
+  }, 1000);
+}
+
+function describeReactionTrigger(trigger) {
+  if (!trigger) return "Um gatilho de reação ocorreu.";
+  if (trigger.kind === "on_hit_by_attack") {
+    return `Você foi atingido por um ataque (${trigger.attack_damage} de dano${trigger.is_crit ? " crítico" : ""}). Reagir?`;
+  }
+  if (trigger.kind === "on_seeing_spell_cast") {
+    return `${trigger.caster_id} está conjurando ${trigger.spell_name || "uma magia"} (${trigger.level}º). Reagir?`;
+  }
+  if (trigger.kind === "on_ally_down") {
+    return `${trigger.ally_id} caiu. Reagir com cura?`;
+  }
+  if (trigger.kind === "on_damage_taken") {
+    return `Você sofreu ${trigger.amount} de dano. Reagir?`;
+  }
+  return "Um gatilho de reação ocorreu.";
+}
+
+function closeReactionModal(decline) {
+  const modal = document.getElementById("reaction-modal");
+  if (modal) modal.style.display = "none";
+  if (reactionTimerId) {
+    clearInterval(reactionTimerId);
+    reactionTimerId = null;
+  }
+  if (decline) resolveReaction(null);
+}
+
+async function resolveReaction(kind) {
+  if (reactionTimerId) {
+    clearInterval(reactionTimerId);
+    reactionTimerId = null;
+  }
+  const modal = document.getElementById("reaction-modal");
+  const msg = document.getElementById("reaction-msg");
+  if (modal) modal.style.display = "none";
+  // Passing (no kind): tell the server to clear the trigger without
+  // resolving — but only if one is actually open.
+  const payload = kind ? { kind } : { decline: true };
+  try {
+    const res = await api(`/api/sessions/${currentSessionId}/reaction`, {
+      method: "POST",
+      body: payload,
+    });
+    if (res.state) {
+      currentGameState = res.state;
+      renderCharacterTools();
+      await persistSave(res.state);
+    }
+    if (res.declined) return;
+    const r = res.resolution || {};
+    if (r.message) appendLog(r.success === false ? "Sistema" : (res.character_name || "Reação"),
+      r.message, r.success === false ? "system" : "companion");
+  } catch (e) {
+    if (e && e.status === 408) {
+      // Window expired server-side — nothing to do.
+      return;
+    }
+    if (e && e.status === 404) return;  // nothing pending
+    if (msg) msg.textContent = e.message || "Falha ao resolver reação.";
+    if (modal) modal.style.display = "flex";
+  }
+}
+
 function renderASIPickers(player) {
   const pickers = document.getElementById("asi-pickers");
   if (!pickers) return;
@@ -763,6 +896,7 @@ function enterGame(opts = {}) {
   // turn, and refresh the XP/level banner.
   checkPendingASI();
   updateLevelupBanner();
+  initMusicPlayer();  // Phase 42 — ambient music (if enabled in prefs)
 }
 
 // Persist the current GameState to the user's save (Postgres). Best-effort.
@@ -802,7 +936,12 @@ async function playOpeningClassic() {
     const res = await api(`/api/sessions/${currentSessionId}/opening`, {
       method: "POST",
     });
-    if (res.narration) appendLog("DM", res.narration, "narration");
+    if (res.narration) {
+      appendLog("DM", res.narration, "narration");
+      lastDmNarration = res.narration;  // Phase 42 — 🔊 replay + auto-TTS
+      refreshAudioButtons();
+      maybeAutoPlayTTS(res.narration);
+    }
     if (res.state) {
       currentGameState = res.state;
       updateLevelupBanner();
@@ -1557,13 +1696,19 @@ async function sendInputClassic(line) {
       renderCharacterTools();
       updateLevelupBanner();  // Phase 38
       checkPendingASI();  // Phase 38 — combat-end may have queued an ASI
+      checkPendingReaction();  // Phase 41c — enemy hit/spell may open a reaction
       await persistSave(res.state);
     }
     const r = res.result || {};
     if (r.error) {
       appendLog("Erro", r.error, "system");
     } else {
-      if (r.narration) appendLog("DM", r.narration, "narration");
+      if (r.narration) {
+        appendLog("DM", r.narration, "narration");
+        lastDmNarration = r.narration;  // Phase 42 — 🔊 replay + auto-TTS
+        refreshAudioButtons();
+        maybeAutoPlayTTS(r.narration);
+      }
       if (r.action_result) {
         const ar = typeof r.action_result === "string"
           ? r.action_result
@@ -1708,6 +1853,205 @@ async function clientCommand(line) {
   return false;
 }
 
+// --- Phase 42: TTS + ambient music ---
+// Preferences live on the user object (`user.preferences`). TTS synthesis hits
+// /api/tts/speak (disk-cached server-side); the in-memory Map below caches the
+// blob URLs client-side so replaying the same narration is instant. Ambient
+// music is a plain <audio loop> fed a user-supplied URL.
+let lastDmNarration = "";
+let audioUnlocked = false;  // set on first user gesture (iOS Safari gate)
+const ttsBlobCache = new Map();  // key `${text}|${voice}|${rate}` -> objectURL
+let musicVolume = 0.4;
+
+const DEFAULT_PREFS = {
+  tts: { enabled: false, voice: "", rate: "+0%", auto_play: false },
+  music: { enabled: false, src: "", volume: 0.4 },
+};
+
+function prefs() {
+  const u = getUser();
+  const stored = (u && u.preferences) || {};
+  const merged = {};
+  for (const section of Object.keys(DEFAULT_PREFS)) {
+    merged[section] = { ...DEFAULT_PREFS[section], ...(stored[section] || {}) };
+  }
+  return merged;
+}
+
+function ttsPlayer() {
+  return document.getElementById("tts-player");
+}
+function musicPlayer() {
+  return document.getElementById("music-player");
+}
+
+function online() {
+  return typeof navigator !== "undefined" ? navigator.onLine : true;
+}
+
+function refreshAudioButtons() {
+  const ttsBtn = document.getElementById("tts-btn");
+  const musicBtn = document.getElementById("music-btn");
+  const p = prefs();
+  if (ttsBtn) {
+    ttsBtn.disabled = !online() || readOnlyMode || !lastDmNarration;
+  }
+  if (musicBtn) {
+    musicBtn.disabled = !online() || !(p.music.enabled && p.music.src);
+    musicBtn.classList.toggle("active", !musicPlayer().paused && !musicBtn.disabled);
+  }
+}
+
+async function playTTS(text) {
+  if (!text || !online()) return;
+  const p = prefs();
+  if (!p.tts.enabled) return;
+  audioUnlocked = true;
+  const voice = p.tts.voice || "";
+  const rate = p.tts.rate || "+0%";
+  const key = `${text}|${voice}|${rate}`;
+  const player = ttsPlayer();
+  const ttsBtn = document.getElementById("tts-btn");
+  try {
+    if (ttsBtn) ttsBtn.disabled = true;
+    let url = ttsBlobCache.get(key);
+    if (!url) {
+      const params = new URLSearchParams({ text, voice, rate });
+      const tok = getToken();
+      const resp = await fetch(`${API_BASE}/api/tts/speak?${params}`, {
+        headers: tok ? { Authorization: `Bearer ${tok}` } : {},
+      });
+      if (resp.status === 503) {
+        appendLog("Sistema", "Serviço de voz indisponível agora.", "system");
+        return;
+      }
+      if (!resp.ok) return;
+      const blob = await resp.blob();
+      url = URL.createObjectURL(blob);
+      ttsBlobCache.set(key, url);
+    }
+    player.src = url;
+    await player.play();
+  } catch (e) {
+    // Autoplay rejection (no gesture yet) — silently ignore; the 🔊 button
+    // still works because it counts as a gesture.
+  } finally {
+    refreshAudioButtons();
+  }
+}
+
+function maybeAutoPlayTTS(text) {
+  const p = prefs();
+  if (p.tts.enabled && p.tts.auto_play && audioUnlocked && online()) {
+    playTTS(text);
+  }
+}
+
+function initMusicPlayer() {
+  const p = prefs();
+  const player = musicPlayer();
+  musicVolume = p.music.volume ?? 0.4;
+  const volEl = document.getElementById("music-volume");
+  if (volEl) volEl.value = String(musicVolume);
+  if (p.music.enabled && p.music.src && online()) {
+    player.src = p.music.src;
+    player.volume = musicVolume;
+    // Best-effort autoplay; browsers may block until a gesture.
+    player.play().catch(() => {});
+  } else {
+    player.removeAttribute("src");
+    player.load();
+  }
+  refreshAudioButtons();
+}
+
+function toggleMusic() {
+  const player = musicPlayer();
+  const p = prefs();
+  if (!(p.music.enabled && p.music.src)) return;
+  audioUnlocked = true;
+  if (player.paused) {
+    player.volume = musicVolume;
+    player.play().catch(() => {});
+  } else {
+    player.pause();
+  }
+  refreshAudioButtons();
+}
+
+// --- Phase 42: Voz & Música settings modal ---
+async function openPrefsModal() {
+  const p = prefs();
+  document.getElementById("prefs-tts-enabled").checked = !!p.tts.enabled;
+  document.getElementById("prefs-tts-auto").checked = !!p.tts.auto_play;
+  document.getElementById("prefs-tts-rate").value = p.tts.rate || "+0%";
+  document.getElementById("prefs-music-enabled").checked = !!p.music.enabled;
+  document.getElementById("prefs-music-src").value = p.music.src || "";
+  document.getElementById("prefs-music-volume").value = String(p.music.volume ?? 0.4);
+  setMsg("prefs-msg", "", "");
+  document.getElementById("prefs-modal").style.display = "";
+
+  // Lazy-load pt-* voices the first time the modal opens.
+  const sel = document.getElementById("prefs-tts-voice");
+  if (sel.options.length <= 1) {
+    try {
+      const data = await api("/api/tts/voices");
+      for (const v of data.voices) {
+        const name = v.ShortName || v.Name || "";
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = `${name} (${v.Gender || ""})`.trim();
+        sel.appendChild(opt);
+      }
+    } catch (_) {
+      // Voices unavailable (503) — leave the "(padrão)" option in place.
+    }
+  }
+  sel.value = p.tts.voice || "";
+}
+
+function closePrefsModal() {
+  document.getElementById("prefs-modal").style.display = "none";
+}
+
+async function persistPrefs(patch) {
+  const merged = await api("/api/me/preferences", { method: "PATCH", body: patch });
+  const u = getUser();
+  if (u) {
+    u.preferences = merged;
+    setUser(u);
+  }
+  return merged;
+}
+
+// Debounced PATCH for slider/checkbox changes inside the modal.
+let prefsSaveTimer = null;
+function schedulePrefsSave() {
+  clearTimeout(prefsSaveTimer);
+  prefsSaveTimer = setTimeout(() => {
+    const patch = {
+      tts: {
+        enabled: document.getElementById("prefs-tts-enabled").checked,
+        auto_play: document.getElementById("prefs-tts-auto").checked,
+        voice: document.getElementById("prefs-tts-voice").value,
+        rate: document.getElementById("prefs-tts-rate").value,
+      },
+      music: {
+        enabled: document.getElementById("prefs-music-enabled").checked,
+        src: document.getElementById("prefs-music-src").value.trim(),
+        volume: parseFloat(document.getElementById("prefs-music-volume").value),
+      },
+    };
+    persistPrefs(patch)
+      .then(() => {
+        initMusicPlayer();
+        refreshAudioButtons();
+        setMsg("prefs-msg", "Preferências salvas.", "ok");
+      })
+      .catch((e) => setMsg("prefs-msg", "Erro: " + e.message, "error"));
+  }, 400);
+}
+
 // --- Wire up events ---
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("login-btn").onclick = doLogin;
@@ -1770,6 +2114,44 @@ document.addEventListener("DOMContentLoaded", () => {
   if (itemClose) itemClose.onclick = closeItemModal;
   const shopClose = document.getElementById("shop-modal-close");
   if (shopClose) shopClose.onclick = closeShopModal;
+  // Phase 41c — reaction modal handlers.
+  const rxClose = document.getElementById("reaction-close");
+  if (rxClose) rxClose.onclick = () => closeReactionModal(/*decline*/ true);
+  const rxPass = document.getElementById("reaction-pass");
+  if (rxPass) rxPass.onclick = () => closeReactionModal(/*decline*/ true);
+  // Phase 42 — TTS + ambient music.
+  const prefsBtn = document.getElementById("prefs-btn");
+  if (prefsBtn) prefsBtn.onclick = openPrefsModal;
+  const prefsClose = document.getElementById("prefs-close");
+  if (prefsClose) prefsClose.onclick = closePrefsModal;
+  const ttsBtn = document.getElementById("tts-btn");
+  if (ttsBtn) ttsBtn.onclick = () => playTTS(lastDmNarration);
+  const musicBtn = document.getElementById("music-btn");
+  if (musicBtn) musicBtn.onclick = toggleMusic;
+  const musicVol = document.getElementById("music-volume");
+  if (musicVol) {
+    musicVol.oninput = () => {
+      musicVolume = parseFloat(musicVol.value);
+      musicPlayer().volume = musicVolume;
+    };
+  }
+  const ttsTest = document.getElementById("prefs-tts-test");
+  if (ttsTest) {
+    ttsTest.onclick = () =>
+      playTTS("Esta é uma amostra da narração em voz do mestre.");
+  }
+  // Persist prefs on any change inside the modal (debounced PATCH).
+  ["prefs-tts-enabled", "prefs-tts-auto", "prefs-tts-voice", "prefs-tts-rate",
+   "prefs-music-enabled", "prefs-music-src", "prefs-music-volume"].forEach(
+    (id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("change", schedulePrefsSave);
+      if (el && el.id === "prefs-music-src") el.addEventListener("input", schedulePrefsSave);
+    },
+  );
+  // Refresh audio button state when connectivity changes.
+  window.addEventListener("online", refreshAudioButtons);
+  window.addEventListener("offline", refreshAudioButtons);
   const cmd = document.getElementById("cmd");
   cmd.addEventListener("keydown", (e) => {
     if (busy) return;

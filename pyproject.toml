@@ -22,6 +22,10 @@ dependencies = [
     "pyjwt>=2.8",
     "python-multipart>=0.0.9",
     "sse-starlette>=2.0",
+    # Phase 42 — TTS narration. ⚠️ edge-tts is GPL-3.0: kept isolated in
+    # ``auto_dm/web/tts.py`` (lazy import) so it can be extracted into a
+    # sidecar if distribution licensing ever requires it.
+    "edge-tts>=6.1,<7",
     # Phase 10 deps (other providers) — added when implemented
     # "anthropic>=0.40.0",
     # "google-generativeai>=0.8.0",

@@ -117,6 +117,31 @@ class Settings(BaseSettings):
     environment: str = Field(default="development")
     log_level: str = Field(default="INFO")
 
+    # --- TTS (Phase 42) ------------------------------------------------
+    # edge-tts synth is cached on disk by sha1(text|voice|rate). Empty
+    # ``tts_cache_dir`` resolves to ``tempfile.gettempdir()/auto_dm_tts_cache``
+    # so it works cross-platform (dev is Windows, deploy is Linux).
+    tts_cache_dir: str = Field(
+        default="",
+        description="Disk cache dir for synth mp3s. Empty → system temp.",
+    )
+    tts_cache_ttl_seconds: int = Field(
+        default=60 * 60 * 24 * 30,  # 30 days
+        description="TTL for cached synth mp3s (mtime-based).",
+    )
+    tts_default_voice: str = Field(
+        default="pt-BR-FranciscaNeural",
+        description="Default edge-tts voice (pt-BR).",
+    )
+    tts_default_rate: str = Field(
+        default="+0%",
+        description="Default synth rate (e.g. '+0%', '-10%', '+15%').",
+    )
+    tts_max_text_chars: int = Field(
+        default=2000,
+        description="Hard cap on input text length for /api/tts/speak.",
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -240,7 +240,22 @@ class CombatEngine:
                 self._attacks_remaining[next_actor] = attacks_per_action(actor)
             else:
                 self._attacks_remaining[next_actor] = 1
-        return state_manager.next_turn()
+        new_id = state_manager.next_turn()
+        # Phase 41 — refresh the new actor's reaction at the start of its
+        # turn (PHB p. 190) and drop the Shield spell's temporary buffs
+        # (pending_ac_bonus / Magic Missile immunity) which last "until
+        # the start of your next turn".
+        if new_id is not None:
+            refreshed = state_manager.get_creature(new_id)
+            if isinstance(refreshed, Character):
+                refreshed.reaction_available = True
+                if refreshed.shield_active:
+                    refreshed.shield_active = False
+                    refreshed.pending_ac_bonus = 0
+                # Clear any unanswered pending_reaction now that its window
+                # has rolled past (the trigger belonged to a prior turn).
+                refreshed.pending_reaction = None
+        return new_id
 
     def current_actor_id(self, state_manager: StateManager) -> Optional[str]:
         if not state_manager.state.in_combat:
@@ -512,6 +527,35 @@ def _handle_attack(
         if conc.broken:
             conc_broken_note = f" {target.name} perdeu a concentração!"
 
+    # Phase 41 — publish a reaction trigger when a party member is hit.
+    # The party member (player or companion) may spend their reaction to
+    # Shield / Uncanny Dodge / Parry. ``publish_reaction_trigger`` is a
+    # no-op when nobody is eligible, so it's safe to call unconditionally.
+    # Damage-reduction reactions resolve as a refund (see engine/reactions).
+    reaction_note = ""
+    if (
+        atk.is_hit
+        and final_dmg > 0
+        and isinstance(target, Character)
+        and target.reaction_available
+    ):
+        from auto_dm.engine.actions import OnHitByAttack
+        from auto_dm.engine.reactions import publish_reaction_trigger
+        import time
+        trigger = OnHitByAttack(
+            target_id=target.id,
+            attacker_id=attacker.id,
+            attack_damage=final_dmg,
+            damage_type=dmg.damage_type,
+            is_melee=bool(getattr(atk, "weapon", None)),
+            is_crit=atk.is_crit,
+        )
+        responders = publish_reaction_trigger(
+            state_manager, trigger, fired_at=int(time.time()),
+        )
+        if responders:
+            reaction_note = " [reação disponível]"
+
     return ActionResult(
         success=True,
         message=(
@@ -520,7 +564,7 @@ def _handle_attack(
             f"vs AC {atk.target_ac} → ACERTOU! "
             f"{final_dmg} de dano {dmg.damage_type}{damage_note}{sneak_note}{smite_note}"
             f"{' (CRÍTICO!)' if atk.is_crit else ''}. "
-            f"{target.name} agora tem {new_hp} HP.{conc_broken_note}"
+            f"{target.name} agora tem {new_hp} HP.{conc_broken_note}{reaction_note}"
         ),
         mechanical={
             "attack_roll": atk.attack_roll,
@@ -869,9 +913,37 @@ def _handle_cast_spell(
         parts.append("(concentração)")
     msg = " — ".join(parts) + "."
 
+    # Phase 41 — publish a Counterspell trigger when a non-player caster
+    # casts a leveled spell (an enemy mage, a dominated companion, etc.).
+    # The player (or a companion) may spend their reaction to counter it.
+    # MVP limitation: pure NPCs rarely carry structured ``spellcasting``,
+    # so this fires mainly for Character casters that aren't the player.
+    reaction_note = ""
+    if (
+        result.success
+        and result.slot_level_used >= 1
+        and caster.id != state_manager.state.player_character_id
+    ):
+        from auto_dm.engine.actions import OnSeeingSpellCast
+        from auto_dm.engine.reactions import publish_reaction_trigger
+        import time
+        trigger = OnSeeingSpellCast(
+            caster_id=caster.id,
+            spell_name=spell_name,
+            level=result.slot_level_used,
+        )
+        responders = publish_reaction_trigger(
+            state_manager, trigger, fired_at=int(time.time()),
+            # Only the player is prompted (companions countering enemy
+            # spells is a rare case handled by future heuristic).
+            candidates=[state_manager.state.player_character_id],
+        )
+        if responders:
+            reaction_note = " [reação disponível]"
+
     return ActionResult(
         success=True,
-        message=msg,
+        message=msg + reaction_note,
         mechanical={
             "spell": spell_name,
             "slot_level_used": result.slot_level_used,
@@ -1375,6 +1447,81 @@ def _handle_dismount(
     )
 
 
+def _handle_reaction(
+    engine: CombatEngine,
+    state_manager: StateManager,
+    action: Action,
+) -> ActionResult:
+    """Resolve a reaction (Phase 41).
+
+    The responder (``action.actor_id``) answers a previously published
+    trigger. ``action.params`` carries::
+
+        {"kind": "<ReactionKind value>",
+         "trigger": <payload from pending_reaction.trigger>,
+         "slot_level": <optional, for spell reactions>,
+         "check_roll": <optional, for Counterspell ability check>}
+
+    Eligibility is re-checked at resolution time (the responder may have
+    lost the reaction or the slot between publication and answer). Runs
+    outside the normal turn order — no turn check — because reactions
+    happen on other actors' turns.
+    """
+    from auto_dm.engine.actions import trigger_from_payload
+    from auto_dm.engine.actions import ReactionKind
+    from auto_dm.engine.reactions import apply_reaction
+
+    responder = state_manager.get_character(action.actor_id)
+    if responder is None:
+        return ActionResult(
+            success=False,
+            message=f"Personagem {action.actor_id!r} não encontrado.",
+            mechanical={},
+        )
+
+    kind_value = action.params.get("kind", "")
+    try:
+        kind = ReactionKind(kind_value)
+    except ValueError:
+        return ActionResult(
+            success=False,
+            message=f"Tipo de reação desconhecido: {kind_value!r}",
+            mechanical={"kind": kind_value},
+        )
+
+    trigger_payload = action.params.get("trigger") or {}
+    trigger = trigger_from_payload(trigger_payload)
+
+    resolution = apply_reaction(
+        engine, state_manager, action.actor_id, kind, trigger,
+        slot_level=action.params.get("slot_level"),
+        check_roll=action.params.get("check_roll"),
+    )
+
+    mechanical = {
+        "reaction_kind": kind.value,
+        "success": resolution.success,
+        "consumed_reaction": resolution.consumed_reaction,
+        "consumed_slot_level": resolution.consumed_slot_level,
+        "reason": resolution.reason,
+    }
+    if resolution.damage_modified_to is not None:
+        mechanical["damage_modified_to"] = resolution.damage_modified_to
+    if resolution.spell_cancelled:
+        mechanical["spell_cancelled"] = True
+    if resolution.healed_to is not None:
+        mechanical["healed_to"] = resolution.healed_to
+    if resolution.rebuke_damage:
+        mechanical["rebuke_damage"] = resolution.rebuke_damage
+        mechanical["rebuke_target_hp"] = resolution.rebuke_target_hp
+
+    return ActionResult(
+        success=resolution.success,
+        message=resolution.message,
+        mechanical=mechanical,
+    )
+
+
 # ActionType → handler (placed at end of module so all refs are defined)
 _ACTION_HANDLERS = {
     ActionType.ATTACK: _handle_attack,
@@ -1404,4 +1551,5 @@ _ACTION_HANDLERS = {
     ActionType.INDOMITABLE: _handle_indomitable,
     ActionType.MOUNT: _handle_mount,
     ActionType.DISMOUNT: _handle_dismount,
+    ActionType.REACTION: _handle_reaction,
 }

@@ -294,6 +294,16 @@ class Character(BaseModel):
     # Cleared by the engine at end of attacker's turn.
     pending_ac_bonus: int = 0
 
+    # Phase 41 — Reactions. ``reaction_available`` is the action-economy
+    # gate: a creature gets one reaction per round, refreshed at the start
+    # of its own turn (PHB p. 190). The engine sets this False when a
+    # reaction resolves and True again on ``next_turn`` when the creature
+    # is about to act. ``shield_active`` (set by the Shield spell reaction)
+    # grants Magic Missile immunity in addition to the ``pending_ac_bonus``
+    # it stacks; both clear at the start of the caster's next turn.
+    reaction_available: bool = True
+    shield_active: bool = False
+
     # Death saves (only relevant when hp_current == 0)
     death_save_successes: int = 0
     death_save_failures: int = 0
@@ -536,6 +546,18 @@ class Character(BaseModel):
     # immediately (they never leave a non-None ``pending_asi``).
     pending_asi: Optional[dict] = Field(default=None)
 
+    # Phase 41 — Reactions. When the engine publishes a trigger during
+    # another character's turn (an enemy spell being cast, the character
+    # being hit, an ally dropping to 0 HP), it sets ``pending_reaction``
+    # so the web layer can surface a modal and the player can answer.
+    # Shape (see ``engine/actions.py::build_pending_reaction``):
+    #     {"fired_at": int, "expires_at": int, "ttl_seconds": int,
+    #      "trigger": <payload dict>, "reactions_eligible": [str, ...],
+    #      "resolved": bool, "chosen": str | None}
+    # ``None`` means no reaction is currently requested. The TTL is 30 s;
+    # the engine treats expired/unanswered triggers as silently declined.
+    pending_reaction: Optional[dict] = Field(default=None)
+
 
 # ============================================================================
 # NPCs and creatures
@@ -681,6 +703,11 @@ class ActionType(str, Enum):
     STUNNING_STRIKE = "stunning_strike"  # Monk
     MOUNT = "mount"  # Phase 25e: mount a creature / vehicle
     DISMOUNT = "dismount"  # Phase 25e: dismount from current mount
+    # Phase 41 — take a reaction in response to a published trigger. The
+    # actor is the responder; params carry the chosen ReactionKind, the
+    # trigger payload, and (for spell reactions) the slot level / ability
+    # check roll. Resolved out-of-turn by ``_handle_reaction``.
+    REACTION = "reaction"
 
 
 class Action(BaseModel):

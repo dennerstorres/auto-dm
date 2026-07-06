@@ -29,7 +29,9 @@ from auto_dm.web.routes_admin import router as admin_router
 from auto_dm.web.routes_auth import router as auth_router
 from auto_dm.web.routes_game import router as game_router
 from auto_dm.web.routes_inventory import router as inventory_router
+from auto_dm.web.routes_preferences import router as preferences_router
 from auto_dm.web.routes_setup import router as setup_router
+from auto_dm.web.routes_tts import router as tts_router
 from auto_dm.web.sessions import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -167,6 +169,29 @@ def _ensure_user_limits(conn) -> None:
             "ALTER TABLE users ADD COLUMN disabled_reason VARCHAR(255) NULL"
         )
     logger.info("Ensured users usage-control columns")
+
+
+def _ensure_user_preferences(conn) -> None:
+    """Add the Phase 42 ``preferences`` JSON column to ``users`` if missing.
+
+    Idempotent per-column ALTER, dialect-aware JSON type (JSONB on Postgres,
+    JSON on SQLite via the generic type). Existing rows backfill to NULL;
+    :func:`auto_dm.web.preferences.merge_defaults` synthesizes defaults at read
+    time, so no data migration is needed.
+    """
+    from sqlalchemy import inspect
+
+    insp = inspect(conn)
+    if "users" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("users")}
+    if "preferences" in existing:
+        return
+    json_type = "JSON" if conn.dialect.name == "sqlite" else "JSONB"
+    conn.exec_driver_sql(
+        f"ALTER TABLE users ADD COLUMN preferences {json_type} NULL"
+    )
+    logger.info("Added users.preferences column")
 
 
 def _ensure_usage_tables(conn) -> None:
@@ -326,6 +351,7 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(_ensure_user_role)
         await conn.run_sync(_ensure_user_limits)
         await conn.run_sync(_ensure_usage_tables)
+        await conn.run_sync(_ensure_user_preferences)
     logger.info("DB schema ready")
 
     # Seed the single admin account (idempotent).
@@ -390,6 +416,8 @@ def create_app(provider_factory: Optional[Callable] = None) -> FastAPI:
     app.include_router(inventory_router)
     app.include_router(setup_router)
     app.include_router(admin_router)
+    app.include_router(tts_router)
+    app.include_router(preferences_router)
 
     # Health check (no auth required)
     @app.get("/api/health")

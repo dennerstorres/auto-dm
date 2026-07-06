@@ -4,7 +4,7 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Auto DM — Console</title>
-        <link rel="stylesheet" href="/style.css?v=51" />
+        <link rel="stylesheet" href="/style.css?v=53" />
     </head>
     <body>
         <div id="app">
@@ -51,6 +51,11 @@
             <!-- New / load game screen -->
             <section id="lobby-screen" class="screen" style="display: none">
                 <h2>Jogos salvos</h2>
+                <div class="row">
+                    <button id="prefs-btn" class="secondary">
+                        ⚙ Voz & Música
+                    </button>
+                </div>
                 <ul id="saves-list"></ul>
                 <div class="row">
                     <button id="archive-toggle" class="secondary">
@@ -287,7 +292,28 @@
                     <button id="lobby-btn" class="secondary">
                         ← Voltar ao lobby
                     </button>
+                    <!-- Phase 42 — TTS replay + ambient music controls. -->
+                    <div class="audio-toolbar">
+                        <button
+                            id="tts-btn"
+                            class="audio-btn"
+                            title="Ouvir a última narração do mestre"
+                            disabled
+                        >🔊</button>
+                        <button
+                            id="music-btn"
+                            class="audio-btn"
+                            title="Tocar/pausar música ambiente"
+                            disabled
+                        >🎵</button>
+                        <label class="audio-volume" title="Volume da música">
+                            <span>🔊</span>
+                            <input id="music-volume" type="range" min="0" max="1" step="0.05" value="0.4" />
+                        </label>
+                    </div>
                 </div>
+                <audio id="music-player" loop></audio>
+                <audio id="tts-player"></audio>
                 <div id="table-tools" class="table-tools" style="display: none">
                     <div class="sheet-stack">
                         <div
@@ -692,6 +718,25 @@
             <!-- Phase 38 — short banner above the chat showing level-up XP progress. -->
             <div id="levelup-banner" class="levelup-banner" style="display: none"></div>
 
+            <!-- Phase 41c — reaction modal: prompts the player when an enemy
+                 hit/spell triggers an eligible reaction (Shield, Counterspell,
+                 Uncanny Dodge, …). Auto-passes after the 30s TTL. -->
+            <div id="reaction-modal" class="modal" style="display: none">
+                <div class="modal-card">
+                    <div class="row">
+                        <h3>⚡ Reação disponível</h3>
+                        <button id="reaction-close" class="secondary">×</button>
+                    </div>
+                    <p id="reaction-prompt" class="hint"></p>
+                    <div id="reaction-options" class="reaction-options"></div>
+                    <div class="row">
+                        <span id="reaction-timer" class="reaction-timer">30s</span>
+                        <button id="reaction-pass" class="secondary">Não reagir</button>
+                    </div>
+                    <div id="reaction-msg" class="msg"></div>
+                </div>
+            </div>
+
             <!-- Phase 39 — item inspection modal (equip/attune/drop/sell). -->
             <div id="item-modal" class="modal" style="display: none">
                 <div class="modal-card">
@@ -715,8 +760,62 @@
                     <div id="shop-stock" class="shop-stock"></div>
                 </div>
             </div>
+
+            <!-- Phase 42 — Voz & música (TTS + ambient music preferences). -->
+            <div id="prefs-modal" class="modal" style="display: none">
+                <div class="modal-card">
+                    <div class="row">
+                        <h3>Voz &amp; Música</h3>
+                        <button id="prefs-close" class="secondary">×</button>
+                    </div>
+                    <div id="prefs-msg" class="msg"></div>
+
+                    <fieldset class="prefs-section">
+                        <legend>Narração em voz (TTS)</legend>
+                        <label>
+                            <input id="prefs-tts-enabled" type="checkbox" />
+                            Habilitar narração em voz
+                        </label>
+                        <label>
+                            <input id="prefs-tts-auto" type="checkbox" />
+                            Tocar automaticamente após o mestre narrar
+                        </label>
+                        <label>
+                            <span class="lbl">Voz</span>
+                            <select id="prefs-tts-voice"><option value="">(padrão)</option></select>
+                        </label>
+                        <label>
+                            <span class="lbl">Velocidade</span>
+                            <select id="prefs-tts-rate">
+                                <option value="-15%">Mais lenta</option>
+                                <option value="+0%" selected>Normal</option>
+                                <option value="+15%">Mais rápida</option>
+                            </select>
+                        </label>
+                        <button id="prefs-tts-test" class="secondary" type="button">
+                            🔊 Testar voz
+                        </button>
+                    </fieldset>
+
+                    <fieldset class="prefs-section">
+                        <legend>Música ambiente</legend>
+                        <label>
+                            <input id="prefs-music-enabled" type="checkbox" />
+                            Tocar música em loop
+                        </label>
+                        <label>
+                            <span class="lbl">URL do áudio (CC-BY recomendado)</span>
+                            <input id="prefs-music-src" type="url" placeholder="https://.../forest.mp3" />
+                        </label>
+                        <label>
+                            <span class="lbl">Volume</span>
+                            <input id="prefs-music-volume" type="range" min="0" max="1" step="0.05" value="0.4" />
+                        </label>
+                    </fieldset>
+                </div>
+            </div>
         </div>
 
-        <script src="/app.js?v=51" type="module"></script>
+        <script src="/app.js?v=53" type="module"></script>
     </body>
 </html>

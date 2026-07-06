@@ -116,6 +116,11 @@ class User(Base):
         Boolean, default=True, server_default=true(), nullable=False,
     )
     disabled_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # --- User preferences (Phase 42) ------------------------------------
+    # Single JSON column holding the {tts, music} preferences blob. JSONB on
+    # Postgres / JSON on SQLite (generic JSON type handles both). NULL for
+    # users who never set any → merge_defaults back-fills at read time.
+    preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     saves: Mapped[list["Save"]] = relationship(
         "Save", back_populates="user", cascade="all, delete-orphan"
