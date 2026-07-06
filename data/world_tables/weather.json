@@ -1,0 +1,12 @@
+{
+  "id": "weather",
+  "name": "Clima (d20, genérico)",
+  "entries": [
+    { "roll_min": 1, "roll_max": 2, "weather": "tempestade" },
+    { "roll_min": 3, "roll_max": 6, "weather": "chuva" },
+    { "roll_min": 7, "roll_max": 9, "weather": "nublado" },
+    { "roll_min": 10, "roll_max": 16, "weather": "ameno" },
+    { "roll_min": 17, "roll_max": 19, "weather": "vento forte" },
+    { "roll_min": 20, "roll_max": 20, "weather": "névoa densa" }
+  ]
+}

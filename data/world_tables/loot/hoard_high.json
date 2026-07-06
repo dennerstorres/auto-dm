@@ -1,0 +1,12 @@
+{
+  "id": "hoard_high",
+  "name": "Tesouro — Nível alto (CR 11+)",
+  "tier": "high",
+  "entries": [
+    { "roll_min": 1, "roll_max": 20, "gold_dice": "8d6", "gold_multiplier": 1000.0, "items": [], "notes": "Uma fortuna em moedas de platina." },
+    { "roll_min": 21, "roll_max": 45, "gold_dice": "4d6", "gold_multiplier": 1000.0, "items": [], "notes": "Gemas raras e joias incrustadas." },
+    { "roll_min": 46, "roll_max": 65, "gold_dice": "2d6", "gold_multiplier": 1000.0, "items": ["Ring of Protection"], "notes": "Um anel gravado com runas de proteção." },
+    { "roll_min": 66, "roll_max": 85, "gold_dice": "3d6", "gold_multiplier": 100.0, "items": ["Bag of Holding", "Wand of Magic Missiles"], "notes": "Um pequeno arsenal mágico guardado com zelo." },
+    { "roll_min": 86, "roll_max": 100, "gold_dice": "6d6", "gold_multiplier": 1000.0, "items": ["Ring of Protection"], "notes": "O tesouro pessoal de um antigo mestre de guerra." }
+  ]
+}

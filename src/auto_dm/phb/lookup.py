@@ -22,8 +22,10 @@ from auto_dm.phb.loader import (
     load_classes,
     load_conditions,
     load_diseases,
+    load_encounter_tables,
     load_gear,
     load_languages,
+    load_loot_tables,
     load_magic_items,
     load_monsters,
     load_mounts,
@@ -35,9 +37,12 @@ from auto_dm.phb.loader import (
     load_traps,
     load_vehicles,
     load_weapons,
+    load_weather_table,
 )
 from auto_dm.phb.models import (
     Background,
+    EncounterTable,
+    LootTable,
     MagicItem,
     MagicItemType,
     Monster,
@@ -61,6 +66,7 @@ from auto_dm.phb.models import (
     GearCategory,
     Vehicle,
     VehicleType,
+    WeatherTable,
 )
 
 
@@ -89,6 +95,39 @@ def set_phb_root(path: Path) -> None:
     global _phb_root
     _phb_root = path
     _clear_caches()
+
+
+# World tables (Phase 40) live under a separate root — ``data/world_tables/``,
+# not ``data/phb/`` — since they're a curated/original resource, not parsed
+# PHB content. Kept as an independent override so tests can swap in a fixture
+# tree without disturbing the PHB root (and vice versa).
+_DEFAULT_WORLD_TABLES_ROOT = Path(__file__).resolve().parents[3] / "data" / "world_tables"
+
+_world_tables_root: Path | None = None
+
+
+def get_world_tables_root() -> Path:
+    """Return the configured world-tables root, falling back to the default."""
+    global _world_tables_root
+    if _world_tables_root is None:
+        _world_tables_root = _DEFAULT_WORLD_TABLES_ROOT
+    return _world_tables_root
+
+
+def set_world_tables_root(path: Path) -> None:
+    """Override the world-tables root and clear its caches (tests only)."""
+    global _world_tables_root
+    _world_tables_root = path
+    _clear_world_tables_caches()
+
+
+def _clear_world_tables_caches() -> None:
+    global _encounter_tables_cache, _loot_tables_cache
+    global _weather_table_cache, _weather_table_loaded
+    _encounter_tables_cache = None
+    _loot_tables_cache = None
+    _weather_table_cache = None
+    _weather_table_loaded = False
 
 
 def _clear_caches() -> None:
@@ -142,6 +181,10 @@ _packs_cache: list[PHBEquipmentPack] | None = None
 _magic_items_cache: list[MagicItem] | None = None
 _mounts_cache: list[Mount] | None = None
 _vehicles_cache: list[Vehicle] | None = None
+_encounter_tables_cache: list[EncounterTable] | None = None
+_loot_tables_cache: list[LootTable] | None = None
+_weather_table_cache: WeatherTable | None = None
+_weather_table_loaded: bool = False
 
 
 # ============================================================================
@@ -628,3 +671,49 @@ def _all_vehicles() -> list[Vehicle]:
     if _vehicles_cache is None:
         _vehicles_cache = load_vehicles(get_phb_root())
     return _vehicles_cache
+
+
+# ============================================================================
+# World tables — random encounters, loot, weather (Phase 40)
+# ============================================================================
+
+
+def get_encounter_tables() -> list[EncounterTable]:
+    """Return all loaded encounter tables (cached)."""
+    global _encounter_tables_cache
+    if _encounter_tables_cache is None:
+        _encounter_tables_cache = load_encounter_tables(get_world_tables_root())
+    return _encounter_tables_cache
+
+
+def get_encounter_table(table_id: str) -> EncounterTable | None:
+    """Look up an encounter table by its exact ``id`` (e.g. ``"forest_day"``)."""
+    for table in get_encounter_tables():
+        if table.id == table_id:
+            return table
+    return None
+
+
+def get_loot_tables() -> list[LootTable]:
+    """Return all loaded loot tables (cached)."""
+    global _loot_tables_cache
+    if _loot_tables_cache is None:
+        _loot_tables_cache = load_loot_tables(get_world_tables_root())
+    return _loot_tables_cache
+
+
+def get_loot_table(table_id: str) -> LootTable | None:
+    """Look up a loot table by its exact ``id`` (e.g. ``"hoard_low"``)."""
+    for table in get_loot_tables():
+        if table.id == table_id:
+            return table
+    return None
+
+
+def get_weather_table() -> WeatherTable | None:
+    """Return the loaded weather table (cached), or ``None`` if absent."""
+    global _weather_table_cache, _weather_table_loaded
+    if not _weather_table_loaded:
+        _weather_table_cache = load_weather_table(get_world_tables_root())
+        _weather_table_loaded = True
+    return _weather_table_cache

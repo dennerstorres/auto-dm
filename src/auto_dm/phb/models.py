@@ -735,3 +735,84 @@ class Vehicle(BaseModel):
     # Multiplier entries on the Tack table (e.g. "Barding: ×4 / ×2")
     # are stored as descriptive text on the item's row, not as numbers.
     notes: str = ""
+
+
+# ============================================================================
+# World tables — random encounters, loot, weather (Phase 40)
+#
+# These aren't PHB content — they're a curated, open resource (DMG-inspired)
+# that lives under ``data/world_tables/`` (not ``data/phb/``). They're
+# defined here alongside the other lookup-table models for consistency,
+# but loaded via a separate root (see ``phb/lookup.py::get_world_tables_root``).
+# ============================================================================
+
+
+class EncounterMonsterEntry(BaseModel):
+    """One monster stack within an encounter table row.
+
+    ``count`` is a dice notation string (``"2d4"``) or a fixed digit
+    string (``"1"``) — resolved at roll time via ``engine/dice.py``.
+    """
+
+    id: str  # exact PHB Monster name, e.g. "Wolf", "Bandit Captain"
+    count: str = "1"
+
+
+class EncounterTableRow(BaseModel):
+    """One row of a d100 encounter table.
+
+    An empty ``monsters`` list is a valid "no encounter" row — most
+    real-world tables are majority no-encounter to keep travel from
+    feeling like a monster gauntlet.
+    """
+
+    roll_min: int
+    roll_max: int
+    monsters: list[EncounterMonsterEntry] = Field(default_factory=list)
+    notes: str = ""
+
+
+class EncounterTable(BaseModel):
+    """A biome/time-of-day encounter table (``forest_day``, ``road_night``...)."""
+
+    id: str
+    name: str
+    biome: str
+    time_of_day: str = "any"  # "day" | "night" | "any"
+    entries: list[EncounterTableRow] = Field(default_factory=list)
+
+
+class LootTableRow(BaseModel):
+    """One row of a loot table (individual find or hoard tier)."""
+
+    roll_min: int
+    roll_max: int
+    gold_dice: str = ""  # dice notation, e.g. "2d6" — "" means no gold on this row
+    gold_multiplier: float = 1.0
+    items: list[str] = Field(default_factory=list)  # catalog names (resolve_catalog_item)
+    notes: str = ""
+
+
+class LootTable(BaseModel):
+    """A loot table (``individual``, ``hoard_low``, ``hoard_mid``, ``hoard_high``)."""
+
+    id: str
+    name: str
+    tier: str
+    entries: list[LootTableRow] = Field(default_factory=list)
+
+
+class WeatherTableRow(BaseModel):
+    roll_min: int
+    roll_max: int
+    weather: str
+
+
+class WeatherTable(BaseModel):
+    """A d20 weather table. Kept generic (no per-biome/season split — see
+    SPEC.md Fase 40 scope note) for the MVP.
+    """
+
+    id: str
+    name: str
+    entries: list[WeatherTableRow] = Field(default_factory=list)

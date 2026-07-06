@@ -1,0 +1,14 @@
+{
+  "id": "dungeon_level_5",
+  "name": "Masmorra — Nível 5",
+  "biome": "dungeon",
+  "time_of_day": "any",
+  "entries": [
+    { "roll_min": 1, "roll_max": 40, "monsters": [], "notes": "Nenhum encontro — apenas o eco de pingos d'água ao longe." },
+    { "roll_min": 41, "roll_max": 55, "monsters": [{ "id": "Hobgoblin", "count": "2d4" }], "notes": "Uma guarnição hobgoblin patrulha em formação." },
+    { "roll_min": 56, "roll_max": 68, "monsters": [{ "id": "Bugbear", "count": "1d3" }], "notes": "Bugbears emboscam silenciosamente pelas sombras." },
+    { "roll_min": 69, "roll_max": 80, "monsters": [{ "id": "Ghoul", "count": "1d4" }], "notes": "Carniçais se arrastam de um ossário próximo." },
+    { "roll_min": 81, "roll_max": 92, "monsters": [{ "id": "Owlbear", "count": "1" }], "notes": "Um grifobúho encurralado ataca com fúria." },
+    { "roll_min": 93, "roll_max": 100, "monsters": [{ "id": "Ogre", "count": "1d2" }], "notes": "Ogros brutos bloqueiam a passagem." }
+  ]
+}

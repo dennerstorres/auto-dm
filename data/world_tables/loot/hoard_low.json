@@ -1,0 +1,13 @@
+{
+  "id": "hoard_low",
+  "name": "Tesouro — Nível baixo (CR 0-4)",
+  "tier": "low",
+  "entries": [
+    { "roll_min": 1, "roll_max": 20, "gold_dice": "4d6", "gold_multiplier": 100.0, "items": [], "notes": "Um monte de moedas de cobre." },
+    { "roll_min": 21, "roll_max": 40, "gold_dice": "3d6", "gold_multiplier": 100.0, "items": [], "notes": "Moedas de prata cuidadosamente empilhadas." },
+    { "roll_min": 41, "roll_max": 60, "gold_dice": "2d6", "gold_multiplier": 100.0, "items": [], "notes": "Um punhado de moedas de ouro." },
+    { "roll_min": 61, "roll_max": 75, "gold_dice": "2d6", "gold_multiplier": 10.0, "items": ["Potion of Healing"], "notes": "Um frasco vermelho brilhante entre as moedas." },
+    { "roll_min": 76, "roll_max": 90, "gold_dice": "1d6", "gold_multiplier": 10.0, "items": ["Rope, hempen (50 feet)", "Torch"], "notes": "Suprimentos de viagem embrulhados em um saco." },
+    { "roll_min": 91, "roll_max": 100, "gold_dice": "1d4", "gold_multiplier": 100.0, "items": ["Bag of Holding"], "notes": "Um item mágico incomum escondido no fundo do baú." }
+  ]
+}

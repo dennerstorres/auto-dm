@@ -1,0 +1,12 @@
+{
+  "id": "hoard_mid",
+  "name": "Tesouro — Nível médio (CR 5-10)",
+  "tier": "mid",
+  "entries": [
+    { "roll_min": 1, "roll_max": 25, "gold_dice": "6d6", "gold_multiplier": 100.0, "items": [], "notes": "Uma pilha considerável de moedas de ouro." },
+    { "roll_min": 26, "roll_max": 50, "gold_dice": "3d6", "gold_multiplier": 1000.0, "items": [], "notes": "Barras de platina e gemas soltas." },
+    { "roll_min": 51, "roll_max": 70, "gold_dice": "2d6", "gold_multiplier": 100.0, "items": ["Boots of Elvenkind"], "notes": "Um par de botas silenciosas, ainda em bom estado." },
+    { "roll_min": 71, "roll_max": 90, "gold_dice": "2d6", "gold_multiplier": 100.0, "items": ["Cloak of Protection"], "notes": "Uma capa encantada dobrada com cuidado." },
+    { "roll_min": 91, "roll_max": 100, "gold_dice": "1d6", "gold_multiplier": 100.0, "items": ["Wand of Magic Missiles"], "notes": "Uma varinha entalhada, ainda pulsando com magia." }
+  ]
+}

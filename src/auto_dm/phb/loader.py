@@ -9,6 +9,7 @@ on their own; caching is handled in lookup.py.
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -18,7 +19,12 @@ from auto_dm.phb.models import (
     CharacterClass,
     ClassFeature,
     ClassProficiency,
+    EncounterMonsterEntry,
+    EncounterTable,
+    EncounterTableRow,
     GearCategory,
+    LootTable,
+    LootTableRow,
     MagicItem,
     MagicItemType,
     Monster,
@@ -51,6 +57,8 @@ from auto_dm.phb.models import (
     Trait,
     Vehicle,
     VehicleType,
+    WeatherTable,
+    WeatherTableRow,
 )
 from auto_dm.phb.parser import (
     _clean_inline,
@@ -2504,3 +2512,89 @@ def _parse_mph(text: str) -> float:
     if m:
         return float(m.group(1))
     return 0.0
+
+
+# ============================================================================
+# World tables — random encounters, loot, weather (Phase 40)
+#
+# Unlike the rest of this module, these load from a JSON tree (not PHB
+# markdown) rooted at ``data/world_tables/`` — a separate root from
+# ``data/phb/`` (see ``phb/lookup.py::get_world_tables_root``).
+# ============================================================================
+
+
+def load_encounter_tables(world_tables_root: Path) -> list[EncounterTable]:
+    """Load every ``*.json`` file under ``world_tables_root/encounters/``."""
+    encounters_dir = world_tables_root / "encounters"
+    if not encounters_dir.is_dir():
+        return []
+    tables: list[EncounterTable] = []
+    for path in sorted(encounters_dir.glob("*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        rows = [
+            EncounterTableRow(
+                roll_min=row["roll_min"],
+                roll_max=row["roll_max"],
+                monsters=[
+                    EncounterMonsterEntry(id=m["id"], count=str(m.get("count", "1")))
+                    for m in row.get("monsters", [])
+                ],
+                notes=row.get("notes", ""),
+            )
+            for row in data.get("entries", [])
+        ]
+        tables.append(
+            EncounterTable(
+                id=data.get("id", path.stem),
+                name=data.get("name", path.stem),
+                biome=data.get("biome", ""),
+                time_of_day=data.get("time_of_day", "any"),
+                entries=rows,
+            )
+        )
+    return tables
+
+
+def load_loot_tables(world_tables_root: Path) -> list[LootTable]:
+    """Load every ``*.json`` file under ``world_tables_root/loot/``."""
+    loot_dir = world_tables_root / "loot"
+    if not loot_dir.is_dir():
+        return []
+    tables: list[LootTable] = []
+    for path in sorted(loot_dir.glob("*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        rows = [
+            LootTableRow(
+                roll_min=row["roll_min"],
+                roll_max=row["roll_max"],
+                gold_dice=row.get("gold_dice", ""),
+                gold_multiplier=row.get("gold_multiplier", 1.0),
+                items=list(row.get("items", [])),
+                notes=row.get("notes", ""),
+            )
+            for row in data.get("entries", [])
+        ]
+        tables.append(
+            LootTable(
+                id=data.get("id", path.stem),
+                name=data.get("name", path.stem),
+                tier=data.get("tier", path.stem),
+                entries=rows,
+            )
+        )
+    return tables
+
+
+def load_weather_table(world_tables_root: Path) -> WeatherTable | None:
+    """Load ``world_tables_root/weather.json``. Returns ``None`` if absent."""
+    path = world_tables_root / "weather.json"
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    rows = [
+        WeatherTableRow(
+            roll_min=row["roll_min"], roll_max=row["roll_max"], weather=row["weather"]
+        )
+        for row in data.get("entries", [])
+    ]
+    return WeatherTable(id=data.get("id", "weather"), name=data.get("name", "Clima"), entries=rows)

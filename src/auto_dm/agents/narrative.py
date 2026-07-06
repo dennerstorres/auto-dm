@@ -9,7 +9,10 @@ The loop is intentionally thin. Its responsibilities:
 
 Out-of-combat actions that mutate world state directly (move, say,
 short_rest, long_rest) are stubbed. Combat actions go through the
-real CombatEngine.
+real CombatEngine. The one exception is a ``move`` action carrying
+``params.travel_hours`` — see ``_dispatch_travel`` — which goes through
+``engine/world.py::resolve_travel`` for engine-authoritative encounters,
+weather, and loot (Phase 40).
 """
 from __future__ import annotations
 
@@ -23,6 +26,7 @@ from auto_dm.agents.dm import DMAgent, DMResponse
 from auto_dm.agents.prompts import get_followup_max_sentences
 from auto_dm.agents.summarizer import NarrativeSummarizer, summarize_once
 from auto_dm.engine.combat_engine import CombatEngine
+from auto_dm.engine.world import resolve_travel
 from auto_dm.llm.usage import UsageReport
 from auto_dm.state.manager import StateManager
 from auto_dm.state.models import Action, ActionResult, ActionType, NarrativeEntry
@@ -123,6 +127,9 @@ def process_player_action(
         )
         if follow_up.narration:
             result.follow_up_narration = follow_up.narration
+            # Phase 40 — the follow-up entry is what narrates the travel
+            # roll, so it's the one tagged with the seed used for it.
+            _tag_world_seed(state_manager, action_result)
         if follow_up.usage is not None:
             result.usages.append(follow_up.usage)
 
@@ -222,6 +229,16 @@ def _dispatch_action(
                 mechanical={},
             )
 
+    # Phase 40 — a `move` carrying `travel_hours` means the DM is narrating
+    # a multi-hour/day journey, not a same-scene step. The engine alone
+    # decides what happens along the way (see _dispatch_travel).
+    if action.action_type == ActionType.MOVE:
+        travel_hours = _extract_travel_hours(action.params)
+        if travel_hours:
+            return _dispatch_travel(
+                state_manager, action, travel_hours, combat_engine=combat_engine
+            )
+
     # Non-combat actions: stub for now (Phase 7+ for full effects).
     if action.action_type in {
         ActionType.MOVE,
@@ -235,6 +252,65 @@ def _dispatch_action(
         "Action %s dispatched as stub (combat engine not wired)", action.action_type
     )
     return _stub_combat_action(action)
+
+
+def _extract_travel_hours(params: dict) -> Optional[float]:
+    """Read ``params.travel_hours`` as a positive float, or ``None``.
+
+    Missing, non-numeric, zero, or negative values all mean "not a travel
+    move" — the caller falls back to the plain move stub.
+    """
+    raw = params.get("travel_hours")
+    if raw is None:
+        return None
+    try:
+        hours = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return hours if hours > 0 else None
+
+
+def _dispatch_travel(
+    state_manager: StateManager,
+    action: Action,
+    hours: float,
+    *,
+    combat_engine: Optional[CombatEngine],
+) -> ActionResult:
+    """Resolve a `move` action that carries `params.travel_hours`.
+
+    The DM only proposes *that* travel is happening and *how long* it
+    takes; ``resolve_travel`` (engine-authoritative, Phase 40) alone
+    decides encounters, weather, and loot. The DM narrates the returned
+    events afterwards — it never rolls or invents them.
+    """
+    biome = action.params.get("biome") or "road"
+    destination = action.params.get("destination", "")
+    events = resolve_travel(
+        state_manager, hours, combat_engine=combat_engine, biome=biome
+    )
+    if destination:
+        state_manager.state.current_location = destination
+
+    parts = [
+        f"A party viaja{f' até {destination}' if destination else ''} "
+        f"por {hours:g} horas."
+    ]
+    parts.extend(e.description for e in events.events)
+    return ActionResult(
+        success=True,
+        message=" ".join(parts),
+        mechanical={
+            "destination": destination,
+            "travel_hours": hours,
+            "world_seed": events.seed,
+            "elapsed_minutes": events.elapsed_minutes,
+            "combat_started": events.combat_started,
+            "world_events": [
+                {"kind": e.kind, "description": e.description} for e in events.events
+            ],
+        },
+    )
 
 
 def _is_combat_action(action: Action) -> bool:
@@ -376,3 +452,15 @@ def _log_dm(state_manager: StateManager, response: DMResponse) -> None:
             content=response.narration,
         )
     )
+
+
+def _tag_world_seed(state_manager: StateManager, action_result: ActionResult) -> None:
+    """Phase 40 — stamp the travel roll seed onto the entry narrating it.
+
+    Lets admin/replay tooling reproduce the exact encounter/loot/weather
+    rolls for a given turn. No-op for non-travel actions.
+    """
+    seed = action_result.mechanical.get("world_seed")
+    if not seed or not state_manager.state.narrative_log:
+        return
+    state_manager.state.narrative_log[-1].world_seed = seed

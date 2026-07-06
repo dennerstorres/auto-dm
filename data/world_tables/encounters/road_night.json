@@ -1,0 +1,14 @@
+{
+  "id": "road_night",
+  "name": "Estrada — Noite",
+  "biome": "road",
+  "time_of_day": "night",
+  "entries": [
+    { "roll_min": 1, "roll_max": 50, "monsters": [], "notes": "Nenhum encontro — a estrada está deserta à noite." },
+    { "roll_min": 51, "roll_max": 65, "monsters": [{ "id": "Bandit", "count": "2d4" }], "notes": "Salteadores emboscam o grupo no escuro." },
+    { "roll_min": 66, "roll_max": 75, "monsters": [{ "id": "Skeleton", "count": "1d4" }], "notes": "Esqueletos se levantam de uma vala rasa à beira do caminho." },
+    { "roll_min": 76, "roll_max": 85, "monsters": [{ "id": "Zombie", "count": "1d3" }], "notes": "Zumbis cambaleiam na estrada, atraídos pelo som de passos." },
+    { "roll_min": 86, "roll_max": 95, "monsters": [{ "id": "Ghoul", "count": "1d2" }], "notes": "Um carniçal ronda um monte de destroços." },
+    { "roll_min": 96, "roll_max": 100, "monsters": [{ "id": "Worg", "count": "1d3" }], "notes": "Worgs cercam a estrada, farejando presas." }
+  ]
+}

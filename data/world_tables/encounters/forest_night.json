@@ -1,0 +1,14 @@
+{
+  "id": "forest_night",
+  "name": "Floresta — Noite",
+  "biome": "forest",
+  "time_of_day": "night",
+  "entries": [
+    { "roll_min": 1, "roll_max": 55, "monsters": [], "notes": "Nenhum encontro — apenas os sons noturnos da mata." },
+    { "roll_min": 56, "roll_max": 70, "monsters": [{ "id": "Wolf", "count": "2d4" }], "notes": "Olhos brilham entre as sombras — uma matilha caça." },
+    { "roll_min": 71, "roll_max": 80, "monsters": [{ "id": "Worg", "count": "1d3" }], "notes": "Worgs uivam ao longe antes de cercar o grupo." },
+    { "roll_min": 81, "roll_max": 90, "monsters": [{ "id": "Ghoul", "count": "1d2" }], "notes": "Algo cadavérico rasteja entre as raízes." },
+    { "roll_min": 91, "roll_max": 97, "monsters": [{ "id": "Stirge", "count": "2d4" }], "notes": "Um enxame de stirges mergulha da copa das árvores." },
+    { "roll_min": 98, "roll_max": 100, "monsters": [{ "id": "Owlbear", "count": "1" }], "notes": "Um grifobúho caça sob a lua." }
+  ]
+}

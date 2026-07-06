@@ -1,0 +1,14 @@
+{
+  "id": "road_day",
+  "name": "Estrada — Dia",
+  "biome": "road",
+  "time_of_day": "day",
+  "entries": [
+    { "roll_min": 1, "roll_max": 55, "monsters": [], "notes": "Nenhum encontro — apenas viajantes e carroças cruzando o caminho." },
+    { "roll_min": 56, "roll_max": 70, "monsters": [{ "id": "Bandit", "count": "2d4" }], "notes": "Salteadores bloqueiam a estrada exigindo pedágio." },
+    { "roll_min": 71, "roll_max": 80, "monsters": [{ "id": "Scout", "count": "1d2" }], "notes": "Batedores observam o grupo à distância." },
+    { "roll_min": 81, "roll_max": 90, "monsters": [{ "id": "Hobgoblin", "count": "1d4" }], "notes": "Uma patrulha hobgoblin marcha em formação." },
+    { "roll_min": 91, "roll_max": 97, "monsters": [{ "id": "Thug", "count": "1d3" }], "notes": "Capangas tentam extorquir os viajantes." },
+    { "roll_min": 98, "roll_max": 100, "monsters": [{ "id": "Bandit Captain", "count": "1" }, { "id": "Bandit", "count": "2d4" }], "notes": "Uma emboscada organizada, liderada por um capitão." }
+  ]
+}

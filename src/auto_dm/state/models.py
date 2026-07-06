@@ -6,6 +6,7 @@ without loss via `model_validate(json)`.
 """
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional
@@ -620,6 +621,10 @@ class NarrativeEntry(BaseModel):
     role: str  # "system" | "dm" | "player" | "companion"
     speaker: str  # display name: "DM", "Thorgar", "Jogador"
     content: str
+    # Phase 40 — seed used for the world-event rolls of this turn (travel
+    # only). Lets admin/replay tooling reproduce the exact encounter/loot/
+    # weather rolls. None for every non-travel entry.
+    world_seed: Optional[str] = None
 
 
 # ============================================================================
@@ -771,3 +776,19 @@ class GameState(BaseModel):
     # combate. Cruza os thresholds PHB p. 15 → auto-level-up de todos.
     # Default 0 preserva saves antigos.
     party_xp: int = 0
+
+    # Phase 40 — encontros aleatórios + tesouros em viagem
+    # (engine/world.py::resolve_travel). ``campaign_seed`` é gerado uma
+    # única vez por campanha (default_factory) e usado para compor o seed
+    # determinístico de cada rolagem de viagem — permite replay/inspeção
+    # admin. Saves antigos ganham um seed novo e estável na primeira carga
+    # (não afeta rolagens já feitas, só as futuras).
+    campaign_seed: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
+    # Relógio de jogo em minutos, avançado por `resolve_travel`. Usado para
+    # derivar dia/noite (tabela de encontro) e para o cooldown anti-abuso.
+    elapsed_game_minutes: int = 0
+    # Anti-abuso (SPEC §12.3): uma checagem de encontro só dispara a cada
+    # N minutos de jogo — evita que o jogador peça viagens de 1h repetidas
+    # vezes só para rerolar até conseguir "nenhum encontro".
+    world_event_cooldown_minutes: int = 30
+    last_world_event_minute: int = 0

@@ -1,0 +1,12 @@
+{
+  "id": "individual",
+  "name": "Achado individual",
+  "tier": "individual",
+  "entries": [
+    { "roll_min": 1, "roll_max": 50, "gold_dice": "", "gold_multiplier": 1.0, "items": [], "notes": "Nada de interessante." },
+    { "roll_min": 51, "roll_max": 70, "gold_dice": "2d6", "gold_multiplier": 1.0, "items": [], "notes": "Uma pequena bolsa de moedas caída no caminho." },
+    { "roll_min": 71, "roll_max": 85, "gold_dice": "1d4", "gold_multiplier": 10.0, "items": ["Rations (1 day)"], "notes": "Um embrulho abandonado com provisões e algumas moedas." },
+    { "roll_min": 86, "roll_max": 95, "gold_dice": "", "gold_multiplier": 1.0, "items": ["Potion of Healing"], "notes": "Um frasco intacto escondido entre pertences velhos." },
+    { "roll_min": 96, "roll_max": 100, "gold_dice": "1d4", "gold_multiplier": 1.0, "items": ["Dagger"], "notes": "Uma adaga esquecida e algumas moedas soltas." }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "dungeon_level_1",
+  "name": "Masmorra — Nível 1",
+  "biome": "dungeon",
+  "time_of_day": "any",
+  "entries": [
+    { "roll_min": 1, "roll_max": 45, "monsters": [], "notes": "Nenhum encontro — corredores vazios e silenciosos." },
+    { "roll_min": 46, "roll_max": 65, "monsters": [{ "id": "Kobold", "count": "2d4" }], "notes": "Kobolds guardam uma armadilha simples." },
+    { "roll_min": 66, "roll_max": 80, "monsters": [{ "id": "Goblin", "count": "2d4" }], "notes": "Goblins se escondem atrás de barris quebrados." },
+    { "roll_min": 81, "roll_max": 90, "monsters": [{ "id": "Giant Rat", "count": "2d6" }], "notes": "Um ninho de ratos gigantes irrompe das sombras." },
+    { "roll_min": 91, "roll_max": 97, "monsters": [{ "id": "Skeleton", "count": "1d3" }], "notes": "Esqueletos guardiões despertam de nichos na parede." },
+    { "roll_min": 98, "roll_max": 100, "monsters": [{ "id": "Stirge", "count": "1d4" }], "notes": "Stirges caem do teto abobadado." }
+  ]
+}

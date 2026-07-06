@@ -1,0 +1,14 @@
+{
+  "id": "forest_day",
+  "name": "Floresta — Dia",
+  "biome": "forest",
+  "time_of_day": "day",
+  "entries": [
+    { "roll_min": 1, "roll_max": 60, "monsters": [], "notes": "Nenhum encontro — trilha tranquila." },
+    { "roll_min": 61, "roll_max": 75, "monsters": [{ "id": "Wolf", "count": "2d4" }], "notes": "Lobos seguindo rastro fresco." },
+    { "roll_min": 76, "roll_max": 85, "monsters": [{ "id": "Giant Spider", "count": "1d2" }], "notes": "Teias grudentas entre as árvores." },
+    { "roll_min": 86, "roll_max": 93, "monsters": [{ "id": "Brown Bear", "count": "1" }], "notes": "Um urso defende seu território." },
+    { "roll_min": 94, "roll_max": 98, "monsters": [{ "id": "Bandit", "count": "1d6" }], "notes": "Salteadores emboscados entre as árvores." },
+    { "roll_min": 99, "roll_max": 100, "monsters": [{ "id": "Owlbear", "count": "1" }], "notes": "Um grifobúho faminto ataca sem aviso." }
+  ]
+}

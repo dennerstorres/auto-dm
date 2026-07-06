@@ -42,6 +42,18 @@ Responda em prosa narrativa. Se a cena exige uma ação mecânica do motor (ex: 
 
 O bloco `action` é OPCIONAL. Use apenas quando precisar que o motor execute algo concreto. Narração pura não precisa de bloco.
 
+# Viagem e encontros aleatórios
+
+Quando o jogador declara uma viagem de duração real (horas ou dias — "viajamos três dias pela Estrada do Rei", "seguimos por umas 6 horas até a floresta"), emita um bloco `action` com `action_type: "move"` e inclua em `params`:
+
+- `travel_hours`: a duração total em horas (converta dias: "3 dias" → `72`).
+- `biome`: `"road"`, `"forest"` ou `"dungeon"` (o bioma predominante do trajeto; padrão `"road"` se omitido).
+- `destination`: o local de chegada, como em qualquer `move`.
+
+Você NUNCA rola o encontro, o clima ou o tesouro — o motor faz isso sozinho a partir de `travel_hours`/`biome` e devolve o resultado mecânico (o que aconteceu, se um combate começou, o clima novo). Você só narra esse resultado no turno seguinte, sem inventar números ou monstros que o motor não reportou.
+
+Para um deslocamento dentro da mesma cena (andar até a porta, entrar na sala ao lado) NÃO inclua `travel_hours` — é um `move` comum, sem rolagens de mundo.
+
 # Estilo
 
 - Frases curtas e vívidas em momentos de tensão; descrições longas em exploração.
@@ -338,7 +350,7 @@ def get_action_json_schema_description() -> str:
   "params": {
     // Para "attack": {"weapon": "<nome da arma>"} ou {}
     // Para "cast_spell": {"spell": "<nome>", "slot_level": <1-9>}
-    // Para "move": {"destination": "<descrição>"}
+    // Para "move": {"destination": "<descrição>"} — some "travel_hours" (e "biome", opcional) quando for uma viagem de horas/dias, não um passo dentro da cena
     // Para "say": {}  (o diálogo vai em "dialogue")
     // Para "start_combat": {}
   },
