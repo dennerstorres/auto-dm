@@ -22,7 +22,7 @@ jobs:
           node-version: "22"
           cache: npm
       - name: Install Python quality tools
-        run: pip install pytest ruff
+        run: pip install -e ".[dev]"
       - name: Install frontend dependencies
         run: npm ci
       - name: Install Chromium

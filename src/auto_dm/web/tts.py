@@ -142,9 +142,14 @@ async def synthesize(text: str, voice: str, rate: str) -> tuple[bytes, bool]:
         async for chunk in communicate.stream():
             if isinstance(chunk, bytes):
                 chunks.append(chunk)
-            elif isinstance(chunk, dict) and isinstance(chunk.get("audio_data"), bytes):
-                # edge-tts >=6.1 yields dicts {"audio_data": ...}.
-                chunks.append(chunk["audio_data"])
+            elif isinstance(chunk, dict):
+                # edge-tts yields audio as
+                # {"type": "audio", "data": b"..."}. Keep the
+                # ``audio_data`` fallback for older wrappers and ignore
+                # boundary metadata chunks.
+                audio = chunk.get("data", chunk.get("audio_data"))
+                if isinstance(audio, bytes):
+                    chunks.append(audio)
         data = b"".join(chunks)
     except TTSError:
         raise

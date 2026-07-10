@@ -30,7 +30,7 @@ def _open_signup(monkeypatch):
 
 
 class _FakeCommunicate:
-    """Mimics edge_tts.Communicate — yields bytes from a fixed payload."""
+    """Mimics the edge_tts.Communicate stream payload."""
 
     def __init__(self, text, voice, rate="+0%"):
         self.text = text
@@ -39,7 +39,11 @@ class _FakeCommunicate:
 
     async def stream(self):
         # Deterministic payload derived from inputs so tests can assert it.
-        yield f"AUDIO:{self.voice}:{self.rate}:{self.text[:8]}".encode("utf-8")
+        yield {"type": "WordBoundary", "offset": 0, "duration": 1, "text": "Oi"}
+        yield {
+            "type": "audio",
+            "data": f"AUDIO:{self.voice}:{self.rate}:{self.text[:8]}".encode("utf-8"),
+        }
 
 
 class _FakeEdgeTTS:

@@ -25,7 +25,9 @@ dependencies = [
     # Phase 42 — TTS narration. ⚠️ edge-tts is GPL-3.0: kept isolated in
     # ``auto_dm/web/tts.py`` (lazy import) so it can be extracted into a
     # sidecar if distribution licensing ever requires it.
-    "edge-tts>=6.1,<7",
+    # 6.1.x is rejected by the upstream service (HTTP 403); 7.2.x carries
+    # the current DRM handshake used by the consumer speech endpoint.
+    "edge-tts>=7.2.8,<8",
     # Phase 10 deps (other providers) — added when implemented
     # "anthropic>=0.40.0",
     # "google-generativeai>=0.8.0",
@@ -54,7 +56,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 asyncio_mode = "auto"
 markers = ["e2e: real HTTP + Postgres + Redis end-to-end tests"]
 

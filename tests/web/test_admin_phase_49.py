@@ -16,7 +16,7 @@ def test_admin_styles_are_isolated_tokenized_and_loaded_last() -> None:
     css = read_static("css/admin.css")
 
     assert '/css/admin.css?v=63' in html
-    assert '/app.js?v=63' in html
+    assert '/app.js?v=64' in html
     assert html.index('/css/game.css?v=63') < html.index('/css/admin.css?v=63')
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert 'body[data-screen="admin-panel-screen"]' in css
@@ -104,6 +104,8 @@ def test_preferences_have_keyboard_tabs_and_persistent_feedback() -> None:
         assert key in app_js
     assert 'setMsg("prefs-msg", "Salvando…", "")' in app_js
     assert 'setMsg("prefs-msg", "Preferências salvas.", "ok")' in app_js
+    assert "force: true" in app_js
+    assert 'setMsg("prefs-msg", "Amostra reproduzida.", "ok")' in app_js
 
 
 def test_preference_controls_are_labeled_and_fit_narrow_viewports() -> None:

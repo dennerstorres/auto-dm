@@ -15,9 +15,9 @@ def test_shell_styles_and_module_are_loaded_with_current_cache_version() -> None
     html = read_static("index.html")
 
     assert '<body class="auth-visible">' in html
-    assert '<script src="/app.js?v=63" type="module"></script>' in html
+    assert '<script src="/app.js?v=64" type="module"></script>' in html
     assert '/css/shell.css?v=63' in html
-    assert '/app.js?v=63' in html
+    assert '/app.js?v=64' in html
     assert html.index('/style.css?v=63') < html.index('/css/shell.css?v=63')
     assert html.index('/css/shell.css?v=63') < html.index('/css/landing.css?v=63')
 
