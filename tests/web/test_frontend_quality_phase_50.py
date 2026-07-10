@@ -12,6 +12,7 @@ def test_playwright_covers_supported_viewports_and_quality_suites() -> None:
     assert "390, height: 844" in config
     assert "768, height: 1024" in config
     assert "1440, height: 900" in config
+    assert "{arg}-{projectName}-{platform}{ext}" in config
     for suite in ("flows.spec.js", "visual.spec.js", "accessibility.spec.js"):
         assert (ROOT / "tests" / "e2e" / suite).is_file()
 
