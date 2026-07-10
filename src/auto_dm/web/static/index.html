@@ -3,13 +3,25 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Auto DM — Console</title>
-        <link rel="stylesheet" href="/style.css?v=53" />
+        <title>Auto DM | Sua aventura, suas escolhas</title>
+        <meta
+            name="description"
+            content="Viva campanhas solo de fantasia com um mestre de jogo movido por IA e regras 5e."
+        />
+        <link rel="stylesheet" href="/style.css?v=54" />
     </head>
-    <body>
+    <body class="auth-visible">
         <div id="app">
-            <header>
-                <h1>Auto DM</h1>
+            <header class="site-header">
+                <a class="brand" href="#top" aria-label="Auto DM - início">
+                    <span class="brand-die" aria-hidden="true">20</span>
+                    <span class="brand-name">AUTO <b>DM</b></span>
+                </a>
+                <nav id="landing-nav" class="landing-nav" aria-label="Navegação principal">
+                    <a href="#como-funciona">A experiência</a>
+                    <button id="nav-login" class="nav-login" type="button">Entrar</button>
+                    <button id="nav-signup" class="nav-signup" type="button">Criar conta</button>
+                </nav>
                 <div id="user-info">
                     <span id="who"></span>
                     <button id="logout-btn" style="display: none">Sair</button>
@@ -17,35 +29,153 @@
             </header>
 
             <!-- Auth screen -->
-            <section id="auth-screen" class="screen">
-                <h2>Entrar</h2>
-                <div class="row">
-                    <input
-                        id="auth-username"
-                        type="text"
-                        placeholder="Usuário"
-                        autocomplete="username"
-                    />
-                    <input
-                        id="auth-password"
-                        type="password"
-                        placeholder="Senha"
-                        autocomplete="current-password"
-                    />
+            <section id="auth-screen" class="screen landing-screen">
+                <div id="top" class="landing-hero">
+                    <div class="hero-shade" aria-hidden="true"></div>
+                    <div class="hero-content">
+                        <p class="hero-eyebrow"><span></span> O destino aguarda sua jogada</p>
+                        <h1>AUTO DM</h1>
+                        <p class="hero-lead">Sua lenda não precisa esperar a próxima sessão.</p>
+                        <p class="hero-copy">
+                            Entre em um mundo que reage às suas escolhas. Explore masmorras,
+                            enfrente criaturas lendárias e escreva uma campanha única com um
+                            Mestre de Jogo sempre à mesa.
+                        </p>
+                        <div class="hero-actions">
+                            <button id="hero-signup" class="hero-primary" type="button">
+                                Começar minha aventura <span aria-hidden="true">→</span>
+                            </button>
+                            <button id="hero-login" class="hero-secondary" type="button">
+                                Já tenho uma conta
+                            </button>
+                        </div>
+                        <div class="hero-details" aria-label="Destaques">
+                            <span><b>D20</b> Regras 5e</span>
+                            <span><b>∞</b> Histórias únicas</span>
+                            <span><b>1</b> Herói necessário</span>
+                        </div>
+                    </div>
+                    <a class="scroll-cue" href="#como-funciona" aria-label="Conheça a experiência">
+                        <span>Explore o mundo</span>
+                        <i aria-hidden="true"></i>
+                    </a>
                 </div>
-                <div class="row">
-                    <input
-                        id="auth-invite"
-                        type="text"
-                        placeholder="Código de convite (somente para cadastro)"
-                        autocomplete="off"
-                    />
+
+                <section id="como-funciona" class="landing-story" aria-labelledby="story-title">
+                    <div class="story-intro">
+                        <p class="section-kicker">Além do mapa</p>
+                        <h2 id="story-title">Uma campanha que pertence a você.</h2>
+                        <p>
+                            Sem trilhos. Sem respostas prontas. O mundo se lembra dos seus
+                            aliados, das suas cicatrizes e das promessas que você decidiu quebrar.
+                        </p>
+                    </div>
+                    <div class="story-grid">
+                        <article>
+                            <span class="story-number">01</span>
+                            <p class="story-icon" aria-hidden="true">⚔</p>
+                            <h3>Escolha seu caminho</h3>
+                            <p>Crie seu herói, reúna companheiros e encare cada desafio do seu jeito.</p>
+                        </article>
+                        <article>
+                            <span class="story-number">02</span>
+                            <p class="story-icon" aria-hidden="true">✦</p>
+                            <h3>O mundo responde</h3>
+                            <p>Conversas, combates e decisões transformam o rumo da campanha.</p>
+                        </article>
+                        <article>
+                            <span class="story-number">03</span>
+                            <p class="story-icon" aria-hidden="true">♜</p>
+                            <h3>Sua lenda persiste</h3>
+                            <p>Salve sua jornada e retorne à fogueira exatamente de onde parou.</p>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="landing-cta" aria-labelledby="cta-title">
+                    <p class="section-kicker">A próxima página está em branco</p>
+                    <h2 id="cta-title">Role por iniciativa.</h2>
+                    <p>O portão está aberto. Agora, a história precisa de um herói.</p>
+                    <button id="footer-signup" class="hero-primary" type="button">
+                        Criar meu personagem <span aria-hidden="true">→</span>
+                    </button>
+                </section>
+
+                <footer class="landing-footer">
+                    <span class="brand-name">AUTO <b>DM</b></span>
+                    <p>Fantasia, escolhas e dados. Uma aventura de cada vez.</p>
+                    <span>Experiência compatível com regras 5e.</span>
+                </footer>
+
+                <div id="auth-dialog" class="auth-dialog" hidden>
+                    <div class="auth-backdrop" data-auth-close></div>
+                    <div
+                        class="auth-card"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="auth-title"
+                    >
+                        <button id="auth-close" class="auth-close" type="button" aria-label="Fechar">
+                            ×
+                        </button>
+                        <span class="auth-rune" aria-hidden="true">20</span>
+                        <p class="auth-kicker">Abra os portões</p>
+                        <h2 id="auth-title">Bem-vindo de volta</h2>
+                        <p id="auth-subtitle" class="auth-subtitle">
+                            Sua campanha está esperando por você.
+                        </p>
+
+                        <div class="auth-tabs" role="tablist" aria-label="Acesso à conta">
+                            <button id="auth-mode-login" class="active" type="button" role="tab">
+                                Entrar
+                            </button>
+                            <button id="auth-mode-signup" type="button" role="tab">
+                                Criar conta
+                            </button>
+                        </div>
+
+                        <form id="auth-form">
+                            <label for="auth-username">Nome de aventureiro</label>
+                            <input
+                                id="auth-username"
+                                type="text"
+                                placeholder="Como devemos chamá-lo?"
+                                autocomplete="username"
+                                minlength="3"
+                                maxlength="64"
+                                pattern="[A-Za-z0-9_-]+"
+                                title="Use apenas letras, números, hífen e sublinhado."
+                                required
+                            />
+                            <label for="auth-password">Senha</label>
+                            <input
+                                id="auth-password"
+                                type="password"
+                                placeholder="Sua palavra secreta"
+                                autocomplete="current-password"
+                                minlength="8"
+                                required
+                            />
+                            <div id="auth-invite-wrap" hidden>
+                                <label for="auth-invite">Código de convite</label>
+                                <input
+                                    id="auth-invite"
+                                    type="text"
+                                    placeholder="Se você recebeu um"
+                                    autocomplete="off"
+                                />
+                            </div>
+                            <button id="login-btn" class="auth-submit" type="submit">
+                                Entrar na campanha <span aria-hidden="true">→</span>
+                            </button>
+                            <button id="signup-btn" class="auth-submit" type="submit" hidden>
+                                Criar conta e começar <span aria-hidden="true">→</span>
+                            </button>
+                        </form>
+                        <div id="auth-msg" class="msg" role="status" aria-live="polite"></div>
+                        <p class="auth-footnote">Ao continuar, você aceita entrar por sua conta e risco.</p>
+                    </div>
                 </div>
-                <div class="row">
-                    <button id="login-btn">Entrar</button>
-                    <button id="signup-btn">Criar conta</button>
-                </div>
-                <div id="auth-msg" class="msg"></div>
             </section>
 
             <!-- New / load game screen -->
@@ -816,6 +946,6 @@
             </div>
         </div>
 
-        <script src="/app.js?v=53" type="module"></script>
+        <script src="/app.js?v=54" type="module"></script>
     </body>
 </html>

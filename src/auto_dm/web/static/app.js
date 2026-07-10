@@ -91,6 +91,13 @@ function show(id) {
   }
   const target = document.getElementById(id);
   if (target) target.style.display = "";
+  const landingVisible = id === "auth-screen";
+  document.body.classList.toggle("auth-visible", landingVisible);
+  if (!landingVisible) {
+    const dialog = document.getElementById("auth-dialog");
+    if (dialog) dialog.hidden = true;
+    document.body.classList.remove("auth-modal-open");
+  }
 }
 
 function setMsg(id, text, kind) {
@@ -192,6 +199,74 @@ function hideTyping() {
 }
 
 // --- Auth handlers ---
+let authMode = "login";
+let authLastFocus = null;
+
+function setAuthMode(mode) {
+  authMode = mode === "signup" ? "signup" : "login";
+  const signup = authMode === "signup";
+  const title = document.getElementById("auth-title");
+  const subtitle = document.getElementById("auth-subtitle");
+  const loginTab = document.getElementById("auth-mode-login");
+  const signupTab = document.getElementById("auth-mode-signup");
+  const loginBtn = document.getElementById("login-btn");
+  const signupBtn = document.getElementById("signup-btn");
+  const inviteWrap = document.getElementById("auth-invite-wrap");
+  const password = document.getElementById("auth-password");
+
+  title.textContent = signup ? "Comece sua jornada" : "Bem-vindo de volta";
+  subtitle.textContent = signup
+    ? "Crie sua conta e prepare seu primeiro personagem."
+    : "Sua campanha está esperando por você.";
+  loginTab.classList.toggle("active", !signup);
+  signupTab.classList.toggle("active", signup);
+  loginTab.setAttribute("aria-selected", String(!signup));
+  signupTab.setAttribute("aria-selected", String(signup));
+  loginBtn.hidden = signup;
+  signupBtn.hidden = !signup;
+  inviteWrap.hidden = !signup;
+  password.autocomplete = signup ? "new-password" : "current-password";
+  setMsg("auth-msg", "", "");
+}
+
+function openAuthDialog(mode) {
+  const dialog = document.getElementById("auth-dialog");
+  authLastFocus = document.activeElement;
+  setAuthMode(mode);
+  dialog.hidden = false;
+  document.body.classList.add("auth-modal-open");
+  requestAnimationFrame(() => document.getElementById("auth-username").focus());
+}
+
+function closeAuthDialog(restoreFocus = true) {
+  const dialog = document.getElementById("auth-dialog");
+  if (!dialog || dialog.hidden) return;
+  dialog.hidden = true;
+  document.body.classList.remove("auth-modal-open");
+  if (restoreFocus && authLastFocus && typeof authLastFocus.focus === "function") {
+    authLastFocus.focus();
+  }
+}
+
+function setAuthBusy(isBusy) {
+  const form = document.getElementById("auth-form");
+  if (form) form.setAttribute("aria-busy", String(isBusy));
+  for (const id of ["login-btn", "signup-btn"]) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = isBusy;
+  }
+}
+
+function authErrorMessage(error) {
+  if (error.status === 401) return "Usuário ou senha incorretos.";
+  if (error.status === 403) return "Código de convite inválido ou ausente.";
+  if (error.status === 409) return "Esse nome de aventureiro já está em uso.";
+  if (error.status === 422) {
+    return "Confira o nome e use uma senha com pelo menos 8 caracteres.";
+  }
+  return "Não foi possível atravessar os portões. Tente novamente.";
+}
+
 async function doSignup() {
   const username = document.getElementById("auth-username").value.trim();
   const password = document.getElementById("auth-password").value;
@@ -200,6 +275,7 @@ async function doSignup() {
     setMsg("auth-msg", "Preencha usuário e senha.", "error");
     return;
   }
+  setAuthBusy(true);
   try {
     const body = { username, password };
     if (inviteCode) body.invite_code = inviteCode;
@@ -211,13 +287,20 @@ async function doSignup() {
     setUser(res.user);
     afterLogin();
   } catch (e) {
-    setMsg("auth-msg", "Erro: " + e.message, "error");
+    setMsg("auth-msg", authErrorMessage(e), "error");
+  } finally {
+    setAuthBusy(false);
   }
 }
 
 async function doLogin() {
   const username = document.getElementById("auth-username").value.trim();
   const password = document.getElementById("auth-password").value;
+  if (!username || !password) {
+    setMsg("auth-msg", "Preencha usuário e senha.", "error");
+    return;
+  }
+  setAuthBusy(true);
   try {
     const res = await api("/api/auth/login", {
       method: "POST",
@@ -227,7 +310,9 @@ async function doLogin() {
     setUser(res.user);
     afterLogin();
   } catch (e) {
-    setMsg("auth-msg", "Erro: " + e.message, "error");
+    setMsg("auth-msg", authErrorMessage(e), "error");
+  } finally {
+    setAuthBusy(false);
   }
 }
 
@@ -244,6 +329,7 @@ function doLogout() {
 }
 
 function afterLogin() {
+  closeAuthDialog(false);
   const u = getUser();
   const tag = u && u.role === "admin" ? " (admin)" : "";
   document.getElementById("who").textContent = u ? `Logado: ${u.username}${tag}` : "";
@@ -2054,8 +2140,26 @@ function schedulePrefsSave() {
 
 // --- Wire up events ---
 document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("login-btn").onclick = doLogin;
-  document.getElementById("signup-btn").onclick = doSignup;
+  const authForm = document.getElementById("auth-form");
+  authForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!authForm.reportValidity()) return;
+    if (authMode === "signup") doSignup();
+    else doLogin();
+  });
+  document.getElementById("auth-mode-login").onclick = () => setAuthMode("login");
+  document.getElementById("auth-mode-signup").onclick = () => setAuthMode("signup");
+  document.getElementById("auth-close").onclick = () => closeAuthDialog();
+  document.querySelector("[data-auth-close]").onclick = () => closeAuthDialog();
+  for (const id of ["nav-login", "hero-login"]) {
+    document.getElementById(id).onclick = () => openAuthDialog("login");
+  }
+  for (const id of ["nav-signup", "hero-signup", "footer-signup"]) {
+    document.getElementById(id).onclick = () => openAuthDialog("signup");
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeAuthDialog();
+  });
   document.getElementById("logout-btn").onclick = doLogout;
   document.getElementById("new-game-btn").onclick = createEmptySession;
   document.getElementById("wizard-btn").onclick = openWizard;
