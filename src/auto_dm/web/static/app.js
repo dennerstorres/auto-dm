@@ -2316,13 +2316,18 @@ function refreshAudioButtons() {
   }
 }
 
-async function playTTS(text) {
+async function playTTS(text, {
+  force = false,
+  voice: voiceOverride,
+  rate: rateOverride,
+  throwOnError = false,
+} = {}) {
   if (!text || !online()) return;
   const p = prefs();
-  if (!p.tts.enabled) return;
+  if (!force && !p.tts.enabled) return;
   audioUnlocked = true;
-  const voice = p.tts.voice || "";
-  const rate = p.tts.rate || "+0%";
+  const voice = voiceOverride ?? p.tts.voice ?? "";
+  const rate = rateOverride ?? p.tts.rate ?? "+0%";
   const key = `${text}|${voice}|${rate}`;
   const player = ttsPlayer();
   const ttsBtn = document.getElementById("tts-btn");
@@ -2337,9 +2342,18 @@ async function playTTS(text) {
       });
       if (resp.status === 503) {
         appendLog("Sistema", "Serviço de voz indisponível agora.", "system");
-        return;
+        throw new Error("Serviço de voz indisponível agora.");
       }
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        let detail = "Não foi possível gerar o áudio.";
+        try {
+          const payload = await resp.json();
+          if (payload?.detail) detail = payload.detail;
+        } catch (_) {
+          // The response may not be JSON; retain the generic message.
+        }
+        throw new Error(detail);
+      }
       const blob = await resp.blob();
       url = URL.createObjectURL(blob);
       ttsBlobCache.set(key, url);
@@ -2347,8 +2361,7 @@ async function playTTS(text) {
     player.src = url;
     await player.play();
   } catch (e) {
-    // Autoplay rejection (no gesture yet) — silently ignore; the 🔊 button
-    // still works because it counts as a gesture.
+    if (throwOnError) throw e;
   } finally {
     refreshAudioButtons();
   }
@@ -2641,8 +2654,24 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const ttsTest = document.getElementById("prefs-tts-test");
   if (ttsTest) {
-    ttsTest.onclick = () =>
-      playTTS("Esta é uma amostra da narração em voz do mestre.");
+    ttsTest.onclick = async () => {
+      ttsTest.disabled = true;
+      setMsg("prefs-msg", "Gerando amostra de voz…", "");
+      try {
+        // Preview before TTS is enabled or the debounced save completes.
+        await playTTS("Esta é uma amostra da narração em voz do mestre.", {
+          force: true,
+          throwOnError: true,
+          voice: document.getElementById("prefs-tts-voice").value,
+          rate: document.getElementById("prefs-tts-rate").value,
+        });
+        setMsg("prefs-msg", "Amostra reproduzida.", "ok");
+      } catch (e) {
+        setMsg("prefs-msg", `Erro: ${e.message}`, "error");
+      } finally {
+        ttsTest.disabled = false;
+      }
+    };
   }
   // Persist prefs on any change inside the modal (debounced PATCH).
   ["prefs-tts-enabled", "prefs-tts-auto", "prefs-tts-voice", "prefs-tts-rate",
