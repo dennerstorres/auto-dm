@@ -4,6 +4,10 @@ AI-powered solo D&D 5e game master. Um jogador humano, party de companheiros con
 
 > Veja `SPEC.md` para a especificação completa e `PLAN.md` para o plano por fases.
 
+> **Decisões permanentes:** o produto é 100% web; o CLI da Fase 34 e o SSE da
+> Fase 26b estão arquivados e não voltarão. A Fase 10 também foi arquivada e
+> substituída pela futura Fase 51 (multi-provider, BYOK e assinatura SaaS).
+
 ---
 
 ## Princípios arquiteturais inegociáveis
@@ -17,9 +21,10 @@ AI-powered solo D&D 5e game master. Um jogador humano, party de companheiros con
 
 - **Python 3.11+**
 - **Pydantic** para modelos de estado e validação
-- **FastAPI + Uvicorn** para o backend web (auth, sessões, REST, SSE)
+- **FastAPI + Uvicorn** para o backend web (auth, sessões e REST; SSE arquivado)
 - **LangChain/LangGraph** para orquestração de agentes (DM + companheiros)
-- **Providers LLM**: Claude, OpenAI, Gemini, GLM, **Minimax** (provider ativo do usuário — única chave disponível)
+- **Provider LLM atual**: **Minimax** por configuração global. Multi-provider,
+  BYOK por usuário e assinatura SaaS estão planejados na Fase 51.
 - **PHB 5e** em `data/phb/` como fonte de verdade para regras (não hardcoded em Python)
 
 ## Estrutura do projeto
@@ -34,7 +39,7 @@ src/auto_dm/
 ├── agents/       # DM agent + companion agents
 ├── companions/   # pre-defined companion roster + party roll/synergy
 ├── persistence/  # save/load JSON
-└── web/          # backend FastAPI (auth, sessões, REST, SSE) + static/
+└── web/          # backend FastAPI (auth, sessões, REST) + static/
 ```
 
 Raiz do repo: `Dockerfile`, `docker-compose.yml` (prod), `docker-compose.dev.yml`
@@ -80,7 +85,9 @@ ruff check .               # lint
 
 - **Nunca ler `.env`** — contém API keys. Usar `.env.example` como referência de template.
 - **`data/phb/` é leitura livre** — esses `.md` são a fonte de regras. Conteúdo derivado do D&D 5e **SRD v5.1** (Open Game License + CC BY 4.0) — não é o PHB completo. Arquivos com prefixo `#` (ex: `# Racial Traits.md`) são índices introdutórios; sem prefixo são conteúdo.
-- **Provider ativo é Minimax** — não implementar adapters novos (Claude/Gemini/OpenAI/GLM) a menos que o usuário peça explicitamente. Foco no Minimax primeiro.
+- **Provider ativo é Minimax** — a Fase 10 está arquivada. Novos adapters e
+  configuração por usuário devem seguir integralmente a futura Fase 51
+  (Minimax/OpenAI/Claude/Gemini/DeepSeek + BYOK/assinatura), sem reativar o escopo antigo.
 - **D&D 5e, PHB only** no MVP. Níveis 1-5 no MVP (estendido a 1-20 pelas Fases 25f/25g). Sem multiclasse, sem feats, sem classes/raças/magias fora do PHB.
 - **Idioma do produto**: pt-BR (interface, narração, mensagens). Código/identificadores em inglês.
 - **Tarefas são rastreadas** via TaskList. Ao começar uma fase, marcá-la `in_progress`; ao terminar, `completed`. Criar tasks pra qualquer trabalho com 3+ passos.
@@ -88,6 +95,9 @@ ruff check .               # lint
 - **Style**: line-length 100, target Python 3.11, ruff como linter, pytest para testes.
 
 ## Onde estamos
+
+> Depois de concluir a Fase 43, a próxima onda planejada começa na **Fase 51 —
+> Multi-provider, BYOK e assinatura SaaS**. Ela ainda não está implementada.
 
 - ✅ Fase 0 — Project skeleton
 - ✅ Fase 1 — LLM provider abstraction (Minimax + thinking strip)
@@ -99,7 +109,7 @@ ruff check .               # lint
 - ✅ Fase 7 — Combat system (CombatEngine orquestrador: initiative/turnos, attack/dash/dodge/help/hide/search/ready, death_save, end_combat, validation: 38 testes + 6 integração com narrative loop)
 - ✅ Fase 8 — AI Companions (CompanionAgent, roster com 4 personagens pré-definidos, run_companion_turn, parser, prompt personalizado: 32 testes)
 - ✅ Fase 9 — Persistence (save_state/load_state atômico com _meta block, slugify, list_saves, delete_save: 30 testes)
-- ⏭ Fase 10 — Remaining LLM providers (pulada a pedido do usuário — provider ativo é Minimax)
+- 📦 Fase 10 — **Arquivada definitivamente.** O escopo simples de adapters globais foi substituído pela Fase 51 (multi-provider, BYOK e assinatura SaaS).
 - ✅ Fase 11 — Polish (GameApp REPL com meta-comandos /help /save /load /list /status /quit, Rich rendering, character creation wizard, setup_new_game, auto-save cadence, integração com main.py via Click, 26 testes de integração)
 - ✅ Fase 12 — Conditions engine (PHB 14 conditions + 2 tactical, exhaustion 6-level, immunity > resistance > vulnerability, applied via combat/damage/conditions: 83 testes)
 - ✅ Fase 13 — Adventuring (short rest com hit dice, long rest com clears, falling 1d6/10ft cap 20d6, suffocation 1+CON mod rounds: 25 testes)
@@ -124,7 +134,7 @@ ruff check .               # lint
 - ✅ Fase 25h — REPL polish + **fix crítico do companion turn integration** (CombatEngine.next_actor_id/is_player_turn/is_companion_turn; GameApp._run_companion_cycle itera initiative após o player até voltar a ele ou combate acabar; NarrativeResult.companion_results; META_COMMANDS expandido com /encounter /look /inventory /conditions /spells /level-up; render_inventory/render_conditions/render_spellbook em cli/rendering.py; 36 testes)
 - ✅ Fase 25g — Leveling L12–L20 + class capstones (spell slot tables L1–L20 completas para full casters (Wizard/Cleric/Druid/Bard/Sorcerer PHB p.113) e half casters (Paladin/Ranger); Warlock Pact Magic 1/2/3/4 slots L1/L2/L11/L17 todos no mesmo slot level; cantrips known L1–L20 com thresholds 1/4/10; spells known/prepared caps (Bard 22, Sorcerer 15, Wizard spellbook 44); 9th level spell access em L17+; capstones por classe em L20: Primal Champion Barbarian (+4 STR/CON max 24, +2 weapon damage), Signature Spells Wizard (2 magias ≤3º, sempre preparadas, 1x/short rest free cast), Arcane Apotheosis Sorcerer (cap 20 sorcery points), Archdruid Druid (cast em Wild Shape), Perfect Self Monk (4 ki → recover all), Foe Slayer Ranger (+WIS atk/dmg favored enemy 1x/turn), Stroke of Luck Rogue (1x/short rest), Eldritch Master Warlock (refuel pact slots 1x/long rest), Divine Intervention Improvement Cleric; Mystic Arcanum Warlock (6º L11, 7º L13, 8º L15, 9º L17) com learn/cast/reset; engine/class_features.py novo módulo runtime; brutal_critical_dice 1/2/3 em L9/13/17; Character flags novos (has_primal_champion/has_arcane_apotheosis/has_signature_spells/has_archdruid/has_perfect_self/has_foe_slayer/has_stroke_of_luck/has_eldritch_master/has_divine_intervention_improvement) + mystic_arcanum_known/uses + signature_spell_names/uses_remaining; 118 testes)
 - ✅ Fase 26a — Web FastAPI skeleton + auth (signup/login/me + bcrypt+JWT) + Postgres User/Save ORM + Redis-backed SessionManager + console UI HTML/CSS/JS + auth screen + lobby screen + game screen com `/help /save /load /list /status /quit`, integração com StaticFiles mount e lifespan startup; FRONTEND_URL (comma-separated) controla CORS; JWT_SECRET ≥32 chars obrigatório; 30 testes web
-- ❌ Fase 26b — **Removida** a pedido do usuário. `web/sse.py` + rotas `POST /api/sessions/{sid}/stream` e `/opening/stream` + toggle frontend + funções `sendInputStream`/`playOpeningStream` + helper `iter_stream_with_usage` em `llm/usage.py` + métodos `DMAgent.stream_with_usage`/`stream_opening_with_usage` + `iter_stream_with_usage` em `openai_compatible.py` + `_LegacyProvider.stream` stub nos testes foram deletados; `LLMProvider` Protocol perdeu `stream()`; `chat_with_usage`/`UsageReport` preservados (usados pelo billing da Fase 30). Mensagens agora sempre chegam inteiras via `POST /input`.
+- 📦 Fase 26b — **Arquivada definitivamente; SSE não voltará ao roadmap.** `web/sse.py` + rotas `POST /api/sessions/{sid}/stream` e `/opening/stream` + toggle frontend + funções `sendInputStream`/`playOpeningStream` + helper `iter_stream_with_usage` em `llm/usage.py` + métodos `DMAgent.stream_with_usage`/`stream_opening_with_usage` + `iter_stream_with_usage` em `openai_compatible.py` + `_LegacyProvider.stream` stub nos testes foram deletados; `LLMProvider` Protocol perdeu `stream()`; `chat_with_usage`/`UsageReport` preservados (usados pelo billing da Fase 30). Mensagens chegam completas via `POST /input`, inclusive nos futuros adapters da Fase 51.
 - ✅ Fase 26c — Character creation wizard no browser (web/routes_setup.py com GET /api/character-options retornando catalog de raças+subraces, classes+subclasses+skill_options+num_skill_choices+is_spellcaster, backgrounds, alignments, levels, stats_methods, companions; POST /api/sessions/with-character aceita spec + constrói Character via CharacterBuilder + companheiros via COMPANION_FACTORIES + cria GameState+sessão+slug; PlayerCharacterSpec aceita stats_method standard_array/roll/point_buy/manual com validação de alignment+level+race+class+companion; wizard HTML/CSS/JS de 11 passos com progress dots (name → race → class → subclass → background → alignment → level → stats → skills → companions → confirm) usando choices clicáveis, subrace dropdown, skill checkboxes respeitando num_skill_choices da classe, confirmação visual; integração no lobby via botão "Criar novo personagem (wizard)"; auto-save na finalização; 14 testes wizard)
 - ✅ Fase 26d — Deploy (Dockerfile python:3.11-slim single-stage com user não-root, HEALTHCHECK, EXPOSE 4004, uvicorn --factory; .dockerignore excluindo .env, .git, tests/, caches; docker-compose.yml com serviço auto-dm exposto em 127.0.0.1:4004:4004 + env passthrough via ${VAR:?error} pra JWT_SECRET/AUTO_DM_API_KEY + healthcheck; LLMConfig.from_env(prefix="AUTO_DM_") lê provider/api_key/model/base_url/temperature/max_tokens/thinking do ambiente; web/server.py::_default_provider_factory agora carrega MinimaxProvider do env sem precisar passar factory explicitamente; testes cobrem from_env happy/invalid/missing + factory errors; DEPLOY.md cobrindo prereqs Debian+Docker+Postgres+Redis já rodando, .env com DATABASE_URL/REDIS_URL/JWT_SECRET/FRONTEND_URL/AUTO_DM_*, setup do schema idempotente, nginx reverse proxy com proxy_buffering off + chunked_transfer_encoding pra SSE, TLS via certbot, opções Vercel vs backend-serving-static, backups Postgres+Redis, troubleshooting table, hardening checklist; 6 testes LLMConfig.from_env)
 - ✅ Fase 26e — Invite-code gate (config.py: invite_code Optional[str] via env INVITE_CODE; routes_auth.py SignupRequest.invite_code + signup endpoint valida com hmac.compare_digest antes de criar user; 403 com mensagem genérica "missing ou wrong" pra não vazar qual falhou; login não afetado pelo gate; testes cobrem open signup, ignored field, gated sem code/wrong code/correct code, paridade de mensagens missing↔wrong, login pós-gate, sanity de compare_digest; frontend ganha input auth-invite + envia invite_code só quando preenchido; 8 testes)

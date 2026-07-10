@@ -22,7 +22,7 @@ rolls, attacks, damage, conditions and death saves are computed in
 code. The LLM only narrates.
 
 The game is a **web app** — a FastAPI backend (auth, sessions, save
-state in Postgres, live sessions in Redis, SSE streaming) serving a
+state in Postgres and live sessions in Redis) serving a
 vanilla HTML/CSS/JS frontend with a full in-browser character creation
 wizard.
 
@@ -93,11 +93,17 @@ interpolates `${VAR}` from your `.env`):
 | `FRONTEND_URL` | yes (CORS) | Comma-separated allowed origins |
 | `INVITE_CODE` | optional | Gate signup; leave empty for open signup |
 
+Hoje o deploy usa Minimax e uma credencial global `AUTO_DM_*`. A Fase 10 antiga
+foi arquivada. O roadmap da Fase 51 substituirá esse desenho por Minimax,
+OpenAI, Claude, Gemini e DeepSeek, com duas modalidades: conta gratuita usando
+chave própria (BYOK) ou assinatura usando as credenciais da plataforma dentro
+da cota do plano. CLI e streaming SSE estão arquivados definitivamente.
+
 The first launch gives you the auth screen → lobby → in-browser
 character creation wizard (name → race → class → subclass →
 background → alignment → level → stats → skills → companions →
 confirm), then the game screen with `/help /save /load /list /status
-/quit` and live SSE streaming.
+/quit`. As respostas do Mestre chegam completas por REST; SSE foi arquivado.
 
 ---
 
@@ -123,7 +129,7 @@ Anything else is sent to the DM as a free-form action in pt-BR
 
 | Layer | Module | Responsibility |
 |------:|--------|----------------|
-| Web | `auto_dm.web` | FastAPI server: auth, sessions, SSE, REST, static frontend. |
+| Web | `auto_dm.web` | FastAPI server: auth, sessions, REST, static frontend. |
 | Agents | `auto_dm.agents` | DM + companion LLM wrappers; narrative loop. |
 | State | `auto_dm.state` | Pydantic models + StateManager. |
 | Engine | `auto_dm.engine` | Dice, combat. **Source of truth for mechanics.** |
@@ -232,7 +238,7 @@ SPEC.md / PLAN.md / DEPLOY.md
 - DM + companion agents with a narrative loop; 12-companion roster
   with party roll and synergy.
 - **Web app**: FastAPI + Postgres + Redis, bcrypt/JWT auth, invite-code
-  gate, SSE streaming, in-browser character creation wizard, lobby,
+  gate, in-browser character creation wizard, lobby,
   save/load — all containerized.
 
 Out of scope for v0.1: multi-classing, feats, content outside the

@@ -17,10 +17,13 @@ Jogar D&D 5e solo, com a narrativa, NPCs, encounters e arbitragem de regras cond
 ## 2. Stack e princípios
 
 - **Linguagem:** Python 3.11+
-- **LLM:** abstração `LLMProvider` com adaptadores para **Claude, OpenAI, Gemini, GLM, Minimax** (provider ativo: **Minimax**). Provider e modelo configuráveis via ambiente (`AUTO_DM_*`) + arquivo de config.
+- **LLM atual:** abstração `LLMProvider` com **Minimax** ativo por configuração
+  global (`AUTO_DM_*`). A Fase 51 adicionará Minimax, OpenAI, Claude, Gemini e
+  DeepSeek com configuração por usuário, BYOK e assinatura.
 - **Modelagem de estado:** Pydantic (validação em runtime, serialização pra JSON).
 - **Orquestração de agentes:** loop próprio de DM + companheiros (LangChain/LangGraph previstos mas não obrigatórios no MVP).
-- **Web backend:** FastAPI + uvicorn (auth, sessões, REST, SSE streaming).
+- **Web backend:** FastAPI + uvicorn (auth, sessões e REST). Streaming SSE está
+  arquivado definitivamente; respostas de LLM chegam completas.
 - **Frontend:** HTML/CSS/JS vanilla (sem build step), com wizard de criação de personagem no browser.
 - **Persistência:** **Postgres** (users + saves no web) + **Redis** (sessões ativas, TTL 24h). O engine também serializa `GameState` para JSON (usado em saves e testes).
 - **Deploy:** **Docker** (Dockerfile single-stage + `docker-compose.yml` prod / `docker-compose.dev.yml` dev com Postgres+Redis+backend).
@@ -54,7 +57,8 @@ Detalhes de deploy (nginx, TLS, Vercel, backups) em `DEPLOY.md`.
 
 ### Dentro
 
-- ✅ Configuração de provider (5 opções) e modelo via `config.json` + `.env`
+- ✅ Configuração global de Minimax e modelo via `config.json` + `.env`
+- 📋 Multi-provider e configuração por usuário — planejados na Fase 51
 - ✅ Criação de personagem do jogador (raça, classe, background, atributos, equipamento inicial)
 - ✅ Companheiros IA pré-definidos (3-5 personagens com folhas prontas e personalidades distintas)
 - ✅ Exploração com narração livre ("O que você faz?")
@@ -98,7 +102,7 @@ Detalhes de deploy (nginx, TLS, Vercel, backups) em `DEPLOY.md`.
 │              Frontend web (browser)              │
 │   input do jogador, render do estado, log        │
 └──────────────────┬──────────────────────────────┘
-                   │  HTTP / SSE (FastAPI backend)
+                   │  HTTP REST (FastAPI backend)
                    ▼
 ┌─────────────────────────────────────────────────┐
 │              Game Loop / Turn Manager            │
@@ -322,15 +326,14 @@ class LLMProvider(Protocol):
     model: str
 
     def chat(self, messages: list[Message]) -> str: ...
-    def stream(self, messages: list[Message]) -> Iterator[str]: ...
     def count_tokens(self, messages: list[Message]) -> int: ...
 ```
 
 ### Config (`config.json`)
 ```json
 {
-  "provider": "claude",
-  "model": "claude-sonnet-4-6",
+  "provider": "minimax",
+  "model": "MiniMax-Text-01",
   "temperature": 0.8,
   "max_tokens": 2048,
   "language": "pt-BR",
@@ -400,7 +403,7 @@ slug amigável e meta block) e usa **Redis** apenas para sessões ativas
 Um jogador consegue:
 1. Subir o stack com Docker (`docker compose -f docker-compose.dev.yml up --build`)
 2. Criar conta (ou usar invite-code) e logar no browser
-3. Configurar API key de um provider (via `.env` `AUTO_DM_API_KEY`)
+3. Configurar a chave global Minimax (via `.env` `AUTO_DM_API_KEY`)
 4. Criar um personagem nível 1 pelo wizard no browser
 5. Começar uma campanha com 2-3 companheiros IA
 6. Explorar uma cena narrada
@@ -416,7 +419,8 @@ Um jogador consegue:
 > Incrementos depois das Fases 0–33. Todas as features abaixo respeitam
 > os três princípios inegociáveis (mecânica autoritativa, contexto
 > gerenciado, configurabilidade) e adicionam zero acoplamento de
-> provider LLM — funcionam igual com Minimax, Claude, OpenAI etc.
+> provider LLM. A implementação atual usa Minimax; a Fase 51 formaliza o
+> contrato multi-provider sem acoplar essas features a um adapter específico.
 >
 > **Renumeração (2026-07):** a onda foi planejada como Fases 34–39, mas
 > esses números foram usados por outras entregas (ver CLAUDE.md). O
@@ -870,6 +874,47 @@ verde. Flake rate <0.5 % (rerun automático em falha única).
 **Fora do escopo da Fase 43:** stress tests (1000 campanhas),
 fuzz da API, multi-tenancy security tests (deixados para uma fase
 futura de segurança).
+
+---
+
+## 13. Plataforma multi-provider e SaaS (Fase 51)
+
+A Fase 10 original está arquivada: adicionar adapters globais isoladamente não
+resolve o produto público. A Fase 51 passa a ser a fonte de verdade para a
+evolução de LLM e terá cinco providers iniciais: **Minimax, OpenAI, Anthropic
+Claude, Google Gemini e DeepSeek**.
+
+### Modalidades de uso
+
+- **Gratuito/BYOK:** o usuário cadastra uma chave própria, escolhe provider e
+  modelo permitidos e assume diretamente o custo do provider.
+- **Assinatura da plataforma:** um entitlement ativo permite usar credenciais
+  globais dentro das cotas e modelos definidos pelo plano.
+- O modo é explícito por usuário. Erro ou ausência de chave BYOK nunca aciona
+  uma credencial global como fallback.
+- A configuração global `AUTO_DM_*` permanece durante a migração e em ambientes
+  privados/admin, mas não concede acesso SaaS por si só.
+
+### Limites arquiteturais
+
+- Credenciais BYOK são criptografadas com autenticação em repouso, chave mestra
+  externa ao banco, nonce e versão por registro. A API só devolve máscara/status.
+- Chaves não entram em preferências JSON, saves, logs, traces ou analytics e são
+  apagadas junto com a conta.
+- Endpoints e catálogos de modelos são controlados no servidor; o usuário não
+  fornece base URL arbitrária.
+- Um resolver único cria o contexto efetivo do provider para DM, companions,
+  sumarização, sugestão de nomes e futuros pontos de LLM.
+- Usage identifica `byok`, `platform` ou `legacy`. BYOK é medido para operação,
+  mas não consome a franquia paga; `platform` valida entitlement e cota antes da
+  chamada e reconcilia o usage real depois.
+- Billing usa uma abstração própria. Webhooks precisam de assinatura,
+  idempotência e proteção contra replay; nenhum dado de cartão é armazenado.
+- Não haverá CLI, SSE, fallback automático entre providers, endpoint customizado
+  por usuário ou cobrança excedente sem consentimento explícito.
+
+O modelo de dados, subfases, migração, rollout e critérios completos estão na
+seção **Fase 51 — Multi-provider, BYOK e assinatura** do `PLAN.md`.
 
 ---
 

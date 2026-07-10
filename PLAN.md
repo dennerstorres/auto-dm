@@ -2,8 +2,14 @@
 
 > Caminho pra chegar no MVP. Cada fase é um bloco entregável e testável.
 
-> ⚠️ **Nota histórica (Fase 34):** o CLI foi **removido** — o produto é
-> 100% web. As fases antigas abaixo (0, 5, 6, 11, etc.) descrevem um CLI
+> 📦 **Decisões definitivas de produto:** o CLI foi arquivado na Fase 34 e
+> **não voltará**; o Auto DM é um produto 100% web. O streaming SSE da Fase
+> 26b também foi arquivado e não faz parte do roadmap: as respostas do jogo
+> continuam chegando completas por REST. A Fase 10 original foi arquivada e
+> substituída pela Fase 51, que trata multi-provider, chaves por usuário e o
+> modelo SaaS como uma única arquitetura.
+>
+> As fases antigas abaixo (0, 5, 6, 11, etc.) descrevem um CLI
 > que **não existe mais** no código: `src/auto_dm/cli/` e `main.py` foram
 > deletados, junto das deps `click`/`rich`. Leia essas menções como
 > registro do que foi feito na época, não como reflexo do estado atual.
@@ -220,7 +226,12 @@ auto_dm/
 
 ---
 
-## Fase 10 — Providers restantes (1-2 dias)
+## Fase 10 — Providers restantes (ARQUIVADA)
+
+> **Arquivada definitivamente.** O escopo original era apenas adicionar adapters
+> globais e não contemplava isolamento de credenciais, configuração por usuário,
+> BYOK, assinatura ou controle de custo. Não deve ser implementada como escrita.
+> O trabalho futuro está especificado na **Fase 51**.
 
 **Objetivo:** os 5 providers funcionando
 
@@ -280,7 +291,7 @@ auto_dm/
 | 7 | 4-5 dias |
 | 8 | 2-3 dias |
 | 9 | 1 dia |
-| 10 | 1-2 dias |
+| 10 | Arquivada; substituída pela Fase 51 |
 | 11 | 2-3 dias |
 | **Total** | **~3-5 semanas** |
 
@@ -824,14 +835,16 @@ impedem regressões críticas.
 - Testes funcionais relevantes e captura visual aprovados.
 - Chrome e Firefox verificados; Safari/iOS validado nos fluxos de áudio.
 
-## Decisões pendentes
+## Decisões encerradas nas Fases 44–50
 
-- Avaliar framework somente após as fases 44 e 45. A decisão deve comparar custo
-  real de manutenção com a opção de módulos ES nativos.
-- Escolher estratégia de ícones locais: pacote Lucide versionado ou subconjunto
-  gerado no build/deploy.
-- Definir se o painel lateral da mesa usa drawer nativo, dialog ou layout persistente.
-- Definir retenção e formato das capturas de regressão visual no repositório.
+- O frontend permanece em HTML/CSS e módulos ES nativos; não há migração para
+  framework enquanto essa base continuar sustentável.
+- A iconografia usa um subconjunto Lucide local e versionado no sprite do projeto,
+  sem CDN em runtime.
+- A mesa usa painel persistente no desktop e tabs/drawers no tablet/mobile.
+- As 18 capturas de landing, login, lobby, wizard, jogo e admin nos três viewports
+  ficam versionadas no repositório; relatórios do CI são retidos como artefato por
+  14 dias.
 
 ## Métricas de sucesso
 
@@ -841,4 +854,157 @@ impedem regressões críticas.
 - Nenhum overflow horizontal nos viewports suportados.
 - Redução progressiva do CSS e JavaScript monolíticos após cada extração.
 - Landing e aplicação autenticada são percebidas como o mesmo produto.
+
+---
+
+# Quarta onda — Plataforma multi-provider e SaaS
+
+## Fase 51 — Multi-provider, BYOK e assinatura (12-18 dias)
+
+> **Substitui integralmente a Fase 10 arquivada.** Esta fase será implementada
+> depois do gate E2E real da Fase 43. Até lá, Minimax com configuração global
+> `AUTO_DM_*` continua sendo o único caminho de produção suportado.
+
+**Objetivo:** publicar o Auto DM com dois modos sustentáveis e isolados:
+
+1. **Gratuito/BYOK:** o usuário fornece a própria chave e paga diretamente ao
+   provider escolhido.
+2. **Assinatura da plataforma:** o usuário paga uma mensalidade e usa as chaves
+   globais do Auto DM dentro das cotas do plano.
+
+O modo escolhido deve ser explícito. Uma falha de chave BYOK **nunca** pode cair
+silenciosamente para a chave global, pois isso transfere custo para a plataforma.
+
+### 51a — Registro de providers e adapters (3-4 dias)
+
+**Providers iniciais:** Minimax, OpenAI, Anthropic Claude, Google Gemini e
+DeepSeek. GLM deixa de fazer parte do escopo inicial e poderá entrar depois pelo
+mesmo registro.
+
+**Entregáveis:**
+
+- `ProviderRegistry` central com identificador, modelos permitidos, endpoint
+  fixo/permitido, recursos suportados e factory do adapter.
+- Adapters com o mesmo contrato de chat, uso e erro para os cinco providers.
+- Normalização de `UsageReport`, finish reason, limites, timeout, rate limit e
+  erros de autenticação sem vazar payloads sensíveis.
+- Catálogo de modelos controlado no servidor; o browser nunca envia endpoint
+  arbitrário. DeepSeek pode reutilizar a base OpenAI-compatible sem duplicar o
+  domínio de aplicação.
+- Sem SSE: todos os adapters retornam respostas completas conforme a decisão
+  definitiva da Fase 26b.
+- Contract tests offline por adapter e smoke tests reais opcionais, habilitados
+  apenas quando a chave correspondente existir no ambiente de CI seguro.
+
+### 51b — Credenciais e preferências por usuário/BYOK (3-4 dias)
+
+**Modelo de dados proposto:**
+
+- `user_llm_settings`: `user_id`, `mode` (`byok|platform`), `provider`, `model`,
+  parâmetros permitidos e timestamps.
+- `user_provider_credentials`: `user_id`, `provider`, `ciphertext`, `key_version`,
+  `masked_suffix`, `validation_status`, `validated_at`, timestamps e unicidade
+  por `(user_id, provider)`.
+- Credenciais em tabela separada das preferências e nunca incluídas em
+  `UserOut`, logs, traces, analytics, saves ou respostas da API.
+
+**Segurança obrigatória:**
+
+- Criptografia autenticada em repouso com nonce por registro e chave mestra fora
+  do banco; `key_version` permite rotação sem downtime.
+- TLS em trânsito, resposta sempre mascarada, campos de formulário sem
+  repopulação da chave e ação explícita para substituir/remover.
+- Queries sempre restritas ao `user_id` autenticado; testes de isolamento entre
+  tenants e proteção contra enumeração.
+- Endpoints/base URLs definidos pelo servidor para impedir SSRF e exfiltração.
+- Validação da chave por chamada mínima ao provider, com timeout e erro seguro;
+  chave inválida/desabilitada bloqueia a chamada sem fallback global.
+- Política de retenção e exclusão: remover a conta remove também todas as
+  credenciais; rotação e remoção geram evento de auditoria sem registrar segredo.
+
+**UX/API:**
+
+- Preferências ganham área “IA e cobrança” para escolher BYOK ou plataforma,
+  provider/model, cadastrar/testar/remover chave e visualizar seu estado.
+- A conta gratuita pode jogar somente com uma credencial BYOK válida. Limites de
+  infraestrutura e abuso continuam aplicáveis, mesmo sem custo de tokens global.
+- A configuração global atual permanece como compatibilidade de migração para
+  admin/desenvolvimento, mas não vira fallback implícito de usuários públicos.
+
+### 51c — Planos, assinatura e entitlements (3-4 dias)
+
+**Entregáveis:**
+
+- Entidades `plans`, `subscriptions`, `billing_events` e/ou `entitlements`, sem
+  acoplar o domínio ao SDK do processador de pagamento.
+- Estado de assinatura normalizado: `trialing`, `active`, `past_due`, `canceled`
+  e `expired`, com período vigente e cancelamento ao fim do ciclo.
+- Checkout/portal do cliente e webhooks com assinatura verificada, idempotência,
+  proteção contra replay e armazenamento do ID externo — nunca dados de cartão.
+- O processador de pagamento será escolhido antes da implementação; Stripe é uma
+  opção, não uma dependência arquitetural desta especificação.
+- Plano mínimo configurável com cota mensal de tokens/custo, limite diário de
+  proteção, modelos permitidos e concorrência. O entitlement, não o papel do
+  usuário, autoriza o uso de chaves globais.
+- Período vencido ou cota esgotada bloqueia novas chamadas antes do provider e
+  oferece BYOK como alternativa; campanhas e saves permanecem acessíveis.
+
+### 51d — Roteamento, medição e proteção de margem (2-3 dias)
+
+**Ordem de resolução por chamada:**
+
+1. Ler a configuração efetiva da conta.
+2. Em `byok`, descriptografar somente em memória e instanciar o provider do
+   usuário; erro encerra a chamada sem tocar em credencial global.
+3. Em `platform`, validar assinatura, entitlement e cota antes de selecionar a
+   credencial global.
+4. O modo global legado só é aceito em ambiente privado/admin durante a migração.
+
+**Entregáveis:**
+
+- `ProviderContext`/resolver injetado em DM, companheiros, sumarizador, sugestão
+  de nomes e qualquer outro ponto de uso de LLM; nenhum endpoint cria provider
+  diretamente a partir do ambiente.
+- Usage atribuído a `credential_source=byok|platform|legacy`, provider, modelo,
+  usuário, sessão e tipo de chamada.
+- BYOK registra tokens para diagnóstico, mas não debita a franquia paga. O modo
+  plataforma usa preços configuráveis por modelo, reserva/validação pré-chamada
+  e reconciliação pelo usage real retornado pelo provider.
+- Hard caps, timeout, concorrência por usuário, circuit breaker e mensagens
+  claras para chave inválida, provider indisponível, assinatura e quota.
+- Painel admin separa consumo BYOK de custo global e mostra receita, custo,
+  margem estimada, assinaturas e eventos de cobrança sem expor credenciais.
+
+### 51e — Migração, testes e rollout (1-3 dias)
+
+**Entregáveis:**
+
+- Migrações idempotentes e rollback documentado; usuários atuais continuam no
+  modo global legado até a publicação exigir escolha entre BYOK e assinatura.
+- Feature flag para habilitar providers, BYOK e cobrança separadamente.
+- Termos/privacidade explicam processamento por terceiros, retenção da chave,
+  cobrança, cotas, exclusão e responsabilidade pelo saldo no provider BYOK.
+- Métricas sem segredo: taxa de erro por provider/model, latência, tokens,
+  custo global, conversão e churn.
+
+**Testes mínimos:**
+
+- Contract tests dos cinco adapters e testes opcionais de integração real.
+- Criptografia/rotação/máscara/exclusão e isolamento rigoroso entre usuários.
+- BYOK inválido nunca usa chave global; usuário A nunca acessa chave de B.
+- Assinatura ativa autoriza, vencida bloqueia, webhook duplicado é idempotente e
+  cota impede a chamada antes de gerar custo.
+- Usage de todos os caminhos LLM recebe provider/model/source corretos.
+- Fluxos Playwright de configuração BYOK, troca de provider, assinatura e estados
+  de erro nos três viewports suportados.
+- E2E real da Fase 43 executado uma vez em BYOK fake e uma vez em plataforma fake.
+
+**Critério pronto:** um usuário gratuito consegue cadastrar uma chave própria e
+jogar sem consumir credenciais globais; um assinante ativo consegue jogar com a
+infraestrutura da plataforma dentro de sua cota; nenhum segredo é retornado ou
+logado; isolamento, cobrança, medição e bloqueios passam no CI.
+
+**Fora de escopo inicial:** streaming SSE, CLI, marketplace de chaves, revenda de
+créditos avulsos, endpoint customizado informado pelo usuário, fallback automático
+entre providers e cobrança por consumo excedente sem consentimento explícito.
 
