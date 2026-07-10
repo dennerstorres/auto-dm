@@ -173,10 +173,25 @@ The four architectural principles from `SPEC.md` are:
 pytest                       # full test suite (1656 tests)
 ruff check src/              # lint
 ruff format src/             # auto-format
+make e2e                     # API real + Postgres + Redis (4 cenarios canonicos)
+make all                     # unitarios + E2E real
 ```
 
 Line length: 100. Python 3.11+. `pyproject.toml` is the source of
 truth for tooling.
+
+### E2E real do backend (Fase 43)
+
+`make e2e` sobe Postgres 16 e Redis 7 isolados pelo
+`docker-compose.e2e.yml`, inicia o FastAPI numa porta efemera e executa requisicoes HTTP
+reais. A suite cobre criacao de Wizard L3 com tres companions, turnos, save/logout/login/load,
+combate e fichas, compra com saldo insuficiente e viagem com encontro e loot. Somente o
+provedor pago de LLM e substituido por um fake deterministico; parsing, motores, API,
+autenticacao e persistencia sao os componentes de producao.
+
+Requisitos: Docker com Compose e as dependencias de desenvolvimento (`pip install -e
+".[dev]"`). Os containers usam `tmpfs` e sao removidos ao final. O workflow
+`Backend real E2E` executa o mesmo target em cada pull request.
 
 ### Frontend e testes de interface
 

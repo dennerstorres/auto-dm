@@ -1,0 +1,28 @@
+services:
+  postgres-e2e:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: auto_dm
+      POSTGRES_PASSWORD: auto_dm_e2e
+      POSTGRES_DB: auto_dm_e2e
+    ports:
+      - "127.0.0.1:35432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auto_dm -d auto_dm_e2e"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  redis-e2e:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:36379:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
