@@ -8,7 +8,7 @@
             name="description"
             content="Viva campanhas solo de fantasia com um mestre de jogo movido por IA e regras 5e."
         />
-        <link rel="stylesheet" href="/style.css?v=54" />
+        <link rel="stylesheet" href="/style.css?v=55" />
     </head>
     <body class="auth-visible">
         <div id="app">
@@ -130,33 +130,37 @@
                                 Entrar
                             </button>
                             <button id="auth-mode-signup" type="button" role="tab">
-                                Criar conta
+                                Registrar
                             </button>
                         </div>
 
                         <form id="auth-form">
-                            <label for="auth-username">Nome de aventureiro</label>
-                            <input
-                                id="auth-username"
-                                type="text"
-                                placeholder="Como devemos chamá-lo?"
-                                autocomplete="username"
-                                minlength="3"
-                                maxlength="64"
-                                pattern="[A-Za-z0-9_-]+"
-                                title="Use apenas letras, números, hífen e sublinhado."
-                                required
-                            />
-                            <label for="auth-password">Senha</label>
-                            <input
-                                id="auth-password"
-                                type="password"
-                                placeholder="Sua palavra secreta"
-                                autocomplete="current-password"
-                                minlength="8"
-                                required
-                            />
-                            <div id="auth-invite-wrap" hidden>
+                            <div class="auth-field">
+                                <label for="auth-username">Nome de aventureiro</label>
+                                <input
+                                    id="auth-username"
+                                    type="text"
+                                    placeholder="Como devemos chamá-lo?"
+                                    autocomplete="username"
+                                    minlength="3"
+                                    maxlength="64"
+                                    pattern="[A-Za-z0-9_-]+"
+                                    title="Use apenas letras, números, hífen e sublinhado."
+                                    required
+                                />
+                            </div>
+                            <div class="auth-field">
+                                <label for="auth-password">Senha</label>
+                                <input
+                                    id="auth-password"
+                                    type="password"
+                                    placeholder="Sua palavra secreta"
+                                    autocomplete="current-password"
+                                    minlength="8"
+                                    required
+                                />
+                            </div>
+                            <div id="auth-invite-wrap" class="auth-field" hidden>
                                 <label for="auth-invite">Código de convite</label>
                                 <input
                                     id="auth-invite"
@@ -169,7 +173,7 @@
                                 Entrar na campanha <span aria-hidden="true">→</span>
                             </button>
                             <button id="signup-btn" class="auth-submit" type="submit" hidden>
-                                Criar conta e começar <span aria-hidden="true">→</span>
+                                Registrar e começar <span aria-hidden="true">→</span>
                             </button>
                         </form>
                         <div id="auth-msg" class="msg" role="status" aria-live="polite"></div>

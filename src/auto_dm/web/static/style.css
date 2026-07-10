@@ -1905,12 +1905,12 @@ body:not(.auth-visible) .brand-die {
   align-items: center;
   background-color: #10151b;
   background-image: url("/assets/hero-party-dragon.png");
-  background-position: center center;
+  background-position: 56% center;
   background-repeat: no-repeat;
   background-size: cover;
   display: flex;
-  min-height: 90vh;
-  min-height: 90dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
   padding: 7.5rem clamp(1.5rem, 7%, 7rem) 6.5rem;
   position: relative;
@@ -2188,6 +2188,15 @@ body:not(.auth-visible) .brand-die {
   background: #f0dfb9;
   box-shadow: none;
   color: #4f171b;
+  justify-content: center;
+  min-width: 18rem;
+  padding-inline: 3rem;
+  position: relative;
+}
+
+.landing-cta .hero-primary span {
+  position: absolute;
+  right: 1rem;
 }
 
 .landing-cta .hero-primary:hover {
@@ -2328,12 +2337,8 @@ body:not(.auth-visible) .brand-die {
   color: #c9c5bb;
   font-size: 0.72rem;
   font-weight: 700;
-  margin: 0 0 0.35rem;
+  margin: 0;
   text-transform: uppercase;
-}
-
-#auth-form label:not(:first-child) {
-  margin-top: 0.9rem;
 }
 
 #auth-form label span {
@@ -2358,9 +2363,14 @@ body:not(.auth-visible) .brand-die {
   box-shadow: 0 0 0 3px rgba(182, 140, 61, 0.1);
 }
 
-#auth-invite-wrap {
+.auth-field {
   display: flex;
   flex-direction: column;
+  gap: 0.4rem;
+}
+
+.auth-field + .auth-field {
+  margin-top: 1rem;
 }
 
 #auth-invite-wrap[hidden] {
@@ -2373,10 +2383,11 @@ body:not(.auth-visible) .brand-die {
   color: #fff8ec;
   display: flex;
   font-family: inherit;
-  justify-content: space-between;
+  justify-content: center;
   margin-top: 1.35rem;
   min-height: 3.2rem;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 3rem;
+  position: relative;
   text-transform: uppercase;
   width: 100%;
 }
@@ -2392,6 +2403,8 @@ body:not(.auth-visible) .brand-die {
 .auth-submit span {
   color: #efcd75;
   font-size: 1.05rem;
+  position: absolute;
+  right: 1rem;
 }
 
 .auth-card .msg {
@@ -2435,7 +2448,8 @@ body.auth-modal-open {
   .landing-hero {
     align-items: flex-end;
     background-position: 61% center;
-    min-height: 92dvh;
+    min-height: 100vh;
+    min-height: 100dvh;
     padding: 8rem 1.25rem 5.5rem;
   }
 

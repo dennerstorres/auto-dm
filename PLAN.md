@@ -635,3 +635,210 @@ verde.
 **Saída global estimada:** ~2,5-3 semanas. Inventário + loja sozinhos
 entregam a maior parte da melhoria de UX percebida.
 
+---
+
+# Terceira onda — Modernização da experiência web (44–50)
+
+> Plano criado após a nova landing page. O objetivo é levar a mesma
+> linguagem visual para toda a aplicação sem interromper o jogo, alterar
+> contratos da API ou fazer uma reescrita total do frontend.
+
+O documento [`DESIGN.md`](DESIGN.md) é a fonte de verdade para decisões
+visuais, componentes, responsividade, acessibilidade e tom de interface.
+Em caso de divergência entre uma implementação antiga e o design system,
+a migração deve seguir este plano, tela por tela.
+
+## Objetivos
+
+- Unificar landing, autenticação, lobby, wizard, jogo e administração.
+- Manter a ambientação de fantasia sem prejudicar leitura ou velocidade.
+- Reduzir o acoplamento do `index.html`, `style.css` e `app.js` monolíticos.
+- Preservar os IDs, endpoints e fluxos já cobertos por testes durante a migração.
+- Criar uma base responsiva e acessível que suporte novas features.
+- Adicionar validação visual automatizada para evitar regressões de layout.
+
+## Fora de escopo
+
+- Trocar FastAPI, Postgres, Redis ou os contratos REST existentes.
+- Migrar imediatamente para React, Vue ou outro framework.
+- Redesenhar regras, balanceamento ou conteúdo mecânico de 5e.
+- Alterar todos os fluxos em um único pull request.
+- Usar assets, fontes ou bibliotecas que dependam de CDN em runtime.
+
+## Estratégia de migração
+
+1. Migrar por tela, começando pelos fluxos de maior frequência.
+2. Manter o frontend funcional ao final de cada fase.
+3. Extrair tokens e componentes somente quando houver uso real.
+4. Não mudar contrato visual e contrato de API na mesma entrega.
+5. Preservar seletores usados pelo JavaScript até que seus módulos sejam migrados.
+6. Remover CSS antigo apenas quando a tela correspondente estiver coberta por teste visual.
+
+## Fase 44 — Fundação do design system (2-3 dias)
+
+**Objetivo:** transformar o design da landing em uma base reutilizável.
+
+**Entregáveis:**
+
+- Criar `static/css/` com `tokens.css`, `base.css`, `components.css` e
+  `utilities.css`.
+- Registrar cores, tipografia, espaçamento, raios, sombras, camadas e breakpoints
+  conforme `DESIGN.md`.
+- Extrair estilos da landing sem alterar sua aparência aprovada.
+- Criar componentes base para botão, campo, segmented control, modal, status,
+  tooltip, tabs, empty state e loading state.
+- Adotar ícones Lucide armazenados localmente ou empacotados no projeto.
+- Eliminar novos estilos inline; os existentes entram numa fila de migração.
+- Criar uma página interna de referência de componentes, disponível apenas em
+  desenvolvimento.
+
+**Critério pronto:** landing e autenticação mantêm o mesmo resultado visual em
+desktop e mobile usando os novos arquivos e tokens.
+
+## Fase 45 — Shell, navegação e feedback global (2 dias)
+
+**Objetivo:** criar uma estrutura comum para todas as áreas autenticadas.
+
+**Entregáveis:**
+
+- Header autenticado compacto com marca, usuário, navegação contextual e sair.
+- Container responsivo com larguras previsíveis para lobby, wizard, jogo e admin.
+- Padrões globais de loading, erro, confirmação, toast e estado offline.
+- Foco visível, skip link, títulos de página e regiões ARIA.
+- Modais com focus trap, fechamento por `Esc`, retorno de foco e scroll lock.
+- Navegação mobile sem sobreposição ou controles fora da viewport.
+
+**Critério pronto:** qualquer tela pode usar o mesmo shell sem duplicar markup ou
+regras de layout.
+
+## Fase 46 — Lobby e início de campanha (3-4 dias)
+
+**Objetivo:** tornar o retorno ao jogo e a criação de campanha imediatos.
+
+**Entregáveis:**
+
+- Redesenhar saves como lista densa e escaneável, sem cards decorativos aninhados.
+- Destacar “Continuar aventura” e manter ações secundárias discretas.
+- Separar campanhas ativas e arquivadas com tabs ou filtro explícito.
+- Exibir metadados úteis: personagem, nível, localização e última atualização.
+- Criar empty state temático com CTA direto para o wizard.
+- Integrar preferências e administração no shell, sem competir com o fluxo principal.
+- Cobrir loading, lista vazia, erro, campanha arquivada e usuário admin.
+
+**Critério pronto:** um jogador recorrente entra na campanha desejada em até dois
+cliques depois do login.
+
+## Fase 47 — Wizard de personagem (4-5 dias)
+
+**Objetivo:** reduzir esforço e dar identidade ao processo de criação.
+
+**Entregáveis:**
+
+- Progresso legível com etapa atual, concluídas e pendentes.
+- Seletores consistentes para raça, classe, background, alinhamento e nível.
+- Resumo persistente do personagem em desktop e resumo recolhível no mobile.
+- Estados selecionado, indisponível, recomendado, erro e carregando.
+- Navegação fixa que não cobre conteúdo e mantém “Voltar”/“Próximo” previsíveis.
+- Revisão final em formato de ficha, com edição direta por seção.
+- Preservar integralmente validações e payload atual do wizard.
+
+**Critério pronto:** criação completa funciona a 320 px, por teclado e sem mudança
+de layout quando opções são carregadas.
+
+## Fase 48 — Mesa de jogo (5-7 dias)
+
+**Objetivo:** fazer a interface de jogo parecer uma mesa de campanha, mantendo
+alta densidade de informação.
+
+**Entregáveis:**
+
+- Layout principal com narrativa como foco e ficha/ferramentas como apoio.
+- Desktop com painel lateral estável; mobile com tabs ou drawers dedicados.
+- Log narrativo com hierarquia clara entre Mestre, jogador, sistema e companheiros.
+- Composer de ação fixo e acessível, sem reduzir excessivamente a área da narrativa.
+- Fichas de personagem e companions com HP, CA, condições, recursos e ações rápidas.
+- Controles de rolagem, inventário, loja, reações, áudio e comandos usando os mesmos
+  padrões de interação.
+- Estados de turno, Mestre pensando, quota, offline, somente leitura e sessão expirada.
+- Evitar imagens decorativas na área que precisa de leitura contínua.
+
+**Critério pronto:** nenhum fluxo principal exige scroll horizontal; narrativa,
+ação e estado do personagem permanecem acessíveis em desktop e mobile.
+
+## Fase 49 — Administração e preferências (3-4 dias)
+
+**Objetivo:** tornar áreas operacionais silenciosas, densas e eficientes.
+
+**Entregáveis:**
+
+- Tabela responsiva com filtros, busca, ordenação e ações previsíveis.
+- Resumos de uso sem cards excessivos ou visual de landing page.
+- Ações destrutivas com confirmação explícita e diferenciação da cor da marca.
+- Preferências organizadas por tabs ou seções: narração, música e conta.
+- Inputs de volume, toggles e selects com labels e feedback persistente.
+- Drawer de detalhes do usuário com histórico e consumo legíveis.
+
+**Critério pronto:** administração funciona por teclado, em 360 px e com tabelas
+que não vazam para fora da viewport.
+
+## Fase 50 — Qualidade, performance e documentação (3 dias)
+
+**Objetivo:** criar gates para que o frontend não volte a divergir.
+
+**Entregáveis:**
+
+- Playwright com cenários públicos e autenticados em 390x844, 768x1024 e 1440x900.
+- Capturas de referência para landing, login, lobby, wizard, jogo e admin.
+- Testes de fluxo para login, cadastro, continuar save e criar personagem.
+- Auditoria com axe ou equivalente, sem violações críticas.
+- Orçamento de performance para imagem hero, CSS e JavaScript inicial.
+- Otimização dos assets para WebP/AVIF com fallback quando necessário.
+- Checklist de revisão baseado em `DESIGN.md` no template de pull request.
+- Atualização do README com estrutura do frontend e comandos de teste.
+
+**Critério pronto:** testes funcionais, visuais e de acessibilidade rodam no CI e
+impedem regressões críticas.
+
+## Ordem e dependências
+
+| Fase | Depende de | Pode ocorrer em paralelo |
+|---|---|---|
+| 44 — Fundação | Landing atual | Não |
+| 45 — Shell | 44 | Não |
+| 46 — Lobby | 45 | Preparação de fixtures da 47 |
+| 47 — Wizard | 44 e 45 | 46 após componentes estabilizados |
+| 48 — Jogo | 44 e 45 | 49 em módulos separados |
+| 49 — Admin/preferências | 44 e 45 | 48 |
+| 50 — Qualidade | Inicia na 44; fecha após 46–49 | Todas |
+
+## Definition of Done por tela
+
+- Usa tokens e componentes documentados, sem novos valores visuais arbitrários.
+- Todos os estados esperados foram implementados: vazio, carregando, sucesso e erro.
+- Funciona a 320 px, 390 px, tablet e desktop sem scroll horizontal.
+- Texto não se sobrepõe, não é cortado e não redimensiona o layout ao carregar.
+- Navegação completa por teclado e foco visível.
+- Contraste mínimo WCAG AA para texto e controles.
+- `prefers-reduced-motion` respeitado.
+- Nenhum endpoint ou payload existente foi quebrado.
+- Testes funcionais relevantes e captura visual aprovados.
+- Chrome e Firefox verificados; Safari/iOS validado nos fluxos de áudio.
+
+## Decisões pendentes
+
+- Avaliar framework somente após as fases 44 e 45. A decisão deve comparar custo
+  real de manutenção com a opção de módulos ES nativos.
+- Escolher estratégia de ícones locais: pacote Lucide versionado ou subconjunto
+  gerado no build/deploy.
+- Definir se o painel lateral da mesa usa drawer nativo, dialog ou layout persistente.
+- Definir retenção e formato das capturas de regressão visual no repositório.
+
+## Métricas de sucesso
+
+- Jogador recorrente abre uma campanha em até dois cliques após login.
+- Criação de personagem não apresenta abandono causado por erro de navegação.
+- Nenhuma regressão crítica de acessibilidade nas telas migradas.
+- Nenhum overflow horizontal nos viewports suportados.
+- Redução progressiva do CSS e JavaScript monolíticos após cada extração.
+- Landing e aplicação autenticada são percebidas como o mesmo produto.
+
