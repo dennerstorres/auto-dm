@@ -99,6 +99,7 @@ class SessionManager:
             state_manager=sm,
             dm_agent=dm,
             companion_agents=comp_agents,
+            combat_engine=CombatEngine(),
             provider_factory=self._provider_factory,
         )
         # Persist to Redis with TTL.
@@ -141,6 +142,7 @@ class SessionManager:
             state_manager=sm,
             dm_agent=dm,
             companion_agents=comp_agents,
+            combat_engine=CombatEngine(),
             provider_factory=self._provider_factory,
         )
         self._cache[key] = sess

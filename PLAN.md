@@ -575,6 +575,9 @@ default disabled, music.active boolean computado).
 
 ## Fase 43 — End-to-end do fluxo completo (2-3 dias)
 
+**Status:** ✅ Concluída — 4 cenários canônicos via HTTP real, Postgres 16 e Redis 7;
+LLM fake determinístico, `make e2e`/`make all` e gate dedicado no GitHub Actions.
+
 **Objetivo:** CI garante que o caminho mínimo de jogo funciona ponta-
 a-ponta. Bug regressão em wizard → save → load → painel nunca
 passa despercebido.

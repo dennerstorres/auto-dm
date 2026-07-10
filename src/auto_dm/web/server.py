@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from auto_dm.web.config import get_settings
 from auto_dm.web.db import dispose_engine, init_engine
@@ -345,6 +346,12 @@ async def lifespan(app: FastAPI):
     engine = get_engine()
     # Create tables (idempotent). For production, alembic migrations.
     async with engine.begin() as conn:
+        # Multiple API workers may start against an empty Postgres at the
+        # same time. PostgreSQL's CREATE TABLE IF NOT EXISTS is not enough
+        # to prevent catalog races, so serialize the complete bootstrap
+        # transaction. Transaction-scoped locks release automatically.
+        if conn.dialect.name == "postgresql":
+            await conn.execute(text("SELECT pg_advisory_xact_lock(430026)"))
         await conn.run_sync(Base.metadata.create_all)
         # create_all won't ALTER existing tables, so backfill new columns
         # by hand. Currently: `saves.archived`, `users.role`, and the
