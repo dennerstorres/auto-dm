@@ -4,7 +4,11 @@ const staticDir = "src/auto_dm/web/static";
 
 export default defineConfig({
   testDir: "tests/e2e",
-  snapshotPathTemplate: "{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}",
+  // Browser text metrics differ between Windows and Linux. Keep an explicit
+  // baseline per platform so CI still uses the strict 1% visual threshold
+  // without invalidating local Windows references.
+  snapshotPathTemplate:
+    "{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}-{platform}{ext}",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
