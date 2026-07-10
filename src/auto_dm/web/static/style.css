@@ -1779,9 +1779,9 @@ select {
    ============================================================================ */
 
 body.auth-visible {
-  background: #0a0c0f;
-  color: #f5f0e6;
-  font-family: Inter, Aptos, "Segoe UI", sans-serif;
+  background: var(--ink-950);
+  color: var(--text-on-dark);
+  font-family: var(--font-interface);
 }
 
 body.auth-visible #app {
@@ -1817,14 +1817,14 @@ body.auth-visible #app {
 }
 
 .brand-name {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
 
 .brand-name b {
-  color: #d1a34a;
+  color: var(--brand-gold);
 }
 
 .landing-nav {
@@ -1894,10 +1894,10 @@ body:not(.auth-visible) .brand-die {
 }
 
 .landing-screen {
-  background: #0a0c0f;
+  background: var(--ink-950);
   border: 0;
   border-radius: 0;
-  color: #f5f0e6;
+  color: var(--text-on-dark);
   padding: 0;
 }
 
@@ -1936,7 +1936,7 @@ body:not(.auth-visible) .brand-die {
 .hero-eyebrow,
 .section-kicker,
 .auth-kicker {
-  color: #dcb85f;
+  color: var(--brand-gold-soft);
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -1959,7 +1959,7 @@ body:not(.auth-visible) .brand-die {
 
 .hero-content h1 {
   color: #fffaf0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 5.75rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1970,7 +1970,7 @@ body:not(.auth-visible) .brand-die {
 
 .hero-lead {
   color: #f4dfaf;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 1.55rem;
   line-height: 1.35;
   margin: 1.25rem 0 0.8rem;
@@ -2004,7 +2004,7 @@ body:not(.auth-visible) .brand-die {
 
 .hero-primary {
   align-items: center;
-  background: #98292e;
+  background: var(--brand-crimson);
   box-shadow: 0 10px 30px rgba(82, 10, 14, 0.32);
   color: #fff8eb;
   display: inline-flex;
@@ -2012,7 +2012,7 @@ body:not(.auth-visible) .brand-die {
 }
 
 .hero-primary:hover {
-  background: #b3373c;
+  background: var(--brand-crimson-hover);
 }
 
 .hero-primary span {
@@ -2032,7 +2032,7 @@ body:not(.auth-visible) .brand-die {
 
 .hero-details {
   border-top: 1px solid rgba(255, 255, 255, 0.13);
-  color: #aaa9a5;
+  color: var(--text-on-dark-muted);
   display: flex;
   flex-wrap: wrap;
   font-size: 0.72rem;
@@ -2050,7 +2050,7 @@ body:not(.auth-visible) .brand-die {
 
 .hero-details b {
   color: #d9b55c;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 0.85rem;
 }
 
@@ -2079,8 +2079,8 @@ body:not(.auth-visible) .brand-die {
 }
 
 .landing-story {
-  background: #eee7d7;
-  color: #24201b;
+  background: var(--brand-parchment);
+  color: var(--text-on-light);
   padding: 6rem clamp(1.5rem, 7%, 7rem);
 }
 
@@ -2093,20 +2093,20 @@ body:not(.auth-visible) .brand-die {
 }
 
 .story-intro .section-kicker {
-  color: #8d272b;
+  color: var(--brand-crimson);
   grid-column: 1 / -1;
 }
 
 .story-intro h2,
 .landing-cta h2 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 3rem;
   letter-spacing: 0;
   line-height: 1.08;
 }
 
 .story-intro > p:last-child {
-  color: #665f54;
+  color: var(--text-on-light-muted);
   font-size: 1rem;
   line-height: 1.8;
 }
@@ -2120,19 +2120,19 @@ body:not(.auth-visible) .brand-die {
 }
 
 .story-grid article {
-  border-left: 1px solid #c8bdab;
+  border-left: 1px solid var(--border-on-light);
   min-height: 15rem;
   padding: 1.2rem 2.5rem 0;
   position: relative;
 }
 
 .story-grid article:last-child {
-  border-right: 1px solid #c8bdab;
+  border-right: 1px solid var(--border-on-light);
 }
 
 .story-number {
   color: #988e7e;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 0.78rem;
   position: absolute;
   right: 1rem;
@@ -2140,27 +2140,27 @@ body:not(.auth-visible) .brand-die {
 }
 
 .story-icon {
-  color: #992c31;
-  font-family: Georgia, "Times New Roman", serif;
+  color: var(--brand-crimson);
+  font-family: var(--font-display);
   font-size: 2rem;
   margin-bottom: 1.6rem;
 }
 
 .story-grid h3 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 1.35rem;
   letter-spacing: 0;
   margin-bottom: 0.8rem;
 }
 
 .story-grid article > p:last-child {
-  color: #6c645a;
+  color: var(--text-on-light-muted);
   line-height: 1.7;
 }
 
 .landing-cta {
   align-items: center;
-  background: #6f1d22;
+  background: var(--brand-crimson-deep);
   color: #fff7e9;
   display: flex;
   flex-direction: column;
@@ -2171,7 +2171,7 @@ body:not(.auth-visible) .brand-die {
 }
 
 .landing-cta .section-kicker {
-  color: #e8c76f;
+  color: var(--brand-gold-soft);
 }
 
 .landing-cta h2 {
@@ -2240,10 +2240,10 @@ body:not(.auth-visible) .brand-die {
 }
 
 .auth-card {
-  background: #15171a;
-  border: 1px solid #41382b;
+  background: var(--ink-850);
+  border: 1px solid var(--border-on-dark);
   border-radius: 6px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+  box-shadow: var(--shadow-modal);
   color: #eee9de;
   max-height: calc(100dvh - 2rem);
   max-width: 29rem;
@@ -2324,7 +2324,7 @@ body:not(.auth-visible) .brand-die {
 }
 
 .auth-tabs button.active {
-  border-bottom-color: #b1353a;
+  border-bottom-color: var(--brand-crimson-hover);
   color: #f1d88e;
 }
 
@@ -2349,7 +2349,7 @@ body:not(.auth-visible) .brand-die {
 
 #auth-form input[type="text"],
 #auth-form input[type="password"] {
-  background: #0d0f12;
+  background: var(--ink-900);
   border: 1px solid #353432;
   color: #f2eee5;
   font-family: inherit;
@@ -2379,7 +2379,7 @@ body:not(.auth-visible) .brand-die {
 
 .auth-submit {
   align-items: center;
-  background: #952a2f;
+  background: var(--brand-crimson);
   color: #fff8ec;
   display: flex;
   font-family: inherit;
@@ -2393,7 +2393,7 @@ body:not(.auth-visible) .brand-die {
 }
 
 .auth-submit:hover {
-  background: #b2363c;
+  background: var(--brand-crimson-hover);
 }
 
 .auth-submit[hidden] {
@@ -2514,7 +2514,7 @@ body.auth-modal-open {
 
   .story-grid article,
   .story-grid article:last-child {
-    border-bottom: 1px solid #c8bdab;
+    border-bottom: 1px solid var(--border-on-light);
     border-left: 0;
     border-right: 0;
     min-height: 0;

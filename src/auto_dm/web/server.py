@@ -17,8 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from auto_dm.web.config import get_settings
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Static dir lives next to this file.
 STATIC_DIR = Path(__file__).parent / "static"
+DESIGN_SYSTEM_REFERENCE = Path(__file__).parent / "design_system.html"
 
 
 @dataclass
@@ -423,6 +425,13 @@ def create_app(provider_factory: Optional[Callable] = None) -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": "0.1.0"}
+
+    @app.get("/design-system", include_in_schema=False)
+    async def design_system_reference() -> FileResponse:
+        """Serve the internal component catalog outside production only."""
+        if settings.environment.lower() not in {"dev", "development", "test", "testing"}:
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(DESIGN_SYSTEM_REFERENCE)
 
     # Static files (console UI) — served at the root URL.
     if STATIC_DIR.exists():
