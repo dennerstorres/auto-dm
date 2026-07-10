@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt-BR">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Auto DM | Referência de componentes</title>
+        <link rel="stylesheet" href="/css/tokens.css?v=59" />
+        <link rel="stylesheet" href="/css/base.css?v=59" />
+        <link rel="stylesheet" href="/css/components.css?v=59" />
+        <link rel="stylesheet" href="/css/utilities.css?v=59" />
+        <link rel="stylesheet" href="/css/shell.css?v=59" />
+    </head>
+    <body class="component-reference">
+        <main class="wrapper">
+            <header>
+                <p class="text-muted">Ambiente de desenvolvimento</p>
+                <h1>Referência de componentes</h1>
+                <p class="text-muted">
+                    Estados base da fundação visual. Esta página não é exposta em produção.
+                </p>
+            </header>
+
+            <section>
+                <h2>Botões</h2>
+                <div class="preview">
+                    <button class="button button-primary">
+                        Ação primária
+                        <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#arrow-right"></use></svg>
+                    </button>
+                    <button class="button button-secondary">Ação secundária</button>
+                    <button class="button button-ghost">Ação discreta</button>
+                    <button class="button button-danger">Excluir campanha</button>
+                    <button class="button button-primary" disabled>Indisponível</button>
+                    <button class="button button-primary button-loading">Carregando</button>
+                </div>
+            </section>
+
+            <section>
+                <h2>Campos</h2>
+                <div class="preview-column">
+                    <label class="field">
+                        <span class="field-label">Nome da campanha</span>
+                        <input class="field-control" value="Crônicas da Aliança" />
+                        <span class="field-hint">Use um nome que você reconhecerá no lobby.</span>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Código de convite</span>
+                        <input
+                            class="field-control"
+                            aria-invalid="true"
+                            aria-describedby="invite-error"
+                            value="inválido"
+                        />
+                        <span id="invite-error" class="field-error">O código informado não existe.</span>
+                    </label>
+                </div>
+            </section>
+
+            <section>
+                <h2>Seletores e tabs</h2>
+                <div class="preview-column">
+                    <div class="segmented-control" role="tablist" aria-label="Acesso à conta">
+                        <button role="tab" aria-selected="true">Entrar</button>
+                        <button role="tab" aria-selected="false">Registrar</button>
+                    </div>
+                    <div class="tabs" role="tablist" aria-label="Campanhas">
+                        <button class="tab" role="tab" aria-selected="true">Ativas</button>
+                        <button class="tab" role="tab" aria-selected="false">Arquivadas</button>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h2>Status e tooltip</h2>
+                <div class="preview">
+                    <span class="status status-success">Conectado</span>
+                    <span class="status status-warning">Quota baixa</span>
+                    <span class="status status-danger">Sessão expirada</span>
+                    <span class="status status-info">Somente leitura</span>
+                    <span class="tooltip">
+                        <button class="button button-secondary" aria-describedby="tooltip-example">
+                            Passe o mouse
+                        </button>
+                        <span id="tooltip-example" class="tooltip-content" role="tooltip">
+                            Informação auxiliar acessível por foco.
+                        </span>
+                    </span>
+                </div>
+            </section>
+
+            <section>
+                <h2>Estados vazios e loading</h2>
+                <div class="preview-column">
+                    <div class="empty-state">
+                        <strong>Nenhuma campanha ainda</strong>
+                        <p>Crie seu personagem para começar a primeira aventura.</p>
+                        <button class="button button-primary">Criar personagem</button>
+                    </div>
+                    <div class="loading-state" aria-busy="true" aria-label="Carregando campanhas">
+                        <span class="loading-spinner" aria-hidden="true"></span>
+                        <p>Consultando o arquivo do Mestre…</p>
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h2>Feedback global</h2>
+                <div class="preview-column">
+                    <div class="offline-banner" role="status">
+                        <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#wifi-off"></use></svg>
+                        <div><strong>Você está offline.</strong> <span>Algumas ações aguardam a conexão voltar.</span></div>
+                    </div>
+                    <div class="toast toast-success" role="status">
+                        <span>Campanha salva com sucesso.</span>
+                        <button class="toast-close" aria-label="Fechar notificação">×</button>
+                    </div>
+                    <div class="toast toast-error" role="alert">
+                        <span>Não foi possível concluir a ação.</span>
+                        <button class="toast-close" aria-label="Fechar notificação">×</button>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h2>Modal</h2>
+                <div class="dialog-preview">
+                    <div class="dialog-card" role="dialog" aria-labelledby="dialog-title">
+                        <h3 id="dialog-title">Confirmar decisão</h3>
+                        <p class="text-muted">Esta é a superfície base para decisões curtas.</p>
+                        <div class="cluster">
+                            <button class="button button-primary">Confirmar</button>
+                            <button class="button button-secondary">Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </body>
+</html>

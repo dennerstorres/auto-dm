@@ -8,9 +8,20 @@
             name="description"
             content="Viva campanhas solo de fantasia com um mestre de jogo movido por IA e regras 5e."
         />
-        <link rel="stylesheet" href="/style.css?v=55" />
+        <link rel="stylesheet" href="/css/tokens.css?v=63" />
+        <link rel="stylesheet" href="/css/base.css?v=63" />
+        <link rel="stylesheet" href="/css/components.css?v=63" />
+        <link rel="stylesheet" href="/css/utilities.css?v=63" />
+        <link rel="stylesheet" href="/style.css?v=63" />
+        <link rel="stylesheet" href="/css/shell.css?v=63" />
+        <link rel="stylesheet" href="/css/lobby.css?v=63" />
+        <link rel="stylesheet" href="/css/landing.css?v=63" />
+        <link rel="stylesheet" href="/css/wizard.css?v=63" />
+        <link rel="stylesheet" href="/css/game.css?v=63" />
+        <link rel="stylesheet" href="/css/admin.css?v=63" />
     </head>
     <body class="auth-visible">
+        <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
         <div id="app">
             <header class="site-header">
                 <a class="brand" href="#top" aria-label="Auto DM - início">
@@ -22,11 +33,71 @@
                     <button id="nav-login" class="nav-login" type="button">Entrar</button>
                     <button id="nav-signup" class="nav-signup" type="button">Criar conta</button>
                 </nav>
-                <div id="user-info">
-                    <span id="who"></span>
-                    <button id="logout-btn" style="display: none">Sair</button>
+                <p id="shell-page-title" class="shell-page-title" hidden></p>
+                <div id="app-navigation" class="app-navigation" hidden>
+                    <nav class="context-nav" aria-label="Navegação da conta">
+                        <button
+                            id="shell-lobby-btn"
+                            class="shell-nav-button"
+                            type="button"
+                            aria-label="Campanhas"
+                            data-shell-screen="lobby-screen"
+                        >
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#library"></use></svg>
+                            <span class="shell-nav-label">Campanhas</span>
+                        </button>
+                        <button
+                            id="shell-game-btn"
+                            class="shell-nav-button"
+                            type="button"
+                            aria-label="Mesa"
+                            data-shell-screen="game-screen"
+                            hidden
+                        >
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#gamepad"></use></svg>
+                            <span class="shell-nav-label">Mesa</span>
+                        </button>
+                        <button
+                            id="shell-admin-btn"
+                            class="shell-nav-button"
+                            type="button"
+                            aria-label="Administração"
+                            data-shell-screen="admin-panel-screen"
+                            hidden
+                        >
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#shield"></use></svg>
+                            <span class="shell-nav-label">Admin</span>
+                        </button>
+                        <button id="prefs-btn" class="shell-nav-button" type="button" aria-label="Preferências">
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#settings"></use></svg>
+                            <span class="shell-nav-label">Preferências</span>
+                        </button>
+                    </nav>
+                    <div id="user-info" class="user-menu">
+                        <span class="user-identity">
+                            <span id="who"></span>
+                            <span id="user-role" class="user-role" hidden></span>
+                        </span>
+                        <button id="logout-btn" class="shell-logout" type="button" aria-label="Sair da conta">
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#log-out"></use></svg>
+                            <span class="shell-nav-label">Sair</span>
+                        </button>
+                    </div>
                 </div>
             </header>
+
+            <div class="global-feedback" aria-live="polite" aria-atomic="true">
+                <div id="offline-banner" class="offline-banner" role="status" hidden>
+                    <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#wifi-off"></use></svg>
+                    <div><strong>Você está offline.</strong> <span>Algumas ações ficarão indisponíveis até a conexão voltar.</span></div>
+                </div>
+                <div id="global-loading" class="global-loading" role="status" hidden>
+                    <span class="loading-spinner" aria-hidden="true"></span>
+                    <span>Carregando…</span>
+                </div>
+            </div>
+
+            <main id="main-content" class="app-main" tabindex="-1">
 
             <!-- Auth screen -->
             <section id="auth-screen" class="screen landing-screen">
@@ -42,10 +113,11 @@
                             Mestre de Jogo sempre à mesa.
                         </p>
                         <div class="hero-actions">
-                            <button id="hero-signup" class="hero-primary" type="button">
-                                Começar minha aventura <span aria-hidden="true">→</span>
+                            <button id="hero-signup" class="button button-primary hero-primary" type="button">
+                                Começar minha aventura
+                                <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#arrow-right"></use></svg>
                             </button>
-                            <button id="hero-login" class="hero-secondary" type="button">
+                            <button id="hero-login" class="button button-secondary hero-secondary" type="button">
                                 Já tenho uma conta
                             </button>
                         </div>
@@ -57,7 +129,7 @@
                     </div>
                     <a class="scroll-cue" href="#como-funciona" aria-label="Conheça a experiência">
                         <span>Explore o mundo</span>
-                        <i aria-hidden="true"></i>
+                        <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#chevron-down"></use></svg>
                     </a>
                 </div>
 
@@ -73,19 +145,25 @@
                     <div class="story-grid">
                         <article>
                             <span class="story-number">01</span>
-                            <p class="story-icon" aria-hidden="true">⚔</p>
+                            <p class="story-icon" aria-hidden="true">
+                                <svg class="icon"><use href="/assets/icons/lucide.svg#swords"></use></svg>
+                            </p>
                             <h3>Escolha seu caminho</h3>
                             <p>Crie seu herói, reúna companheiros e encare cada desafio do seu jeito.</p>
                         </article>
                         <article>
                             <span class="story-number">02</span>
-                            <p class="story-icon" aria-hidden="true">✦</p>
+                            <p class="story-icon" aria-hidden="true">
+                                <svg class="icon"><use href="/assets/icons/lucide.svg#sparkles"></use></svg>
+                            </p>
                             <h3>O mundo responde</h3>
                             <p>Conversas, combates e decisões transformam o rumo da campanha.</p>
                         </article>
                         <article>
                             <span class="story-number">03</span>
-                            <p class="story-icon" aria-hidden="true">♜</p>
+                            <p class="story-icon" aria-hidden="true">
+                                <svg class="icon"><use href="/assets/icons/lucide.svg#scroll-text"></use></svg>
+                            </p>
                             <h3>Sua lenda persiste</h3>
                             <p>Salve sua jornada e retorne à fogueira exatamente de onde parou.</p>
                         </article>
@@ -96,8 +174,9 @@
                     <p class="section-kicker">A próxima página está em branco</p>
                     <h2 id="cta-title">Role por iniciativa.</h2>
                     <p>O portão está aberto. Agora, a história precisa de um herói.</p>
-                    <button id="footer-signup" class="hero-primary" type="button">
-                        Criar meu personagem <span aria-hidden="true">→</span>
+                    <button id="footer-signup" class="button button-primary hero-primary" type="button">
+                        Criar meu personagem
+                        <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#arrow-right"></use></svg>
                     </button>
                 </section>
 
@@ -115,8 +194,8 @@
                         aria-modal="true"
                         aria-labelledby="auth-title"
                     >
-                        <button id="auth-close" class="auth-close" type="button" aria-label="Fechar">
-                            ×
+                        <button id="auth-close" class="button button-ghost auth-close" type="button" aria-label="Fechar" data-dialog-close>
+                            <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
                         </button>
                         <span class="auth-rune" aria-hidden="true">20</span>
                         <p class="auth-kicker">Abra os portões</p>
@@ -125,19 +204,20 @@
                             Sua campanha está esperando por você.
                         </p>
 
-                        <div class="auth-tabs" role="tablist" aria-label="Acesso à conta">
-                            <button id="auth-mode-login" class="active" type="button" role="tab">
+                        <div class="segmented-control auth-tabs" role="tablist" aria-label="Acesso à conta">
+                            <button id="auth-mode-login" class="active" type="button" role="tab" aria-selected="true">
                                 Entrar
                             </button>
-                            <button id="auth-mode-signup" type="button" role="tab">
+                            <button id="auth-mode-signup" type="button" role="tab" aria-selected="false">
                                 Registrar
                             </button>
                         </div>
 
                         <form id="auth-form">
-                            <div class="auth-field">
-                                <label for="auth-username">Nome de aventureiro</label>
+                            <div class="field auth-field">
+                                <label class="field-label" for="auth-username">Nome de aventureiro</label>
                                 <input
+                                    class="field-control"
                                     id="auth-username"
                                     type="text"
                                     placeholder="Como devemos chamá-lo?"
@@ -149,9 +229,10 @@
                                     required
                                 />
                             </div>
-                            <div class="auth-field">
-                                <label for="auth-password">Senha</label>
+                            <div class="field auth-field">
+                                <label class="field-label" for="auth-password">Senha</label>
                                 <input
+                                    class="field-control"
                                     id="auth-password"
                                     type="password"
                                     placeholder="Sua palavra secreta"
@@ -160,20 +241,23 @@
                                     required
                                 />
                             </div>
-                            <div id="auth-invite-wrap" class="auth-field" hidden>
-                                <label for="auth-invite">Código de convite</label>
+                            <div id="auth-invite-wrap" class="field auth-field" hidden>
+                                <label class="field-label" for="auth-invite">Código de convite</label>
                                 <input
+                                    class="field-control"
                                     id="auth-invite"
                                     type="text"
                                     placeholder="Se você recebeu um"
                                     autocomplete="off"
                                 />
                             </div>
-                            <button id="login-btn" class="auth-submit" type="submit">
-                                Entrar na campanha <span aria-hidden="true">→</span>
+                            <button id="login-btn" class="button button-primary auth-submit" type="submit">
+                                Entrar na campanha
+                                <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#arrow-right"></use></svg>
                             </button>
-                            <button id="signup-btn" class="auth-submit" type="submit" hidden>
-                                Registrar e começar <span aria-hidden="true">→</span>
+                            <button id="signup-btn" class="button button-primary auth-submit" type="submit" hidden>
+                                Registrar e começar
+                                <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#arrow-right"></use></svg>
                             </button>
                         </form>
                         <div id="auth-msg" class="msg" role="status" aria-live="polite"></div>
@@ -183,136 +267,178 @@
             </section>
 
             <!-- New / load game screen -->
-            <section id="lobby-screen" class="screen" style="display: none">
-                <h2>Jogos salvos</h2>
-                <div class="row">
-                    <button id="prefs-btn" class="secondary">
-                        ⚙ Voz & Música
+            <section id="lobby-screen" class="screen lobby-screen" aria-labelledby="lobby-title" style="display: none">
+                <header class="lobby-header">
+                    <div>
+                        <p class="lobby-kicker">Arquivo de aventuras</p>
+                        <h2 id="lobby-title">Suas campanhas</h2>
+                        <p class="lobby-intro">Retome uma jornada ou prepare um novo personagem para a mesa.</p>
+                    </div>
+                    <button id="wizard-btn" class="button button-primary" type="button">
+                        Nova campanha
+                        <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#plus"></use></svg>
+                    </button>
+                </header>
+
+                <div class="tabs lobby-tabs" role="tablist" aria-label="Campanhas">
+                    <button id="lobby-active-tab" class="tab" type="button" role="tab" aria-selected="true" aria-controls="lobby-active-panel">
+                        Ativas <span id="active-count" class="tab-count" hidden></span>
+                    </button>
+                    <button id="lobby-archived-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="lobby-archived-panel" tabindex="-1">
+                        Arquivadas <span id="archived-count" class="tab-count" hidden></span>
                     </button>
                 </div>
-                <ul id="saves-list"></ul>
-                <div class="row">
-                    <button id="archive-toggle" class="secondary">
-                        Mostrar arquivados
-                    </button>
-                </div>
-                <div id="archived-wrap" style="display: none">
-                    <h3 class="archived-title">Arquivados</h3>
-                    <ul id="archived-list"></ul>
-                </div>
-                <hr class="lobby-divider" />
 
-                <div class="lobby-cta">
-                    <h3>Começar um novo jogo</h3>
-                    <p class="lobby-hint">
-                        Crie seu personagem e inicie a campanha em poucos passos
-                        guiados. Esta é a forma recomendada de começar.
-                    </p>
-                    <div class="row">
-                        <button id="wizard-btn">
-                            Criar novo personagem (assistente)
-                        </button>
-                    </div>
+                <div id="lobby-loading" class="lobby-loading" role="status" aria-label="Carregando campanhas" hidden>
+                    <div class="campaign-skeleton"><span class="skeleton"></span><span class="skeleton"></span></div>
+                    <div class="campaign-skeleton"><span class="skeleton"></span><span class="skeleton"></span></div>
+                    <div class="campaign-skeleton"><span class="skeleton"></span><span class="skeleton"></span></div>
+                    <span class="sr-only">Carregando campanhas…</span>
                 </div>
 
-                <details class="lobby-advanced">
-                    <summary>Opções avançadas</summary>
-                    <p class="lobby-hint">
-                        Criar um jogo vazio (sem personagem) a partir de um
-                        slug. Útil para testes ou para iniciar do zero
-                        manualmente — a maioria dos jogadores deve usar o
-                        assistente acima.
-                    </p>
-                    <div class="row">
-                        <input
-                            id="new-slug"
-                            type="text"
-                            placeholder="slug-do-save (ex: campanha-elfa)"
-                        />
-                        <button id="new-game-btn" class="secondary">
-                            Criar jogo vazio
-                        </button>
+                <div id="lobby-error" class="lobby-error" role="alert" hidden>
+                    <div>
+                        <strong>Não foi possível consultar suas campanhas.</strong>
+                        <p id="lobby-error-detail">Verifique a conexão e tente novamente.</p>
                     </div>
-                    <label>
-                        <span class="lbl">Cenário inicial (opcional)</span>
-                        <span class="hint"
-                            >Descreva onde a party começa, o que tem no mundo…
-                            Deixe em branco para o mestre decidir
-                            livremente.</span
-                        >
-                        <textarea
-                            id="new-scenario"
-                            rows="3"
-                            maxlength="2000"
-                        ></textarea>
+                    <button id="lobby-retry" class="button button-secondary" type="button">Tentar novamente</button>
+                </div>
+
+                <section id="lobby-active-panel" class="lobby-tab-panel" role="tabpanel" aria-labelledby="lobby-active-tab">
+                    <div id="lobby-empty" class="empty-state lobby-empty" hidden>
+                        <svg class="lobby-empty-icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#scroll-text"></use></svg>
+                        <h3>Sua primeira página está em branco</h3>
+                        <p>Crie um personagem e o Mestre preparará a cena de abertura.</p>
+                        <button id="empty-wizard-btn" class="button button-primary" type="button">Criar personagem</button>
+                    </div>
+                    <ul id="saves-list" class="campaign-list" aria-label="Campanhas ativas"></ul>
+                </section>
+
+                <section id="lobby-archived-panel" class="lobby-tab-panel" role="tabpanel" aria-labelledby="lobby-archived-tab" hidden>
+                    <div id="archived-empty" class="empty-state lobby-empty" hidden>
+                        <h3>Nenhuma campanha arquivada</h3>
+                        <p>Campanhas guardadas aparecerão aqui e poderão ser restauradas.</p>
+                    </div>
+                    <ul id="archived-list" class="campaign-list" aria-label="Campanhas arquivadas"></ul>
+                </section>
+
+                <details class="lobby-advanced" hidden>
+                    <summary>Ferramentas de administrador</summary>
+                    <p class="lobby-hint">Crie uma sessão vazia para testes, sem passar pelo assistente de personagem.</p>
+                    <div class="row">
+                        <label class="field">
+                            <span class="field-label">Identificador do save</span>
+                            <input id="new-slug" class="field-control" type="text" placeholder="campanha-elfa" />
+                        </label>
+                        <button id="new-game-btn" class="button button-secondary" type="button">Criar jogo vazio</button>
+                    </div>
+                    <label class="field">
+                        <span class="field-label">Cenário inicial <span class="text-muted">(opcional)</span></span>
+                        <span class="field-hint">Descreva onde o grupo começa ou deixe o Mestre decidir livremente.</span>
+                        <textarea id="new-scenario" class="field-control" rows="3" maxlength="2000"></textarea>
                     </label>
                 </details>
 
-                <div class="lobby-admin" style="display: none">
-                    <hr class="lobby-divider" />
-                    <h3>Administração</h3>
-                    <p class="lobby-hint">
-                        Gerencie usuários, limites de uso, custo e atividade.
-                    </p>
-                    <div class="row">
-                        <button id="admin-panel-btn" class="secondary">
-                            Painel admin →
-                        </button>
-                    </div>
-                </div>
-
-                <div id="lobby-msg" class="msg"></div>
+                <div id="lobby-msg" class="msg sr-only"></div>
             </section>
 
-            <!-- Wizard screen (Phase 26c) -->
-            <section id="wizard-screen" class="screen" style="display: none">
-                <div id="wizard-progress" class="wizard-progress"></div>
+            <!-- Wizard screen (Phase 47) -->
+            <section id="wizard-screen" class="screen wizard-screen" aria-labelledby="wizard-title" style="display: none">
+                <header class="wizard-header">
+                    <div>
+                        <p class="wizard-eyebrow">Nova aventura</p>
+                        <h1 id="wizard-title">Crie seu personagem</h1>
+                        <p>Defina sua identidade, suas habilidades e quem caminhará ao seu lado.</p>
+                    </div>
+                    <span class="wizard-autosave-note">Suas escolhas ficam preservadas enquanto você cria.</span>
+                </header>
 
-                <div id="wizard-step-1" class="wizard-step active">
-                    <h2>1. Nome</h2>
-                    <label>
-                        <span class="lbl">Nome da campanha</span>
+                <div id="wizard-loading" class="wizard-load-state" role="status" aria-live="polite">
+                    <span class="loading-spinner" aria-hidden="true"></span>
+                    <div>
+                        <strong>Consultando os tomos…</strong>
+                        <p>Carregando raças, classes e opções de criação.</p>
+                    </div>
+                    <div class="wizard-loading-lines" aria-hidden="true"><span></span><span></span><span></span></div>
+                </div>
+
+                <div id="wizard-load-error" class="wizard-load-state wizard-load-error" role="alert" hidden>
+                    <strong>Não foi possível carregar as opções.</strong>
+                    <p id="wizard-load-error-text">Confira sua conexão e tente novamente.</p>
+                    <button id="wizard-retry" class="button button-secondary" type="button">Tentar novamente</button>
+                </div>
+
+                <div id="wizard-workspace" class="wizard-workspace" hidden>
+                    <aside class="wizard-sidebar">
+                        <nav class="wizard-stepper" aria-label="Etapas da criação">
+                            <p class="wizard-sidebar-label">Progresso</p>
+                            <ol id="wizard-progress" class="wizard-progress"></ol>
+                        </nav>
+                    </aside>
+
+                    <div class="wizard-main">
+                        <details id="wizard-mobile-summary" class="wizard-mobile-summary">
+                            <summary>
+                                <span>Sua ficha</span>
+                                <small id="wizard-mobile-summary-line">Novo personagem</small>
+                            </summary>
+                            <div id="wizard-summary-mobile"></div>
+                        </details>
+
+                        <div class="wizard-step-frame">
+                <div id="wizard-step-1" class="wizard-step active" aria-labelledby="wizard-step-title-1">
+                    <p class="wizard-step-kicker">O começo da lenda</p>
+                    <h2 id="wizard-step-title-1">Dê nome à sua aventura</h2>
+                    <p class="wizard-step-lead">Você poderá reconhecer esta campanha e seu herói rapidamente no lobby.</p>
+                    <label class="field">
+                        <span class="field-label">Nome da campanha</span>
                         <div class="input-with-ai">
                             <input
                                 id="wz-campaign-name"
+                                class="field-control"
                                 type="text"
                                 placeholder="Crônicas da Aliança"
+                                autocomplete="off"
                             />
                             <button
                                 type="button"
                                 id="wz-campaign-name-ai"
-                                class="ai-suggest-btn"
+                                class="button button-secondary ai-suggest-btn"
                                 title="Gerar nome com IA"
+                                aria-label="Gerar nome de campanha com IA"
                             >
-                                ✨<span class="sr-only">Gerar</span>
+                                <span aria-hidden="true">✨</span><span class="ai-button-label">Sugerir</span>
                             </button>
                         </div>
                     </label>
-                    <label>
-                        <span class="lbl">Nome do personagem</span>
+                    <label class="field">
+                        <span class="field-label">Nome do personagem</span>
                         <div class="input-with-ai">
                             <input
                                 id="wz-char-name"
+                                class="field-control"
                                 type="text"
                                 placeholder="Aragorn"
+                                autocomplete="off"
                             />
                             <button
                                 type="button"
                                 id="wz-char-name-ai"
-                                class="ai-suggest-btn"
+                                class="button button-secondary ai-suggest-btn"
                                 title="Gerar nome com IA"
+                                aria-label="Gerar nome de personagem com IA"
                             >
-                                ✨<span class="sr-only">Gerar</span>
+                                <span aria-hidden="true">✨</span><span class="ai-button-label">Sugerir</span>
                             </button>
                         </div>
                     </label>
-                    <label>
-                        <span class="lbl">Comprimento da narração do DM</span>
-                        <span class="hint"
+                    <label class="field">
+                        <span class="field-label">Comprimento da narração do Mestre</span>
+                        <span class="field-hint"
                             >Dentro de cada nível, tensão fica mais seca e
                             exploração mais descritiva.</span
                         >
-                        <select id="wz-narration-length">
+                        <select id="wz-narration-length" class="field-control">
                             <option value="curto">
                                 Curto (1-2 frases, tensão ainda mais seca)
                             </option>
@@ -325,15 +451,16 @@
                             </option>
                         </select>
                     </label>
-                    <label>
-                        <span class="lbl">Cenário inicial (opcional)</span>
-                        <span class="hint"
+                    <label class="field">
+                        <span class="field-label">Cenário inicial <small>Opcional</small></span>
+                        <span class="field-hint"
                             >Descreva onde a party começa, o que tem no mundo,
                             facções, clima… Deixe em branco para o mestre
                             decidir livremente.</span
                         >
                         <textarea
                             id="wz-initial-scenario"
+                            class="field-control"
                             rows="4"
                             maxlength="2000"
                             placeholder="Ex: A party começa numa cidade flutuante de gnomos chamada Vellumbra. A religião do deus-sol foi proibida há 10 anos. Os companheiros são da guilda das Sombras…"
@@ -341,115 +468,185 @@
                     </label>
                 </div>
 
-                <div id="wizard-step-2" class="wizard-step">
-                    <h2>2. Raça</h2>
-                    <div id="wz-races" class="choices"></div>
-                    <label id="wz-subrace-wrap" style="display: none">
-                        <span class="lbl">Sub-raça</span>
-                        <select id="wz-subrace"></select>
+                <div id="wizard-step-2" class="wizard-step" aria-labelledby="wizard-step-title-2">
+                    <p class="wizard-step-kicker">Herança</p>
+                    <h2 id="wizard-step-title-2">Escolha sua raça</h2>
+                    <p class="wizard-step-lead">Sua origem define traços físicos e parte da maneira como você atravessa o mundo.</p>
+                    <div id="wz-races" class="choices" role="group" aria-label="Raças disponíveis"></div>
+                    <label id="wz-subrace-wrap" class="field wizard-dependent-field" style="display: none">
+                        <span class="field-label">Sub-raça <small>Opcional</small></span>
+                        <select id="wz-subrace" class="field-control"></select>
                     </label>
                 </div>
 
-                <div id="wizard-step-3" class="wizard-step">
-                    <h2>3. Classe</h2>
-                    <div id="wz-classes" class="choices"></div>
+                <div id="wizard-step-3" class="wizard-step" aria-labelledby="wizard-step-title-3">
+                    <p class="wizard-step-kicker">Vocação</p>
+                    <h2 id="wizard-step-title-3">Escolha sua classe</h2>
+                    <p class="wizard-step-lead">A classe orienta seu papel no grupo, recursos e estilo de combate.</p>
+                    <div id="wz-classes" class="choices" role="group" aria-label="Classes disponíveis"></div>
                 </div>
 
-                <div id="wizard-step-4" class="wizard-step">
-                    <h2>4. Subclasse (opcional)</h2>
-                    <div id="wz-subclasses" class="choices"></div>
+                <div id="wizard-step-4" class="wizard-step" aria-labelledby="wizard-step-title-4">
+                    <p class="wizard-step-kicker">Especialização</p>
+                    <h2 id="wizard-step-title-4">Refine sua vocação <small>Opcional</small></h2>
+                    <p class="wizard-step-lead">Uma subclasse dá uma identidade mais específica ao caminho escolhido.</p>
+                    <div id="wz-subclasses" class="choices" role="group" aria-label="Subclasses disponíveis"></div>
                 </div>
 
-                <div id="wizard-step-5" class="wizard-step">
-                    <h2>5. Background</h2>
-                    <div id="wz-backgrounds" class="choices"></div>
+                <div id="wizard-step-5" class="wizard-step" aria-labelledby="wizard-step-title-5">
+                    <p class="wizard-step-kicker">Passado</p>
+                    <h2 id="wizard-step-title-5">Escolha seu background</h2>
+                    <p class="wizard-step-lead">O que você fazia antes da aventura ainda abre portas — e cria complicações.</p>
+                    <div id="wz-backgrounds" class="choices" role="group" aria-label="Backgrounds disponíveis"></div>
                 </div>
 
-                <div id="wizard-step-6" class="wizard-step">
-                    <h2>6. Alinhamento</h2>
-                    <div id="wz-alignments" class="choices"></div>
+                <div id="wizard-step-6" class="wizard-step" aria-labelledby="wizard-step-title-6">
+                    <p class="wizard-step-kicker">Princípios</p>
+                    <h2 id="wizard-step-title-6">Defina seu alinhamento</h2>
+                    <p class="wizard-step-lead">Uma bússola moral para interpretar decisões, não uma prisão para o personagem.</p>
+                    <div id="wz-alignments" class="choices choices-compact" role="group" aria-label="Alinhamentos disponíveis"></div>
                 </div>
 
-                <div id="wizard-step-7" class="wizard-step">
-                    <h2>7. Nível inicial</h2>
-                    <div id="wz-levels" class="choices"></div>
+                <div id="wizard-step-7" class="wizard-step" aria-labelledby="wizard-step-title-7">
+                    <p class="wizard-step-kicker">Experiência</p>
+                    <h2 id="wizard-step-title-7">Defina o nível inicial</h2>
+                    <p class="wizard-step-lead">Nível 1 é recomendado para conhecer o personagem aos poucos.</p>
+                    <div id="wz-levels" class="choices choices-compact" role="group" aria-label="Níveis disponíveis"></div>
                 </div>
 
-                <div id="wizard-step-8" class="wizard-step">
-                    <h2>8. Atributos</h2>
-                    <div id="wz-stats-methods" class="choices"></div>
-                    <div id="wz-stats-info" class="msg"></div>
+                <div id="wizard-step-8" class="wizard-step" aria-labelledby="wizard-step-title-8">
+                    <p class="wizard-step-kicker">Atributos</p>
+                    <h2 id="wizard-step-title-8">Escolha como gerar os atributos</h2>
+                    <p class="wizard-step-lead">O método muda a distribuição dos números, mas não o restante da ficha.</p>
+                    <div id="wz-stats-methods" class="choices" role="group" aria-label="Métodos de atributos"></div>
+                    <div id="wz-stats-info" class="wizard-info" role="status"></div>
                 </div>
 
-                <div id="wizard-step-9" class="wizard-step">
-                    <h2>9. Perícias</h2>
-                    <div id="wz-skills-info" class="msg"></div>
+                <div id="wizard-step-9" class="wizard-step" aria-labelledby="wizard-step-title-9">
+                    <p class="wizard-step-kicker">Talentos treinados</p>
+                    <h2 id="wizard-step-title-9">Escolha suas perícias</h2>
+                    <div id="wz-skills-info" class="wizard-info" role="status"></div>
                     <div id="wz-skills" class="skills-grid"></div>
                 </div>
 
-                <div id="wizard-step-10" class="wizard-step">
-                    <h2>10. Magias</h2>
-                    <div id="wz-spells-info" class="msg"></div>
+                <div id="wizard-step-10" class="wizard-step" aria-labelledby="wizard-step-title-10">
+                    <p class="wizard-step-kicker">Poder arcano</p>
+                    <h2 id="wizard-step-title-10">Prepare suas magias</h2>
+                    <div id="wz-spells-info" class="wizard-info" role="status"></div>
                     <div id="wz-spells" class="spell-picker"></div>
                 </div>
 
-                <div id="wizard-step-11" class="wizard-step">
-                    <h2>11. Companheiros</h2>
+                <div id="wizard-step-11" class="wizard-step" aria-labelledby="wizard-step-title-11">
+                    <p class="wizard-step-kicker">Seu grupo</p>
+                    <h2 id="wizard-step-title-11">Reúna seus companheiros</h2>
+                    <p class="wizard-step-lead">Sugerimos quatro aventureiros que complementam sua classe. Desmarque quem não quiser levar.</p>
                     <div id="wz-companions" class="checkbox-list"></div>
                 </div>
 
-                <div id="wizard-step-12" class="wizard-step">
-                    <h2>12. Confirmar</h2>
+                <div id="wizard-step-12" class="wizard-step" aria-labelledby="wizard-step-title-12">
+                    <p class="wizard-step-kicker">Última conferência</p>
+                    <h2 id="wizard-step-title-12">Revise sua ficha</h2>
+                    <p class="wizard-step-lead">Edite qualquer seção diretamente. Nada será criado antes da sua confirmação.</p>
                     <div id="wz-summary"></div>
                 </div>
+                        </div>
 
-                <div class="wizard-nav">
-                    <button id="wz-prev" class="secondary">← Voltar</button>
-                    <div>
-                        <span
-                            id="wz-step-counter"
-                            class="msg"
-                            style="display: inline-block; margin-right: 1rem"
-                        ></span>
-                        <button id="wz-next">Próximo →</button>
-                        <button id="wz-finish" style="display: none">
-                            Criar personagem!
-                        </button>
+                        <div id="wizard-msg" class="wizard-message" data-message-class="wizard-message" role="alert" aria-live="assertive"></div>
+                        <div class="wizard-nav">
+                            <button id="wz-prev" class="button button-secondary" type="button">← Voltar</button>
+                            <span id="wz-step-counter" class="wizard-step-counter" aria-live="polite"></span>
+                            <button id="wz-next" class="button button-primary" type="button">Próximo →</button>
+                            <button id="wz-finish" class="button button-primary" type="button" style="display: none">
+                                Criar personagem
+                            </button>
+                        </div>
                     </div>
+
+                    <aside class="wizard-sheet-preview" aria-labelledby="wizard-sheet-title">
+                        <p class="wizard-sidebar-label">Sua ficha</p>
+                        <h2 id="wizard-sheet-title">Retrato da aventura</h2>
+                        <div id="wizard-summary-sidebar"></div>
+                    </aside>
                 </div>
-                <div id="wizard-msg" class="msg"></div>
             </section>
 
             <!-- Game screen -->
-            <section id="game-screen" class="screen" style="display: none">
-                <div class="game-top">
-                    <button id="lobby-btn" class="secondary">
-                        ← Voltar ao lobby
-                    </button>
+            <section id="game-screen" class="screen" aria-labelledby="game-title" style="display: none">
+                <h2 id="game-title" class="sr-only">Mesa de jogo</h2>
+                <header class="game-top">
+                    <div class="game-session-heading">
+                        <p class="game-eyebrow">Campanha em andamento</p>
+                        <p id="game-campaign-name" class="game-campaign-name">Mesa de jogo</p>
+                        <p id="game-location" class="game-location">Preparando a próxima cena…</p>
+                    </div>
+                    <div
+                        id="game-session-status"
+                        class="game-session-status"
+                        role="status"
+                        aria-live="polite"
+                        data-state="ready"
+                    >
+                        <span class="game-status-dot" aria-hidden="true"></span>
+                        <span id="game-status-label">Seu turno</span>
+                    </div>
                     <!-- Phase 42 — TTS replay + ambient music controls. -->
-                    <div class="audio-toolbar">
+                    <div class="audio-toolbar" aria-label="Controles de áudio">
                         <button
                             id="tts-btn"
                             class="audio-btn"
+                            type="button"
+                            aria-label="Ouvir a última narração do Mestre"
                             title="Ouvir a última narração do mestre"
                             disabled
-                        >🔊</button>
+                        ><svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#volume-2"></use></svg></button>
                         <button
                             id="music-btn"
                             class="audio-btn"
+                            type="button"
+                            aria-label="Tocar ou pausar música ambiente"
                             title="Tocar/pausar música ambiente"
                             disabled
-                        >🎵</button>
-                        <label class="audio-volume" title="Volume da música">
-                            <span>🔊</span>
-                            <input id="music-volume" type="range" min="0" max="1" step="0.05" value="0.4" />
+                        ><svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#music"></use></svg></button>
+                        <label class="audio-volume" title="Volume da música" aria-label="Volume da música">
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#volume-1"></use></svg>
+                            <input id="music-volume" type="range" min="0" max="1" step="0.05" value="0.4" aria-label="Volume da música" />
                         </label>
                     </div>
-                </div>
+                </header>
                 <audio id="music-player" loop></audio>
                 <audio id="tts-player"></audio>
+
+                <nav class="game-mobile-tabs" role="tablist" aria-label="Áreas da mesa">
+                    <button class="game-mobile-tab active" type="button" role="tab" aria-selected="true" aria-controls="output" data-game-panel="narrative">
+                        <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#book-open"></use></svg>
+                        Narrativa
+                    </button>
+                    <button class="game-mobile-tab" type="button" role="tab" aria-selected="false" aria-controls="table-tools" data-game-panel="party">
+                        <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#users"></use></svg>
+                        Grupo
+                    </button>
+                    <button class="game-mobile-tab" type="button" role="tab" aria-selected="false" aria-controls="table-tools" data-game-panel="roll">
+                        <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#dices"></use></svg>
+                        Dados
+                    </button>
+                    <button class="game-mobile-tab" type="button" role="tab" aria-selected="false" aria-controls="play-guide" data-game-panel="commands">
+                        <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#terminal"></use></svg>
+                        Comandos
+                    </button>
+                </nav>
+
                 <div id="table-tools" class="table-tools" style="display: none">
-                    <div class="sheet-stack">
+                    <div class="game-drawer-heading">
+                        <div>
+                            <p class="game-eyebrow">Ferramentas</p>
+                            <h3 id="game-tools-title">Grupo e ficha</h3>
+                        </div>
+                        <button id="game-tools-close" class="game-drawer-close" type="button" aria-label="Fechar ferramentas">
+                            <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
+                        </button>
+                    </div>
+                    <div class="sheet-stack" data-game-tool="party">
+                        <div id="party-overview" class="party-overview" aria-label="Estado do grupo"></div>
                         <div
                             id="char-tabs"
                             class="char-tabs"
@@ -466,7 +663,7 @@
                             style="display: none"
                         ></div>
                     </div>
-                    <div class="roll-panel">
+                    <div class="roll-panel" data-game-tool="roll">
                         <label>
                             <span class="lbl">Teste pedido pelo DM</span>
                             <select id="roll-check"></select>
@@ -487,18 +684,36 @@
                         </button>
                     </div>
                 </div>
-                <div id="output" class="output"></div>
-                <div class="input-row">
-                    <input
+                <div id="output" class="output" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Narrativa da campanha" tabindex="0"></div>
+                <div class="game-composer">
+                    <div class="game-quick-actions" aria-label="Ações rápidas">
+                        <button class="game-quick-action" type="button" data-command="/look">Observar</button>
+                        <button class="game-quick-action" type="button" data-command="/status">Situação</button>
+                        <button class="game-quick-action" type="button" data-command="/inventory">Inventário</button>
+                        <button class="game-quick-action" type="button" data-command="/conditions">Condições</button>
+                        <button id="game-commands-btn" class="game-quick-action" type="button">Comandos</button>
+                    </div>
+                    <div class="input-row">
+                    <label class="sr-only" for="cmd">Descreva sua ação</label>
+                    <textarea
                         id="cmd"
-                        type="text"
+                        rows="1"
                         placeholder="O que você faz?"
                         autocomplete="off"
-                    />
-                    <button id="send-btn">Enviar</button>
+                        aria-describedby="game-composer-hint"
+                    ></textarea>
+                    <button id="send-btn" class="button button-primary" type="button" aria-label="Agir">
+                        <span>Agir</span>
+                        <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#send"></use></svg>
+                    </button>
+                    </div>
+                    <p id="game-composer-hint" class="game-composer-hint">Enter envia · Shift + Enter quebra a linha</p>
                 </div>
                 <details id="play-guide" class="play-guide">
                     <summary>Guia de jogo e comandos</summary>
+                    <button id="game-guide-close" class="game-drawer-close" type="button" aria-label="Fechar guia de comandos">
+                        <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
+                    </button>
                     <div class="guide-grid">
                         <section>
                             <h3>Como jogar</h3>
@@ -734,62 +949,88 @@
                 </div>
             </section>
 
-            <!-- Admin panel (Phase 30) -->
+            <!-- Admin panel — administration workspace (Phase 49) -->
             <section
                 id="admin-panel-screen"
-                class="screen"
+                class="screen admin-screen"
+                aria-labelledby="admin-title"
                 style="display: none"
             >
-                <div class="game-top">
-                    <button id="admin-back-btn" class="secondary">
-                        ← Voltar ao lobby
+                <header class="admin-heading">
+                    <div>
+                        <p class="admin-kicker">Operação</p>
+                        <h2 id="admin-title">Administração</h2>
+                        <p>Contas, limites e consumo em um único lugar.</p>
+                    </div>
+                    <button id="admin-create-btn" class="button button-primary" type="button">
+                        <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#user"></use></svg>
+                        Criar usuário
                     </button>
-                    <h2 style="margin-left: 1rem">Painel administrativo</h2>
-                </div>
+                </header>
 
-                <div id="admin-summary" class="admin-cards"></div>
+                <section class="admin-usage" aria-labelledby="admin-usage-title">
+                    <div class="admin-section-heading">
+                        <h3 id="admin-usage-title">Resumo deste mês</h3>
+                        <button id="admin-refresh-btn" class="button button-ghost" type="button">
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#rotate-ccw"></use></svg>
+                            Atualizar
+                        </button>
+                    </div>
+                    <dl id="admin-summary" class="admin-summary"></dl>
+                </section>
 
-                <div class="row">
-                    <input
-                        id="admin-q"
-                        type="text"
-                        placeholder="Filtrar por usuário…"
-                        autocomplete="off"
-                    />
-                    <button id="admin-create-btn">+ Criar usuário</button>
-                    <button id="admin-refresh-btn" class="secondary">
-                        Atualizar
-                    </button>
+                <div class="admin-toolbar" role="search" aria-label="Filtrar usuários">
+                    <label class="field admin-search">
+                        <span class="field-label">Buscar usuário</span>
+                        <span class="admin-search-control">
+                            <input id="admin-q" class="field-control" type="search" placeholder="Nome do usuário" autocomplete="off" />
+                        </span>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Status</span>
+                        <select id="admin-status-filter" class="field-control">
+                            <option value="all">Todos</option><option value="active">Ativos</option>
+                            <option value="disabled">Desativados</option><option value="unlimited">Ilimitados</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Papel</span>
+                        <select id="admin-role-filter" class="field-control">
+                            <option value="all">Todos</option><option value="user">Jogador</option>
+                            <option value="admin">Administrador</option>
+                        </select>
+                    </label>
                 </div>
 
                 <div class="admin-table-wrap">
                     <table class="admin-table">
+                        <caption class="sr-only">Usuários cadastrados, limites e consumo</caption>
                         <thead>
                             <tr>
-                                <th>Usuário</th>
-                                <th>Role</th>
-                                <th>Status</th>
-                                <th>Tokens hoje / limite</th>
-                                <th>Custo (mês)</th>
-                                <th>Ações</th>
+                                <th scope="col" aria-sort="ascending"><button class="admin-sort active" type="button" data-admin-sort="username">Usuário <span aria-hidden="true">↑</span></button></th>
+                                <th scope="col"><button class="admin-sort" type="button" data-admin-sort="role">Papel <span aria-hidden="true">↕</span></button></th>
+                                <th scope="col"><button class="admin-sort" type="button" data-admin-sort="status">Status <span aria-hidden="true">↕</span></button></th>
+                                <th scope="col"><button class="admin-sort" type="button" data-admin-sort="tokens_today">Uso hoje <span aria-hidden="true">↕</span></button></th>
+                                <th scope="col"><button class="admin-sort" type="button" data-admin-sort="cost_month">Custo no mês <span aria-hidden="true">↕</span></button></th>
+                                <th scope="col">Ações</th>
                             </tr>
                         </thead>
                         <tbody id="admin-users-tbody"></tbody>
                     </table>
                 </div>
 
-                <div id="admin-msg" class="msg"></div>
+                <div id="admin-msg" class="msg" role="status" aria-live="polite"></div>
 
                 <!-- User detail drawer (activity + usage) -->
-                <div id="admin-detail" style="display: none">
-                    <hr class="lobby-divider" />
-                    <div class="row">
-                        <h3 id="admin-detail-title">Atividade</h3>
-                        <button id="admin-detail-close" class="secondary">
-                            Fechar
-                        </button>
-                    </div>
-                    <div class="admin-detail-grid">
+                <div id="admin-detail" class="modal admin-detail-overlay" hidden>
+                    <aside class="admin-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="admin-detail-title" tabindex="-1">
+                        <div class="dialog-heading">
+                            <div><p class="admin-kicker">Detalhes do usuário</p><h3 id="admin-detail-title">Atividade</h3></div>
+                            <button id="admin-detail-close" class="dialog-close" type="button" aria-label="Fechar detalhes" data-dialog-close>
+                                <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
+                            </button>
+                        </div>
+                        <div class="admin-detail-grid">
                         <div>
                             <h4>Atividade recente</h4>
                             <ul
@@ -804,14 +1045,15 @@
                     </div>
                 </div>
             </section>
+            </main>
 
             <!-- Modals -->
-            <div id="admin-modal" class="modal" style="display: none">
-                <div class="modal-card">
-                    <div class="row">
+            <div id="admin-modal" class="modal" hidden>
+                <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title" tabindex="-1">
+                    <div class="dialog-heading">
                         <h3 id="admin-modal-title">Usuário</h3>
-                        <button id="admin-modal-close" class="secondary">
-                            ×
+                        <button id="admin-modal-close" class="dialog-close" type="button" aria-label="Fechar" data-dialog-close>
+                            <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
                         </button>
                     </div>
                     <div id="admin-modal-body"></div>
@@ -820,13 +1062,15 @@
 
             <!-- Phase 38 — ASI (Ability Score Improvement) modal. Shown when
                  the player's pending_ASI queue is non-null (level 4/8/12/16/19). -->
-            <div id="asi-modal" class="modal" style="display: none">
-                <div class="modal-card">
-                    <div class="row">
-                        <h3>Aprimoramento de Atributo (ASI)</h3>
-                        <button id="asi-modal-close" class="secondary">×</button>
+            <div id="asi-modal" class="modal" hidden>
+                <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="asi-modal-title" aria-describedby="asi-modal-description" tabindex="-1">
+                    <div class="dialog-heading">
+                        <h3 id="asi-modal-title">Aprimoramento de Atributo (ASI)</h3>
+                        <button id="asi-modal-close" class="dialog-close" type="button" aria-label="Fechar" data-dialog-close>
+                            <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
+                        </button>
                     </div>
-                    <p class="hint">
+                    <p id="asi-modal-description" class="hint">
                         Você atingiu um nível de aprimoramento (PHB p. 15). Escolha como
                         distribuir entre os seis atributos.
                     </p>
@@ -855,11 +1099,13 @@
             <!-- Phase 41c — reaction modal: prompts the player when an enemy
                  hit/spell triggers an eligible reaction (Shield, Counterspell,
                  Uncanny Dodge, …). Auto-passes after the 30s TTL. -->
-            <div id="reaction-modal" class="modal" style="display: none">
-                <div class="modal-card">
-                    <div class="row">
-                        <h3>⚡ Reação disponível</h3>
-                        <button id="reaction-close" class="secondary">×</button>
+            <div id="reaction-modal" class="modal" hidden>
+                <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reaction-modal-title" aria-describedby="reaction-prompt" tabindex="-1">
+                    <div class="dialog-heading">
+                        <h3 id="reaction-modal-title">Reação disponível</h3>
+                        <button id="reaction-close" class="dialog-close" type="button" aria-label="Não reagir e fechar" data-dialog-close>
+                            <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
+                        </button>
                     </div>
                     <p id="reaction-prompt" class="hint"></p>
                     <div id="reaction-options" class="reaction-options"></div>
@@ -872,11 +1118,13 @@
             </div>
 
             <!-- Phase 39 — item inspection modal (equip/attune/drop/sell). -->
-            <div id="item-modal" class="modal" style="display: none">
-                <div class="modal-card">
-                    <div class="row">
+            <div id="item-modal" class="modal" hidden>
+                <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" tabindex="-1">
+                    <div class="dialog-heading">
                         <h3 id="item-modal-title">Item</h3>
-                        <button id="item-modal-close" class="secondary">×</button>
+                        <button id="item-modal-close" class="dialog-close" type="button" aria-label="Fechar" data-dialog-close>
+                            <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
+                        </button>
                     </div>
                     <div id="item-modal-body"></div>
                     <div id="item-modal-actions" class="item-actions"></div>
@@ -884,72 +1132,111 @@
             </div>
 
             <!-- Phase 39 — vendor shop overlay (catalog + buy buttons). -->
-            <div id="shop-modal" class="modal" style="display: none">
-                <div class="modal-card">
-                    <div class="row">
+            <div id="shop-modal" class="modal" hidden>
+                <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="shop-modal-title" tabindex="-1">
+                    <div class="dialog-heading">
                         <h3 id="shop-modal-title">Loja</h3>
-                        <button id="shop-modal-close" class="secondary">×</button>
+                        <button id="shop-modal-close" class="dialog-close" type="button" aria-label="Fechar" data-dialog-close>
+                            <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
+                        </button>
                     </div>
                     <div id="shop-gold" class="shop-gold"></div>
                     <div id="shop-stock" class="shop-stock"></div>
                 </div>
             </div>
 
-            <!-- Phase 42 — Voz & música (TTS + ambient music preferences). -->
-            <div id="prefs-modal" class="modal" style="display: none">
-                <div class="modal-card">
-                    <div class="row">
-                        <h3>Voz &amp; Música</h3>
-                        <button id="prefs-close" class="secondary">×</button>
+            <!-- Account preferences (Phase 49). -->
+            <div id="prefs-modal" class="modal" hidden>
+                <div class="modal-card prefs-dialog" role="dialog" aria-modal="true" aria-labelledby="prefs-modal-title" tabindex="-1">
+                    <div class="dialog-heading">
+                        <div><p class="admin-kicker">Sua experiência</p><h3 id="prefs-modal-title">Preferências</h3></div>
+                        <button id="prefs-close" class="dialog-close" type="button" aria-label="Fechar" data-dialog-close>
+                            <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#x"></use></svg>
+                        </button>
                     </div>
-                    <div id="prefs-msg" class="msg"></div>
+                    <div class="tabs prefs-tabs" role="tablist" aria-label="Categorias de preferências">
+                        <button id="prefs-tab-narration" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="prefs-panel-narration" data-prefs-tab="narration">Narração</button>
+                        <button id="prefs-tab-music" class="tab" type="button" role="tab" aria-selected="false" aria-controls="prefs-panel-music" data-prefs-tab="music" tabindex="-1">Música</button>
+                        <button id="prefs-tab-account" class="tab" type="button" role="tab" aria-selected="false" aria-controls="prefs-panel-account" data-prefs-tab="account" tabindex="-1">Conta</button>
+                    </div>
+                    <div id="prefs-msg" class="msg prefs-feedback" role="status" aria-live="polite"></div>
 
-                    <fieldset class="prefs-section">
+                    <fieldset id="prefs-panel-narration" class="prefs-section" role="tabpanel" aria-labelledby="prefs-tab-narration">
                         <legend>Narração em voz (TTS)</legend>
-                        <label>
-                            <input id="prefs-tts-enabled" type="checkbox" />
-                            Habilitar narração em voz
+                        <label class="prefs-toggle">
+                            <span><strong>Habilitar narração</strong><small>Permite ouvir novamente as falas do Mestre.</small></span>
+                            <input id="prefs-tts-enabled" type="checkbox" role="switch" />
                         </label>
-                        <label>
-                            <input id="prefs-tts-auto" type="checkbox" />
-                            Tocar automaticamente após o mestre narrar
+                        <label class="prefs-toggle">
+                            <span><strong>Reprodução automática</strong><small>Toca após cada nova narração do Mestre.</small></span>
+                            <input id="prefs-tts-auto" type="checkbox" role="switch" />
                         </label>
-                        <label>
-                            <span class="lbl">Voz</span>
-                            <select id="prefs-tts-voice"><option value="">(padrão)</option></select>
+                        <label class="field">
+                            <span class="field-label">Voz</span>
+                            <select id="prefs-tts-voice" class="field-control"><option value="">Padrão do sistema</option></select>
                         </label>
-                        <label>
-                            <span class="lbl">Velocidade</span>
-                            <select id="prefs-tts-rate">
+                        <label class="field">
+                            <span class="field-label">Velocidade</span>
+                            <select id="prefs-tts-rate" class="field-control">
                                 <option value="-15%">Mais lenta</option>
                                 <option value="+0%" selected>Normal</option>
                                 <option value="+15%">Mais rápida</option>
                             </select>
                         </label>
-                        <button id="prefs-tts-test" class="secondary" type="button">
-                            🔊 Testar voz
+                        <button id="prefs-tts-test" class="button button-secondary" type="button">
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#volume-2"></use></svg>
+                            Testar voz
                         </button>
                     </fieldset>
 
-                    <fieldset class="prefs-section">
+                    <fieldset id="prefs-panel-music" class="prefs-section" role="tabpanel" aria-labelledby="prefs-tab-music" hidden>
                         <legend>Música ambiente</legend>
-                        <label>
-                            <input id="prefs-music-enabled" type="checkbox" />
-                            Tocar música em loop
+                        <label class="prefs-toggle">
+                            <span><strong>Tocar música em loop</strong><small>Mantém a faixa ambiente durante a campanha.</small></span>
+                            <input id="prefs-music-enabled" type="checkbox" role="switch" />
                         </label>
-                        <label>
-                            <span class="lbl">URL do áudio (CC-BY recomendado)</span>
-                            <input id="prefs-music-src" type="url" placeholder="https://.../forest.mp3" />
+                        <label class="field">
+                            <span class="field-label">URL do áudio</span>
+                            <input id="prefs-music-src" class="field-control" type="url" placeholder="https://…/floresta.mp3" />
+                            <span class="field-hint">Prefira uma faixa licenciada para reutilização.</span>
                         </label>
-                        <label>
-                            <span class="lbl">Volume</span>
+                        <label class="field prefs-volume">
+                            <span class="field-label">Volume <output id="prefs-volume-output" for="prefs-music-volume">40%</output></span>
                             <input id="prefs-music-volume" type="range" min="0" max="1" step="0.05" value="0.4" />
                         </label>
                     </fieldset>
+
+                    <section id="prefs-panel-account" class="prefs-section prefs-account" role="tabpanel" aria-labelledby="prefs-tab-account" hidden>
+                        <h4>Conta</h4>
+                        <dl>
+                            <div><dt>Usuário</dt><dd id="prefs-account-username">—</dd></div>
+                            <div><dt>Papel</dt><dd id="prefs-account-role">—</dd></div>
+                        </dl>
+                        <p>O progresso das campanhas fica associado a esta conta.</p>
+                        <button id="prefs-logout" class="button button-secondary" type="button">
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#log-out"></use></svg>
+                            Sair da conta
+                        </button>
+                    </section>
                 </div>
             </div>
+
+            <div id="confirm-modal" class="modal" hidden>
+                <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message" tabindex="-1">
+                    <div class="dialog-heading">
+                        <h3 id="confirm-title">Confirmar ação</h3>
+                    </div>
+                    <p id="confirm-message"></p>
+                    <div class="dialog-actions">
+                        <button id="confirm-cancel" class="button button-secondary" type="button" data-dialog-close>Cancelar</button>
+                        <button id="confirm-accept" class="button button-danger" type="button">Confirmar</button>
+                        </div>
+                    </aside>
+                </div>
+            </div>
+            <div id="toast-region" class="toast-region" aria-label="Notificações"></div>
         </div>
 
-        <script src="/app.js?v=54" type="module"></script>
+        <script src="/app.js?v=63" type="module"></script>
     </body>
 </html>

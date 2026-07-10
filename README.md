@@ -22,7 +22,7 @@ rolls, attacks, damage, conditions and death saves are computed in
 code. The LLM only narrates.
 
 The game is a **web app** — a FastAPI backend (auth, sessions, save
-state in Postgres, live sessions in Redis, SSE streaming) serving a
+state in Postgres and live sessions in Redis) serving a
 vanilla HTML/CSS/JS frontend with a full in-browser character creation
 wizard.
 
@@ -93,11 +93,17 @@ interpolates `${VAR}` from your `.env`):
 | `FRONTEND_URL` | yes (CORS) | Comma-separated allowed origins |
 | `INVITE_CODE` | optional | Gate signup; leave empty for open signup |
 
+Hoje o deploy usa Minimax e uma credencial global `AUTO_DM_*`. A Fase 10 antiga
+foi arquivada. O roadmap da Fase 51 substituirá esse desenho por Minimax,
+OpenAI, Claude, Gemini e DeepSeek, com duas modalidades: conta gratuita usando
+chave própria (BYOK) ou assinatura usando as credenciais da plataforma dentro
+da cota do plano. CLI e streaming SSE estão arquivados definitivamente.
+
 The first launch gives you the auth screen → lobby → in-browser
 character creation wizard (name → race → class → subclass →
 background → alignment → level → stats → skills → companions →
 confirm), then the game screen with `/help /save /load /list /status
-/quit` and live SSE streaming.
+/quit`. As respostas do Mestre chegam completas por REST; SSE foi arquivado.
 
 ---
 
@@ -123,7 +129,7 @@ Anything else is sent to the DM as a free-form action in pt-BR
 
 | Layer | Module | Responsibility |
 |------:|--------|----------------|
-| Web | `auto_dm.web` | FastAPI server: auth, sessions, SSE, REST, static frontend. |
+| Web | `auto_dm.web` | FastAPI server: auth, sessions, REST, static frontend. |
 | Agents | `auto_dm.agents` | DM + companion LLM wrappers; narrative loop. |
 | State | `auto_dm.state` | Pydantic models + StateManager. |
 | Engine | `auto_dm.engine` | Dice, combat. **Source of truth for mechanics.** |
@@ -172,6 +178,29 @@ ruff format src/             # auto-format
 Line length: 100. Python 3.11+. `pyproject.toml` is the source of
 truth for tooling.
 
+### Frontend e testes de interface
+
+O frontend é uma SPA sem framework servida diretamente pelo FastAPI. A estrutura fica em
+`src/auto_dm/web/static/`: `index.html` mantém a marcação e os contratos de IDs, `app.js`
+coordena os fluxos da aplicação, `shell.js` concentra navegação e feedback global, e `css/`
+separa tokens, componentes e estilos por tela. Ícones e imagens locais ficam em `assets/`.
+
+Os testes de navegador usam Playwright com APIs mockadas e determinísticas; não exigem banco,
+Redis nem chave de LLM. Eles cobrem 390×844, 768×1024 e 1440×900, incluindo fluxos funcionais,
+snapshots e auditoria axe. Na primeira execução, instale as dependências e o Chromium:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:e2e             # funcional, visual e acessibilidade
+npm run test:e2e:update      # aceitar alterações visuais intencionais
+npm run test:assets          # budgets de hero, CSS e JavaScript inicial
+```
+
+Os snapshots ficam ao lado dos testes em `tests/e2e/*-snapshots/`. Antes de atualizá-los,
+confirme a mudança nos três viewports. O workflow `Frontend quality` executa esses gates em
+pull requests; falhas deixam trace, screenshot e relatório HTML como artefato do CI.
+
 ### Project layout
 
 ```text
@@ -209,7 +238,7 @@ SPEC.md / PLAN.md / DEPLOY.md
 - DM + companion agents with a narrative loop; 12-companion roster
   with party roll and synergy.
 - **Web app**: FastAPI + Postgres + Redis, bcrypt/JWT auth, invite-code
-  gate, SSE streaming, in-browser character creation wizard, lobby,
+  gate, in-browser character creation wizard, lobby,
   save/load — all containerized.
 
 Out of scope for v0.1: multi-classing, feats, content outside the

@@ -1,3 +1,15 @@
+import {
+  beginRequest,
+  closeDialog,
+  confirmAction,
+  endRequest,
+  initShell,
+  openDialog,
+  setShellUser,
+  showToast,
+  updateShell,
+} from "./shell.js?v=63";
+
 // Auto DM — console UI client (Phase 26).
 //
 // Pure-vanilla: stores the JWT in localStorage, sends it as
@@ -62,26 +74,31 @@ async function api(path, opts = {}) {
   const tok = getToken();
   if (tok) headers["Authorization"] = `Bearer ${tok}`;
   if (opts.headers) Object.assign(headers, opts.headers);
-  const res = await fetch(API_BASE + path, {
-    method: opts.method || "GET",
-    headers,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  if (!res.ok) {
-    let detail = res.statusText;
-    let payload = null;
-    try {
-      payload = await res.json();
-      // FastAPI HTTPException detail may be a dict (429 quota) or string.
-      detail = payload.detail || JSON.stringify(payload);
-    } catch (_) {}
-    const err = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
-    err.status = res.status;
-    err.payload = payload;
-    throw err;
+  beginRequest();
+  try {
+    const res = await fetch(API_BASE + path, {
+      method: opts.method || "GET",
+      headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      let payload = null;
+      try {
+        payload = await res.json();
+        // FastAPI HTTPException detail may be a dict (429 quota) or string.
+        detail = payload.detail || JSON.stringify(payload);
+      } catch (_) {}
+      const err = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      err.status = res.status;
+      err.payload = payload;
+      throw err;
+    }
+    if (res.status === 204) return null;
+    return res.json();
+  } finally {
+    endRequest();
   }
-  if (res.status === 204) return null;
-  return res.json();
 }
 
 // --- Screen helpers ---
@@ -93,10 +110,19 @@ function show(id) {
   if (target) target.style.display = "";
   const landingVisible = id === "auth-screen";
   document.body.classList.toggle("auth-visible", landingVisible);
+  updateShell({
+    screenId: id,
+    user: getUser(),
+    hasSession: Boolean(currentSessionId),
+  });
   if (!landingVisible) {
     const dialog = document.getElementById("auth-dialog");
-    if (dialog) dialog.hidden = true;
+    if (dialog) closeDialog(dialog, { restoreFocus: false });
     document.body.classList.remove("auth-modal-open");
+    requestAnimationFrame(() => {
+      target?.setAttribute("tabindex", "-1");
+      target?.focus({ preventScroll: true });
+    });
   }
 }
 
@@ -104,7 +130,11 @@ function setMsg(id, text, kind) {
   const el = document.getElementById(id);
   if (!el) return;
   el.textContent = text || "";
-  el.className = "msg" + (kind ? " " + kind : "");
+  el.className = (el.dataset.messageClass || "msg") + (kind ? " " + kind : "");
+  el.setAttribute("aria-live", kind === "error" ? "assertive" : "polite");
+  el.setAttribute("role", kind === "error" ? "alert" : "status");
+  if (text && kind === "ok") showToast(text, "success");
+  if (text && kind === "error") showToast(text, "error", 6500);
 }
 
 // --- Game log ---
@@ -117,7 +147,7 @@ function appendLog(who, body, cls) {
   entry.className = "entry " + (cls || "");
   const w = document.createElement("span");
   w.className = "who";
-  w.textContent = who;
+  w.textContent = who === "DM" ? "Mestre" : who;
   const b = document.createElement("span");
   b.className = "body";
   b.textContent = body;
@@ -144,6 +174,8 @@ let activeSheetId = null;
 // Read-only view (admin inspecting a save). When true, input is disabled
 // and sendInput() bails out — the admin can look but not play.
 let readOnlyMode = false;
+let quotaReached = false;
+let sessionExpired = false;
 
 // --- Phase 28: input-blocking + busy feedback ---
 let busy = false;
@@ -151,24 +183,58 @@ let busy = false;
 function lockUi() {
   if (busy) return;
   busy = true;
-  document.getElementById("cmd").disabled = true;
-  document.getElementById("send-btn").disabled = true;
-  const rollBtn = document.getElementById("roll-btn");
-  if (rollBtn) rollBtn.disabled = true;
-  const rollCheck = document.getElementById("roll-check");
-  if (rollCheck) rollCheck.disabled = true;
+  syncGameSessionState();
 }
 
 function unlockUi() {
   busy = false;
-  // In read-only (admin view) mode the inputs stay disabled.
-  if (readOnlyMode) return;
-  document.getElementById("cmd").disabled = false;
-  document.getElementById("send-btn").disabled = false;
-  const rollBtn = document.getElementById("roll-btn");
-  if (rollBtn) rollBtn.disabled = false;
-  const rollCheck = document.getElementById("roll-check");
-  if (rollCheck) rollCheck.disabled = false;
+  syncGameSessionState();
+}
+
+function currentGameUiState() {
+  if (readOnlyMode) return { state: "readonly", label: "Somente leitura" };
+  if (sessionExpired || !currentSessionId) {
+    return { state: "expired", label: "Sessão expirada" };
+  }
+  if (!online()) return { state: "offline", label: "Aguardando conexão" };
+  if (quotaReached) return { state: "quota", label: "Cota diária atingida" };
+  if (busy) return { state: "thinking", label: "Mestre pensando…" };
+  return { state: "ready", label: "Seu turno" };
+}
+
+function syncGameSessionState() {
+  const screen = document.getElementById("game-screen");
+  const status = document.getElementById("game-session-status");
+  const label = document.getElementById("game-status-label");
+  if (!screen || !status || !label) return;
+  const ui = currentGameUiState();
+  screen.dataset.sessionState = ui.state;
+  status.dataset.state = ui.state;
+  label.textContent = ui.label;
+
+  const blocked = ui.state !== "ready";
+  for (const id of ["cmd", "send-btn", "roll-btn", "roll-check", "roll-adv", "roll-dis"]) {
+    const control = document.getElementById(id);
+    if (control) control.disabled = blocked;
+  }
+  for (const control of screen.querySelectorAll("[data-command]")) {
+    control.disabled = blocked;
+  }
+}
+
+function updateGameContext() {
+  const campaign = document.getElementById("game-campaign-name");
+  const location = document.getElementById("game-location");
+  if (campaign) {
+    campaign.textContent = currentGameState?.campaign_name || currentSlug || "Mesa de jogo";
+  }
+  if (location) {
+    const place = currentGameState?.current_location || "Local desconhecido";
+    const combat = currentGameState?.in_combat
+      ? ` · Combate, rodada ${currentGameState.round_number || 1}`
+      : "";
+    location.textContent = `${place}${combat}`;
+  }
 }
 
 function showTyping() {
@@ -179,7 +245,7 @@ function showTyping() {
   entry.id = "typing-indicator";
   const w = document.createElement("span");
   w.className = "who";
-  w.textContent = "Sistema";
+  w.textContent = "Mestre";
   const b = document.createElement("span");
   b.className = "body";
   for (let i = 0; i < 3; i++) {
@@ -200,7 +266,6 @@ function hideTyping() {
 
 // --- Auth handlers ---
 let authMode = "login";
-let authLastFocus = null;
 
 function setAuthMode(mode) {
   authMode = mode === "signup" ? "signup" : "login";
@@ -231,21 +296,16 @@ function setAuthMode(mode) {
 
 function openAuthDialog(mode) {
   const dialog = document.getElementById("auth-dialog");
-  authLastFocus = document.activeElement;
   setAuthMode(mode);
-  dialog.hidden = false;
   document.body.classList.add("auth-modal-open");
-  requestAnimationFrame(() => document.getElementById("auth-username").focus());
+  openDialog(dialog, { initialFocus: "#auth-username" });
 }
 
 function closeAuthDialog(restoreFocus = true) {
   const dialog = document.getElementById("auth-dialog");
   if (!dialog || dialog.hidden) return;
-  dialog.hidden = true;
+  closeDialog(dialog, { restoreFocus });
   document.body.classList.remove("auth-modal-open");
-  if (restoreFocus && authLastFocus && typeof authLastFocus.focus === "function") {
-    authLastFocus.focus();
-  }
 }
 
 function setAuthBusy(isBusy) {
@@ -323,24 +383,20 @@ function doLogout() {
   currentSlug = null;
   currentGameState = null;
   readOnlyMode = false;
-  document.getElementById("who").textContent = "";
-  document.getElementById("logout-btn").style.display = "none";
+  setShellUser(null);
   show("auth-screen");
 }
 
 function afterLogin() {
   closeAuthDialog(false);
   const u = getUser();
-  const tag = u && u.role === "admin" ? " (admin)" : "";
-  document.getElementById("who").textContent = u ? `Logado: ${u.username}${tag}` : "";
-  document.getElementById("logout-btn").style.display = "";
+  setShellUser(u);
   loadLobby();
 }
 
 // --- Lobby: list saves ---
-// Archived saves are opt-in: we only fetch ?archived=true and reveal the
-// section when the user toggles it on (state held in `showArchived`).
-let showArchived = false;
+let lobbyTab = "active";
+let lobbyRequestId = 0;
 
 // Admins list saves across all users (with owner); regular users list
 // only their own. The base path switches accordingly.
@@ -353,100 +409,217 @@ async function loadLobby() {
   show("lobby-screen");
   // "Criar jogo vazio" (advanced option) is admin-only.
   const advanced = document.querySelector(".lobby-advanced");
-  if (advanced) advanced.style.display = isAdmin() ? "" : "none";
-  // Admin panel entry is admin-only.
-  const adminBlock = document.querySelector(".lobby-admin");
-  if (adminBlock) adminBlock.style.display = isAdmin() ? "" : "none";
-  const ul = document.getElementById("saves-list");
-  ul.innerHTML = "";
-  try {
-    const active = await api(savesEndpoint(false));
-    if (active.length === 0) {
-      const li = document.createElement("li");
-      li.innerHTML = '<span class="meta">Nenhum save ainda. Crie um novo jogo abaixo.</span>';
-      ul.appendChild(li);
-    } else {
-      for (const s of active) ul.appendChild(renderSaveRow(s, { archived: false }));
-    }
-  } catch (e) {
-    setMsg("lobby-msg", "Erro ao listar saves: " + e.message, "error");
-  }
-  // Archived section is rendered on demand by renderArchived().
-  await renderArchived();
+  if (advanced) advanced.hidden = !isAdmin();
+  lobbyTab = "active";
+  await loadLobbyTab("active");
 }
 
-// Show/hide the archived section. When showing, fetch ?archived=true.
-async function renderArchived() {
-  const wrap = document.getElementById("archived-wrap");
-  const ul = document.getElementById("archived-list");
-  const toggle = document.getElementById("archive-toggle");
-  ul.innerHTML = "";
-  if (!showArchived) {
-    wrap.style.display = "none";
-    if (toggle) toggle.textContent = "Mostrar arquivados";
-    return;
-  }
-  try {
-    const archived = await api(savesEndpoint(true));
-    for (const s of archived) ul.appendChild(renderSaveRow(s, { archived: true }));
-  } catch (e) {
-    setMsg("lobby-msg", "Erro ao listar arquivados: " + e.message, "error");
-  }
-  wrap.style.display = "";
-  if (toggle) toggle.textContent = "Ocultar arquivados";
-}
-
-async function toggleArchived() {
-  showArchived = !showArchived;
-  await renderArchived();
-}
-
-// Build a single <li> row for a save. Own saves can be loaded and
-// archived/restored. Admin rows for other users are read-only and can
-// be deleted.
-function renderSaveRow(s, { archived }) {
-  const admin = isAdmin();
+function isOwnSave(s) {
+  if (!isAdmin()) return true;
   const currentUser = getUser();
-  const isOwnSave =
-    !admin || !!(currentUser && Number(s.user_id) === Number(currentUser.id));
-  const li = document.createElement("li");
-  const meta = document.createElement("span");
-  const owner = admin && s.username ? ` · <span class="owner">@${s.username}</span> ` : "";
-  meta.innerHTML =
-    `<span class="slug">${s.slug}</span>${owner}<span class="meta">${s.updated_at}</span>`;
+  return !!(currentUser && Number(s.user_id) === Number(currentUser.id));
+}
 
-  const loadBtn = document.createElement("button");
-  if (admin && !isOwnSave) {
-    loadBtn.textContent = "Visualizar";
-    loadBtn.onclick = () => viewSaveReadOnly(s.user_id, s.slug);
+function updateLobbyTabs(tab, state = "ready") {
+  const active = tab === "active";
+  const activeTab = document.getElementById("lobby-active-tab");
+  const archivedTab = document.getElementById("lobby-archived-tab");
+  const activePanel = document.getElementById("lobby-active-panel");
+  const archivedPanel = document.getElementById("lobby-archived-panel");
+  const showPanel = state === "ready";
+
+  activeTab.setAttribute("aria-selected", String(active));
+  archivedTab.setAttribute("aria-selected", String(!active));
+  activeTab.tabIndex = active ? 0 : -1;
+  archivedTab.tabIndex = active ? -1 : 0;
+  activePanel.hidden = !showPanel || !active;
+  archivedPanel.hidden = !showPanel || active;
+}
+
+function setLobbyViewState(state) {
+  document.getElementById("lobby-loading").hidden = state !== "loading";
+  document.getElementById("lobby-error").hidden = state !== "error";
+  updateLobbyTabs(lobbyTab, state === "ready" ? "ready" : state);
+}
+
+async function loadLobbyTab(tab) {
+  lobbyTab = tab === "archived" ? "archived" : "active";
+  const archived = lobbyTab === "archived";
+  const requestId = ++lobbyRequestId;
+  setLobbyViewState("loading");
+  setMsg("lobby-msg", "", "");
+  try {
+    const saves = await api(savesEndpoint(archived));
+    if (requestId !== lobbyRequestId) return;
+    renderCampaignList(saves, { archived });
+    setLobbyViewState("ready");
+  } catch (e) {
+    if (requestId !== lobbyRequestId) return;
+    document.getElementById("lobby-error-detail").textContent = navigator.onLine
+      ? "Tente novamente. Se o problema continuar, volte em alguns instantes."
+      : "Sua conexão parece estar offline. Reconecte-se e tente novamente.";
+    setLobbyViewState("error");
+    setMsg("lobby-msg", "Não foi possível carregar as campanhas: " + e.message, "error");
+  }
+}
+
+function setLobbyCount(archived, count) {
+  const counter = document.getElementById(archived ? "archived-count" : "active-count");
+  counter.textContent = String(count);
+  counter.hidden = false;
+}
+
+function createLobbyIcon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "icon icon-compact");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `/assets/icons/lucide.svg#${name}`);
+  svg.appendChild(use);
+  return svg;
+}
+
+function campaignAction(label, icon, className, onclick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `button ${className}`;
+  button.append(createLobbyIcon(icon), document.createTextNode(label));
+  button.onclick = onclick;
+  return button;
+}
+
+function formatSaveDate(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return "Data não disponível";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function appendCampaignMeta(list, icon, text, dateTime = "") {
+  const item = document.createElement("li");
+  item.appendChild(createLobbyIcon(icon));
+  if (dateTime) {
+    const time = document.createElement("time");
+    time.dateTime = dateTime;
+    time.textContent = text;
+    time.title = dateTime;
+    item.appendChild(time);
   } else {
-    loadBtn.textContent = "Carregar";
-    loadBtn.onclick = () => loadSaveAsSession(s.slug);
+    const value = document.createElement("span");
+    value.textContent = text;
+    item.appendChild(value);
+  }
+  list.appendChild(item);
+}
+
+function renderCampaignList(saves, { archived }) {
+  const list = document.getElementById(archived ? "archived-list" : "saves-list");
+  const empty = document.getElementById(archived ? "archived-empty" : "lobby-empty");
+  list.innerHTML = "";
+  list.hidden = saves.length === 0;
+  empty.hidden = saves.length !== 0;
+  setLobbyCount(archived, saves.length);
+  const featuredIndex = archived ? -1 : saves.findIndex((save) => isOwnSave(save));
+  saves.forEach((save, index) => {
+    list.appendChild(renderSaveRow(save, { archived, featured: index === featuredIndex }));
+  });
+}
+
+// Build one dense campaign row. The newest campaign owned by the logged-in
+// user receives the primary "Continuar aventura" action.
+function renderSaveRow(s, { archived, featured = false }) {
+  const ownSave = isOwnSave(s);
+  const li = document.createElement("li");
+  li.className = "campaign-row" + (featured && ownSave ? " campaign-row-featured" : "");
+
+  const summary = document.createElement("div");
+  summary.className = "campaign-summary";
+  if (featured && ownSave) {
+    const eyebrow = document.createElement("p");
+    eyebrow.className = "campaign-eyebrow";
+    eyebrow.textContent = "Aventura mais recente";
+    summary.appendChild(eyebrow);
   }
 
-  li.appendChild(meta);
-  if (isOwnSave) {
-    const toggleBtn = document.createElement("button");
-    toggleBtn.className = "secondary";
-    if (archived) {
-      toggleBtn.textContent = "Restaurar";
-      toggleBtn.onclick = () => unarchiveSave(s.slug);
-    } else {
-      toggleBtn.textContent = "Arquivar";
-      toggleBtn.onclick = () => archiveSave(s.slug);
-    }
-    li.appendChild(toggleBtn);
+  const titleLine = document.createElement("div");
+  titleLine.className = "campaign-title-line";
+  const title = document.createElement("h3");
+  title.className = "campaign-title";
+  title.textContent = s.campaign_name || s.slug;
+  titleLine.appendChild(title);
+  if (isAdmin() && s.username) {
+    const owner = document.createElement("span");
+    owner.className = "campaign-owner";
+    owner.textContent = `@${s.username}`;
+    titleLine.appendChild(owner);
   }
-  li.appendChild(loadBtn);
+  if (archived) {
+    const tag = document.createElement("span");
+    tag.className = "campaign-archived-tag";
+    tag.textContent = "Arquivada";
+    titleLine.appendChild(tag);
+  }
+  summary.appendChild(titleLine);
+
+  const slug = document.createElement("p");
+  slug.className = "campaign-slug";
+  slug.textContent = `Save: ${s.slug}`;
+  summary.appendChild(slug);
+
+  const metadata = document.createElement("ul");
+  metadata.className = "campaign-meta";
+  const character = s.character_name
+    ? `${s.character_name}${s.character_level ? ` · Nível ${s.character_level}` : ""}`
+    : "Sem personagem";
+  appendCampaignMeta(metadata, "user", character);
+  appendCampaignMeta(metadata, "map-pin", s.current_location || "Local ainda não revelado");
+  appendCampaignMeta(metadata, "clock", `Atualizada em ${formatSaveDate(s.updated_at)}`, s.updated_at);
+  summary.appendChild(metadata);
+
+  const actions = document.createElement("div");
+  actions.className = "campaign-actions";
+  let openButton;
+  if (!ownSave) {
+    openButton = campaignAction(
+      "Visualizar",
+      "arrow-right",
+      "button-secondary campaign-open",
+      () => viewSaveReadOnly(s.user_id, s.slug),
+    );
+  } else {
+    openButton = campaignAction(
+      featured ? "Continuar aventura" : archived ? "Abrir arquivada" : "Abrir campanha",
+      "arrow-right",
+      `${featured ? "button-primary campaign-open-featured" : "button-secondary"} campaign-open`,
+      () => loadSaveAsSession(s.slug),
+    );
+  }
+  actions.appendChild(openButton);
+
+  if (ownSave) {
+    if (archived) {
+      actions.appendChild(campaignAction(
+        "Restaurar", "rotate-ccw", "button-ghost", () => unarchiveSave(s.slug),
+      ));
+    } else {
+      actions.appendChild(campaignAction(
+        "Arquivar", "archive", "button-ghost", () => archiveSave(s.slug),
+      ));
+    }
+  }
 
   // Admin-only delete (works on archived and non-archived alike).
-  if (admin) {
-    const delBtn = document.createElement("button");
-    delBtn.className = "danger";
-    delBtn.textContent = "Excluir";
-    delBtn.onclick = () => deleteSaveAdmin(s.user_id, s.slug);
-    li.appendChild(delBtn);
+  if (isAdmin()) {
+    actions.appendChild(campaignAction(
+      "Excluir",
+      "trash",
+      "button-ghost campaign-action-danger",
+      () => deleteSaveAdmin(s.user_id, s.slug),
+    ));
   }
+  li.append(summary, actions);
   return li;
 }
 
@@ -470,14 +643,16 @@ async function viewSaveReadOnly(userId, slug) {
 }
 
 async function deleteSaveAdmin(userId, slug) {
-  if (!confirm(`Excluir o save “${slug}” definitivamente?`)) return;
+  if (!await confirmAction(`Excluir o save “${slug}” definitivamente?`, {
+    confirmLabel: "Excluir save",
+  })) return;
   try {
     await api(
       `/api/admin/saves/${encodeURIComponent(userId)}/${encodeURIComponent(slug)}`,
       { method: "DELETE" },
     );
     setMsg("lobby-msg", `“${slug}” excluído.`, "ok");
-    await loadLobby();
+    await loadLobbyTab(lobbyTab);
   } catch (e) {
     setMsg("lobby-msg", "Erro ao excluir: " + e.message, "error");
   }
@@ -487,7 +662,7 @@ async function archiveSave(slug) {
   try {
     await api(`/api/saves/${encodeURIComponent(slug)}/archive`, { method: "POST" });
     setMsg("lobby-msg", `“${slug}” arquivado.`, "ok");
-    await loadLobby();
+    await loadLobbyTab("active");
   } catch (e) {
     setMsg("lobby-msg", "Erro ao arquivar: " + e.message, "error");
   }
@@ -497,7 +672,7 @@ async function unarchiveSave(slug) {
   try {
     await api(`/api/saves/${encodeURIComponent(slug)}/unarchive`, { method: "POST" });
     setMsg("lobby-msg", `“${slug}” restaurado.`, "ok");
-    await loadLobby();
+    await loadLobbyTab("archived");
   } catch (e) {
     setMsg("lobby-msg", "Erro ao restaurar: " + e.message, "error");
   }
@@ -650,13 +825,13 @@ function openASIModal(player) {
   msg.textContent = "";
   // Pre-fill the pickers every time the modal opens.
   renderASIPickers(player);
-  modal.style.display = "flex";
   modal.dataset.characterId = player.id;
+  openDialog(modal, { initialFocus: "#asi-confirm" });
 }
 
 function closeASIModal() {
   const modal = document.getElementById("asi-modal");
-  if (modal) modal.style.display = "none";
+  if (modal) closeDialog(modal);
 }
 
 // ============================================================================
@@ -708,7 +883,7 @@ function openReactionModal(player, pending) {
     btn.onclick = () => resolveReaction(kind);
     options.appendChild(btn);
   });
-  modal.style.display = "flex";
+  openDialog(modal, { initialFocus: ".reaction-option" });
 
   // 30s countdown → auto-pass. We track expiry from the server's
   // ``expires_at`` so client/server stay aligned even if the tab was
@@ -748,7 +923,7 @@ function describeReactionTrigger(trigger) {
 
 function closeReactionModal(decline) {
   const modal = document.getElementById("reaction-modal");
-  if (modal) modal.style.display = "none";
+  if (modal) closeDialog(modal);
   if (reactionTimerId) {
     clearInterval(reactionTimerId);
     reactionTimerId = null;
@@ -763,7 +938,7 @@ async function resolveReaction(kind) {
   }
   const modal = document.getElementById("reaction-modal");
   const msg = document.getElementById("reaction-msg");
-  if (modal) modal.style.display = "none";
+  if (modal) closeDialog(modal);
   // Passing (no kind): tell the server to clear the trigger without
   // resolving — but only if one is actually open.
   const payload = kind ? { kind } : { decline: true };
@@ -788,7 +963,7 @@ async function resolveReaction(kind) {
     }
     if (e && e.status === 404) return;  // nothing pending
     if (msg) msg.textContent = e.message || "Falha ao resolver reação.";
-    if (modal) modal.style.display = "flex";
+    if (modal) openDialog(modal, { initialFocus: ".reaction-option" });
   }
 }
 
@@ -934,6 +1109,8 @@ async function awardXP(amount) {
 function enterGame(opts = {}) {
   const { readOnly = false, narrativeLog = [], ownerLabel = "", empty = false } = opts;
   readOnlyMode = readOnly;
+  quotaReached = false;
+  sessionExpired = false;
   // Reset which character sheet is visible — only persists within the
   // same game session (between /input calls). A new session always
   // opens on the player tab.
@@ -941,15 +1118,13 @@ function enterGame(opts = {}) {
   show("game-screen");
   clearLog();
   renderCharacterTools();
+  updateGameContext();
+  selectGamePanel("narrative", { focus: false });
+  syncGameSessionState();
 
   if (readOnly) {
     // Disable all input controls; lobby button stays usable.
-    document.getElementById("cmd").disabled = true;
-    document.getElementById("send-btn").disabled = true;
-    const rollBtn = document.getElementById("roll-btn");
-    if (rollBtn) rollBtn.disabled = true;
-    const rollCheck = document.getElementById("roll-check");
-    if (rollCheck) rollCheck.disabled = true;
+    syncGameSessionState();
     appendLog(
       "Sistema",
       `Modo visualização (somente leitura — admin)${ownerLabel ? ` · ${ownerLabel}` : ""}.`,
@@ -989,6 +1164,7 @@ function enterGame(opts = {}) {
 async function persistSave(state) {
   if (!state) return;
   currentGameState = state;
+  updateGameContext();
   renderCharacterTools();
   if (!currentSlug) return;
   try {
@@ -1036,7 +1212,15 @@ async function playOpeningClassic() {
     }
   } catch (e) {
     if (e && e.status === 429) {
+      quotaReached = true;
+      syncGameSessionState();
       appendLog("Sistema", LIMIT_REACHED_MSG, "system");
+      return;
+    }
+    if (e && (e.status === 401 || e.status === 404)) {
+      sessionExpired = true;
+      syncGameSessionState();
+      appendLog("Sistema", "Esta sessão expirou. Volte às campanhas para continuar.", "system");
       return;
     }
     appendLog("Erro", "Não foi possível gerar a abertura: " + e.message, "system");
@@ -1196,6 +1380,79 @@ function populateRollOptions() {
   if (previous) select.value = previous;
 }
 
+function compactCharacterResources(character) {
+  const resources = [];
+  const remainingRages = Math.max(0, Number(character.rages_max || 0) - Number(character.rages_used || 0));
+  if (character.rages_max) resources.push(`Fúria ${remainingRages}/${character.rages_max}`);
+  if (character.ki_max) resources.push(`Ki ${character.ki_points || 0}/${character.ki_max}`);
+  if (character.sorcery_points_max) {
+    resources.push(`Feitiçaria ${character.sorcery_points || 0}/${character.sorcery_points_max}`);
+  }
+  if (Number(character.lay_on_hands_pool) > 0) {
+    resources.push(`Mãos Curadoras ${character.lay_on_hands_pool}`);
+  }
+  if (character.bardic_inspiration_max) {
+    resources.push(`Inspiração ${character.bardic_inspiration_uses || 0}/${character.bardic_inspiration_max}`);
+  }
+  if (Number(character.channel_divinity_remaining) > 0) {
+    resources.push(`Canalizar ${character.channel_divinity_remaining}`);
+  }
+  if (Number(character.action_surges_remaining) > 0) {
+    resources.push(`Surto ${character.action_surges_remaining}`);
+  }
+  const slots = character.spellcasting?.spell_slots || {};
+  const availableSlots = Object.values(slots).reduce((total, value) => total + Number(value || 0), 0);
+  if (availableSlots > 0) resources.push(`Slots ${availableSlots}`);
+  return resources.slice(0, 2);
+}
+
+function renderPartyOverview(chars) {
+  const host = document.getElementById("party-overview");
+  if (!host) return;
+  host.innerHTML = chars.map((character) => {
+    const hp = Math.max(0, Number(character.hp_current || 0));
+    const hpMax = Math.max(1, Number(character.hp_max || 1));
+    const hpRatio = hp / hpMax;
+    const healthClass = hpRatio <= 0.25 ? " is-critical" : hpRatio <= 0.5 ? " is-hurt" : "";
+    const conditions = (character.conditions || []).slice(0, 2);
+    const conditionHtml = conditions.length
+      ? conditions.map((condition) =>
+          `<span class="party-card-condition">${escapeHtml(condition)}</span>`).join("")
+      : '<span class="party-card-role">Sem condições</span>';
+    const resources = compactCharacterResources(character);
+    const resourceHtml = resources.length
+      ? resources.map((resource) => `<span class="party-resource">${escapeHtml(resource)}</span>`).join("")
+      : '<span class="party-resource">Recursos estáveis</span>';
+    const talkAction = character.is_player
+      ? '<button type="button" class="party-quick-action" data-command="/status">Ver situação</button>'
+      : `<button type="button" class="party-quick-action" data-command="falo com ${escapeHtml(character.name)}">Conversar</button>`;
+    return (
+      `<article class="party-card${healthClass}" data-party-card="${escapeHtml(character.id)}">` +
+        `<div class="party-card-head"><span class="party-card-name">${escapeHtml(character.name)}</span>` +
+        `<span class="party-card-role">${character.is_player ? "Você" : "Companheiro"}</span></div>` +
+        `<div class="party-card-vitals"><div class="party-hp">` +
+        `<span class="party-hp-label"><span>PV</span><strong>${hp}/${hpMax}</strong></span>` +
+        `<progress class="party-hp-track" value="${hp}" max="${hpMax}">${hp} de ${hpMax}</progress>` +
+        `</div><span class="party-ac">CA ${character.armor_class ?? "—"}</span></div>` +
+        `<div class="party-card-vitals">${conditionHtml}${resourceHtml}</div>` +
+        `<div class="party-card-actions">` +
+        `<button type="button" class="party-quick-action" data-open-sheet="${escapeHtml(character.id)}">Ver ficha</button>` +
+        `${talkAction}</div>` +
+      `</article>`
+    );
+  }).join("");
+
+  for (const button of host.querySelectorAll("[data-open-sheet]")) {
+    button.addEventListener("click", () => setActiveSheetTab(button.dataset.openSheet));
+  }
+  for (const button of host.querySelectorAll("[data-command]")) {
+    button.addEventListener("click", () => {
+      fillCommand(button.dataset.command || "");
+      selectGamePanel("narrative");
+    });
+  }
+}
+
 function renderCharacterTools() {
   const tools = document.getElementById("table-tools");
   if (!tools) return;
@@ -1205,9 +1462,18 @@ function renderCharacterTools() {
   const chars = player ? [player, ...companions] : companions;
   if (chars.length === 0) {
     tools.style.display = "none";
+    tools.classList.remove("is-mobile-open");
+    for (const panel of ["party", "roll"]) {
+      const tab = document.querySelector(`[data-game-panel="${panel}"]`);
+      if (tab) tab.disabled = true;
+    }
     return;
   }
   tools.style.display = "";
+  for (const panel of ["party", "roll"]) {
+    const tab = document.querySelector(`[data-game-panel="${panel}"]`);
+    if (tab) tab.disabled = false;
+  }
   populateRollOptions();
 
   const tabsHost = document.getElementById("char-tabs");
@@ -1220,7 +1486,7 @@ function renderCharacterTools() {
       const sub = c.subclass ? ` · ${c.subclass}` : "";
       const isPlayerTag = c.is_player ? ' <span class="tab-tag">você</span>' : "";
       return (
-        `<button type="button" class="char-tab" role="tab" data-char-id="${escapeHtml(c.id)}" title="${escapeHtml(c.name)}">` +
+        `<button type="button" class="char-tab" role="tab" data-char-id="${escapeHtml(c.id)}" title="${escapeHtml(c.name)}" aria-controls="sheet-${escapeHtml(c.id)}">` +
         `<span class="tab-name">${escapeHtml(c.name)}</span>` +
         `<span class="tab-meta">${escapeHtml(c.race)} ${escapeHtml(cls)}${c.level ? ` ${c.level}` : ""}${escapeHtml(sub)}</span>` +
         `${isPlayerTag}` +
@@ -1230,6 +1496,7 @@ function renderCharacterTools() {
     .join("");
 
   sheetHost.innerHTML = chars.map(renderSheetView).join("");
+  renderPartyOverview(chars);
 
   // Keep the previously selected tab if its character is still in the
   // party, otherwise default to the player (or first available).
@@ -1247,6 +1514,7 @@ function renderCharacterTools() {
   }
   renderShopButtons();
   updateRollPreview();
+  syncGameSessionState();
 }
 
 function setActiveSheetTab(charId) {
@@ -1255,11 +1523,18 @@ function setActiveSheetTab(charId) {
   const sheetHost = document.getElementById("sheet-host");
   if (!tabsHost || !sheetHost) return;
   for (const t of tabsHost.querySelectorAll(".char-tab")) {
-    t.classList.toggle("active", t.dataset.charId === charId);
-    t.setAttribute("aria-selected", t.dataset.charId === charId ? "true" : "false");
+    const selected = t.dataset.charId === charId;
+    t.classList.toggle("active", selected);
+    t.setAttribute("aria-selected", selected ? "true" : "false");
+    t.tabIndex = selected ? 0 : -1;
   }
   for (const v of sheetHost.querySelectorAll(".sheet-view")) {
-    v.classList.toggle("active", v.dataset.charId === charId);
+    const selected = v.dataset.charId === charId;
+    v.classList.toggle("active", selected);
+    v.hidden = !selected;
+  }
+  for (const card of document.querySelectorAll("[data-party-card]")) {
+    card.classList.toggle("is-active", card.dataset.partyCard === charId);
   }
 }
 
@@ -1290,7 +1565,7 @@ function renderSheetView(character) {
   const spellsHtml = renderSpellsSection(character.spellcasting);
   const inventoryHtml = renderInventorySection(character);
   return (
-    `<div class="sheet-view${isPlayer}" data-char-id="${escapeHtml(character.id)}">` +
+    `<div id="sheet-${escapeHtml(character.id)}" class="sheet-view${isPlayer}" data-char-id="${escapeHtml(character.id)}" role="tabpanel">` +
       `<div class="sheet-head"><strong>${escapeHtml(character.name)}</strong>` +
       `<span>${escapeHtml(character.race)} ${escapeHtml(cls)}${character.level ? ` ${character.level}` : ""}${escapeHtml(sub)}${escapeHtml(bg)}</span></div>` +
       `<div class="sheet-meta">PV ${character.hp_current}/${character.hp_max}${character.temp_hp ? ` (+${character.temp_hp} temp)` : ""} · CA ${character.armor_class} · Prof ${fmtMod(character.proficiency_bonus || 0)} · Desl ${character.speed || 30} ft</div>` +
@@ -1458,7 +1733,7 @@ async function applyCharacterUpdate(character) {
 let itemModalCtx = null; // { charId, itemName }
 
 function closeItemModal() {
-  document.getElementById("item-modal").style.display = "none";
+  closeDialog("item-modal");
   itemModalCtx = null;
 }
 
@@ -1501,7 +1776,7 @@ function openItemModal(charId, itemName) {
   const actions = document.getElementById("item-modal-actions");
   if (readOnlyMode) {
     actions.innerHTML = "";
-    document.getElementById("item-modal").style.display = "";
+    openDialog("item-modal");
     return;
   }
   const sellPrice = listPrice(item) * 0.5;
@@ -1541,15 +1816,18 @@ function openItemModal(charId, itemName) {
   if (attuneBtn) attuneBtn.onclick = () => itemAction("attune", { item_id: itemName });
   const unattuneBtn = document.getElementById("item-unattune-btn");
   if (unattuneBtn) unattuneBtn.onclick = () => itemAction("unattune", { item_id: itemName });
-  document.getElementById("item-drop-btn").onclick = () => {
-    if (confirm(`Soltar 1× ${itemName}?`)) {
+  document.getElementById("item-drop-btn").onclick = async () => {
+    if (await confirmAction(`Soltar 1× ${itemName}?`, {
+      title: "Soltar item",
+      confirmLabel: "Soltar item",
+    })) {
       itemAction("drop", { item_id: itemName, quantity: 1 });
     }
   };
   document.getElementById("item-sell-btn").onclick = () =>
     itemAction("sell", { item_id: itemName, quantity: 1 });
 
-  document.getElementById("item-modal").style.display = "";
+  openDialog("item-modal");
 }
 
 async function itemAction(action, body) {
@@ -1589,7 +1867,7 @@ async function itemAction(action, body) {
 let shopVendorId = null;
 
 function closeShopModal() {
-  document.getElementById("shop-modal").style.display = "none";
+  closeDialog("shop-modal");
   shopVendorId = null;
 }
 
@@ -1623,7 +1901,7 @@ async function openShop(vendorId) {
     );
     shopVendorId = vendorId;
     renderShopModal(res);
-    document.getElementById("shop-modal").style.display = "";
+    openDialog("shop-modal");
   } catch (e) {
     appendLog("Erro", "Não foi possível abrir a loja: " + e.message, "system");
   }
@@ -1731,6 +2009,12 @@ async function rollCheck(check, kind = null, advantage = false, disadvantage = f
     });
     appendLog("Dados", describeRollResult(res), "system");
   } catch (e) {
+    if (e && (e.status === 401 || e.status === 404)) {
+      sessionExpired = true;
+      syncGameSessionState();
+      appendLog("Sistema", "Esta sessão expirou. Volte às campanhas para continuar.", "system");
+      return;
+    }
     appendLog("Erro", "Nao foi possivel rolar: " + e.message, "system");
   } finally {
     unlockUi();
@@ -1811,7 +2095,15 @@ async function sendInputClassic(line) {
     }
   } catch (e) {
     if (e && e.status === 429) {
+      quotaReached = true;
+      syncGameSessionState();
       appendLog("Sistema", LIMIT_REACHED_MSG, "system");
+      return;
+    }
+    if (e && (e.status === 401 || e.status === 404)) {
+      sessionExpired = true;
+      syncGameSessionState();
+      appendLog("Sistema", "Esta sessão expirou. Volte às campanhas para continuar.", "system");
       return;
     }
     appendLog("Erro", e.message, "system");
@@ -1827,14 +2119,14 @@ function returnToLobby() {
   currentSessionId = null;
   currentGameState = null;
   readOnlyMode = false;
+  quotaReached = false;
+  sessionExpired = false;
+  selectGamePanel("narrative", { focus: false });
   loadLobby();
 }
 
 function openPlayGuide() {
-  const guide = document.getElementById("play-guide");
-  if (!guide) return;
-  guide.open = true;
-  guide.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  selectGamePanel("commands");
 }
 
 function fillCommand(command) {
@@ -1843,6 +2135,42 @@ function fillCommand(command) {
   input.value = command;
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function selectGamePanel(panel, { focus = true } = {}) {
+  const tools = document.getElementById("table-tools");
+  const unavailableTool = ["party", "roll"].includes(panel) && tools?.style.display === "none";
+  const selected = !unavailableTool && ["party", "roll", "commands"].includes(panel)
+    ? panel
+    : "narrative";
+  const guide = document.getElementById("play-guide");
+  const title = document.getElementById("game-tools-title");
+
+  if (guide) guide.open = selected === "commands";
+  if (tools) {
+    tools.classList.toggle("is-mobile-open", selected === "party" || selected === "roll");
+    tools.dataset.mobilePanel = selected === "roll" ? "roll" : "party";
+  }
+  if (title) title.textContent = selected === "roll" ? "Dados e testes" : "Grupo e ficha";
+
+  for (const tab of document.querySelectorAll(".game-mobile-tab")) {
+    const active = tab.dataset.gamePanel === selected;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", active ? "true" : "false");
+  }
+
+  if (!focus) return;
+  if (selected === "party") {
+    tools?.querySelector("[data-open-sheet], .char-tab")?.focus();
+  } else if (selected === "roll") {
+    document.getElementById("roll-check")?.focus();
+  } else if (selected === "commands") {
+    guide?.querySelector("summary")?.focus();
+  } else {
+    const input = document.getElementById("cmd");
+    if (input && !input.disabled) input.focus();
+    else document.getElementById("output")?.focus();
+  }
 }
 
 // --- /command helpers (client-side) ---
@@ -2074,8 +2402,15 @@ async function openPrefsModal() {
   document.getElementById("prefs-music-enabled").checked = !!p.music.enabled;
   document.getElementById("prefs-music-src").value = p.music.src || "";
   document.getElementById("prefs-music-volume").value = String(p.music.volume ?? 0.4);
+  document.getElementById("prefs-volume-output").value =
+    `${Math.round((p.music.volume ?? 0.4) * 100)}%`;
+  const user = getUser();
+  document.getElementById("prefs-account-username").textContent = user?.username || "—";
+  document.getElementById("prefs-account-role").textContent =
+    user?.role === "admin" ? "Administrador" : "Jogador";
+  selectPrefsTab("narration", { focus: false });
   setMsg("prefs-msg", "", "");
-  document.getElementById("prefs-modal").style.display = "";
+  openDialog("prefs-modal", { initialFocus: "#prefs-tts-enabled" });
 
   // Lazy-load pt-* voices the first time the modal opens.
   const sel = document.getElementById("prefs-tts-voice");
@@ -2097,7 +2432,20 @@ async function openPrefsModal() {
 }
 
 function closePrefsModal() {
-  document.getElementById("prefs-modal").style.display = "none";
+  closeDialog("prefs-modal");
+}
+
+function selectPrefsTab(tab, { focus = true } = {}) {
+  const buttons = [...document.querySelectorAll("[data-prefs-tab]")];
+  for (const button of buttons) {
+    const selected = button.dataset.prefsTab === tab;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    const panel = document.getElementById(`prefs-panel-${button.dataset.prefsTab}`);
+    if (panel) panel.hidden = !selected;
+    if (selected && focus) button.focus();
+  }
 }
 
 async function persistPrefs(patch) {
@@ -2114,6 +2462,7 @@ async function persistPrefs(patch) {
 let prefsSaveTimer = null;
 function schedulePrefsSave() {
   clearTimeout(prefsSaveTimer);
+  setMsg("prefs-msg", "Salvando…", "");
   prefsSaveTimer = setTimeout(() => {
     const patch = {
       tts: {
@@ -2140,6 +2489,7 @@ function schedulePrefsSave() {
 
 // --- Wire up events ---
 document.addEventListener("DOMContentLoaded", () => {
+  initShell();
   const authForm = document.getElementById("auth-form");
   authForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -2157,17 +2507,44 @@ document.addEventListener("DOMContentLoaded", () => {
   for (const id of ["nav-signup", "hero-signup", "footer-signup"]) {
     document.getElementById(id).onclick = () => openAuthDialog("signup");
   }
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeAuthDialog();
-  });
   document.getElementById("logout-btn").onclick = doLogout;
+  document.getElementById("shell-lobby-btn").onclick = returnToLobby;
+  document.getElementById("shell-game-btn").onclick = () => show("game-screen");
+  document.getElementById("shell-admin-btn").onclick = openAdminPanel;
   document.getElementById("new-game-btn").onclick = createEmptySession;
   document.getElementById("wizard-btn").onclick = openWizard;
-  document.getElementById("archive-toggle").onclick = toggleArchived;
+  document.getElementById("empty-wizard-btn").onclick = openWizard;
+  document.getElementById("lobby-active-tab").onclick = () => loadLobbyTab("active");
+  document.getElementById("lobby-archived-tab").onclick = () => loadLobbyTab("archived");
+  document.getElementById("lobby-retry").onclick = () => loadLobbyTab(lobbyTab);
+  document.querySelector(".lobby-tabs").addEventListener("keydown", (event) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    const next = lobbyTab === "active" ? "archived" : "active";
+    const nextTab = document.getElementById(
+      next === "active" ? "lobby-active-tab" : "lobby-archived-tab",
+    );
+    nextTab.focus();
+    loadLobbyTab(next);
+  });
   document.getElementById("send-btn").onclick = sendInput;
-  document.getElementById("lobby-btn").onclick = returnToLobby;
-  document.querySelectorAll(".command-chip").forEach((btn) => {
+  document.querySelectorAll(".command-chip, .game-quick-action[data-command]").forEach((btn) => {
     btn.addEventListener("click", () => fillCommand(btn.dataset.command || ""));
+  });
+  document.querySelectorAll(".game-mobile-tab").forEach((btn) => {
+    btn.addEventListener("click", () => selectGamePanel(btn.dataset.gamePanel));
+  });
+  document.getElementById("game-tools-close")?.addEventListener(
+    "click", () => selectGamePanel("narrative"),
+  );
+  document.getElementById("game-guide-close")?.addEventListener(
+    "click", () => selectGamePanel("narrative"),
+  );
+  document.getElementById("game-commands-btn")?.addEventListener(
+    "click", () => selectGamePanel("commands"),
+  );
+  document.getElementById("play-guide")?.addEventListener("toggle", (event) => {
+    if (!event.currentTarget.open) selectGamePanel("narrative", { focus: false });
   });
   const rollBtn = document.getElementById("roll-btn");
   if (rollBtn) rollBtn.onclick = rollSelectedCheck;
@@ -2186,23 +2563,46 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
   // Admin panel (Phase 30).
-  const adminBtn = document.getElementById("admin-panel-btn");
-  if (adminBtn) adminBtn.onclick = openAdminPanel;
-  const adminBack = document.getElementById("admin-back-btn");
-  if (adminBack) adminBack.onclick = returnToLobby;
   const adminCreate = document.getElementById("admin-create-btn");
   if (adminCreate) adminCreate.onclick = openCreateUserModal;
   const adminRefresh = document.getElementById("admin-refresh-btn");
   if (adminRefresh) adminRefresh.onclick = loadAdminPanel;
   const adminQ = document.getElementById("admin-q");
   if (adminQ) adminQ.oninput = renderAdminUsers;
+  for (const id of ["admin-status-filter", "admin-role-filter"]) {
+    document.getElementById(id)?.addEventListener("change", renderAdminUsers);
+  }
+  document.querySelectorAll("[data-admin-sort]").forEach((button) => {
+    button.addEventListener("click", () => changeAdminSort(button.dataset.adminSort));
+  });
   const adminModalClose = document.getElementById("admin-modal-close");
   if (adminModalClose) adminModalClose.onclick = closeAdminModal;
   const adminDetailClose = document.getElementById("admin-detail-close");
   if (adminDetailClose) adminDetailClose.onclick = closeAdminDetail;
+  document.querySelectorAll("[data-prefs-tab]").forEach((button) => {
+    button.addEventListener("click", () => selectPrefsTab(button.dataset.prefsTab));
+  });
+  document.querySelector(".prefs-tabs")?.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = [...document.querySelectorAll("[data-prefs-tab]")];
+    const current = tabs.indexOf(document.activeElement);
+    let next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+      : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    selectPrefsTab(tabs[next].dataset.prefsTab);
+  });
+  document.getElementById("prefs-music-volume")?.addEventListener("input", (event) => {
+    document.getElementById("prefs-volume-output").value =
+      `${Math.round(Number(event.currentTarget.value) * 100)}%`;
+  });
+  document.getElementById("prefs-logout")?.addEventListener("click", () => {
+    closePrefsModal();
+    doLogout();
+  });
   document.getElementById("wz-prev").onclick = wizardPrev;
   document.getElementById("wz-next").onclick = wizardNext;
   document.getElementById("wz-finish").onclick = wizardFinish;
+  document.getElementById("wizard-retry").onclick = openWizard;
   // Phase 35: ✨ AI name suggestions in the wizard's first step.
   document.getElementById("wz-campaign-name-ai").onclick = () =>
     suggestWizardName("campaign");
@@ -2254,12 +2654,27 @@ document.addEventListener("DOMContentLoaded", () => {
     },
   );
   // Refresh audio button state when connectivity changes.
-  window.addEventListener("online", refreshAudioButtons);
-  window.addEventListener("offline", refreshAudioButtons);
+  window.addEventListener("online", () => {
+    refreshAudioButtons();
+    syncGameSessionState();
+  });
+  window.addEventListener("offline", () => {
+    refreshAudioButtons();
+    syncGameSessionState();
+  });
   const cmd = document.getElementById("cmd");
   cmd.addEventListener("keydown", (e) => {
     if (busy) return;
-    if (e.key === "Enter") sendInput();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendInput();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || document.body.dataset.screen !== "game-screen") return;
+    const toolsOpen = document.getElementById("table-tools")?.classList.contains("is-mobile-open");
+    const guideOpen = document.getElementById("play-guide")?.open;
+    if (toolsOpen || guideOpen) selectGamePanel("narrative");
   });
 
   // Auto-login if token present.
@@ -2285,6 +2700,7 @@ document.addEventListener("DOMContentLoaded", () => {
 // ============================================================================
 
 let adminUsers = []; // cache of GET /api/admin/users for client-side filtering
+let adminSort = { key: "username", direction: "asc" };
 
 async function openAdminPanel() {
   if (!isAdmin()) return;
@@ -2317,13 +2733,30 @@ function renderAdminSummary(s) {
     { label: "Usuários ativos", value: String(s.active_users ?? 0) },
     { label: "Desativados", value: String(s.disabled_users ?? 0) },
   ];
-  root.innerHTML = cards
-    .map(
-      (c) =>
-        `<div class="admin-card"><div class="admin-card-val">${c.value}</div>` +
-        `<div class="admin-card-lbl">${c.label}</div></div>`,
-    )
-    .join("");
+  root.innerHTML = cards.map(
+    (item) => `<div><dt>${item.label}</dt><dd>${item.value}</dd></div>`,
+  ).join("");
+}
+
+function adminStatusValue(user) {
+  if (!user.active) return "disabled";
+  return user.unlimited ? "unlimited" : "active";
+}
+
+function changeAdminSort(key) {
+  adminSort = {
+    key,
+    direction: adminSort.key === key && adminSort.direction === "asc" ? "desc" : "asc",
+  };
+  document.querySelectorAll("[data-admin-sort]").forEach((button) => {
+    const active = button.dataset.adminSort === key;
+    button.classList.toggle("active", active);
+    if (active) button.parentElement.setAttribute("aria-sort", adminSort.direction === "asc" ? "ascending" : "descending");
+    else button.parentElement.removeAttribute("aria-sort");
+    const indicator = button.querySelector("span");
+    if (indicator) indicator.textContent = active ? (adminSort.direction === "asc" ? "↑" : "↓") : "↕";
+  });
+  renderAdminUsers();
 }
 
 function renderAdminUsers() {
@@ -2332,9 +2765,21 @@ function renderAdminUsers() {
   const q = (document.getElementById("admin-q")?.value || "")
     .toLowerCase()
     .trim();
-  const rows = adminUsers.filter(
-    (u) => !q || u.username.toLowerCase().includes(q),
-  );
+  const statusFilter = document.getElementById("admin-status-filter")?.value || "all";
+  const roleFilter = document.getElementById("admin-role-filter")?.value || "all";
+  const rows = adminUsers.filter((u) =>
+    (!q || u.username.toLowerCase().includes(q)) &&
+    (statusFilter === "all" || adminStatusValue(u) === statusFilter) &&
+    (roleFilter === "all" || u.role === roleFilter),
+  ).sort((a, b) => {
+    const key = adminSort.key;
+    const left = key === "status" ? adminStatusValue(a) : a[key];
+    const right = key === "status" ? adminStatusValue(b) : b[key];
+    const result = typeof left === "string"
+      ? left.localeCompare(String(right), "pt-BR", { sensitivity: "base" })
+      : Number(left || 0) - Number(right || 0);
+    return adminSort.direction === "asc" ? result : -result;
+  });
   tbody.innerHTML = "";
   for (const u of rows) {
     const tr = document.createElement("tr");
@@ -2349,12 +2794,12 @@ function renderAdminUsers() {
         ? u.daily_token_limit.toLocaleString("pt-BR")
         : "(padrão)";
     tr.innerHTML =
-      `<td><strong>${u.username}</strong><br><span class="meta">id ${u.id}</span></td>` +
-      `<td>${u.role}</td>` +
-      `<td>${status}</td>` +
-      `<td>${u.tokens_today.toLocaleString("pt-BR")} / ${limit}</td>` +
-      `<td>$${Number(u.cost_month || 0).toFixed(4)}</td>` +
-      `<td class="admin-actions"></td>`;
+      `<td data-label="Usuário"><strong>${escapeHtml(u.username)}</strong><br><span class="meta">id ${u.id}</span></td>` +
+      `<td data-label="Papel">${u.role === "admin" ? "Administrador" : "Jogador"}</td>` +
+      `<td data-label="Status">${status}</td>` +
+      `<td data-label="Uso hoje"><span class="admin-number">${u.tokens_today.toLocaleString("pt-BR")}</span> / ${limit}</td>` +
+      `<td data-label="Custo no mês" class="admin-number">$${Number(u.cost_month || 0).toFixed(4)}</td>` +
+      `<td data-label="Ações" class="admin-actions"></td>`;
     const actions = tr.querySelector(".admin-actions");
     actions.appendChild(adminMiniBtn("Editar", () => openEditUserModal(u)));
     actions.appendChild(adminMiniBtn("Senha", () => openResetPasswordModal(u)));
@@ -2368,14 +2813,14 @@ function renderAdminUsers() {
     tbody.appendChild(tr);
   }
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="meta">Nenhum usuário.</td></tr>';
+    tbody.innerHTML = '<tr class="admin-empty-row"><td colspan="6">Nenhum usuário corresponde aos filtros.</td></tr>';
   }
 }
 
 function adminMiniBtn(label, onclick, cls) {
   const b = document.createElement("button");
   b.textContent = label;
-  b.className = "mini " + (cls || "secondary");
+  b.className = `admin-action ${cls === "danger" ? "admin-action-danger" : ""}`;
   b.onclick = onclick;
   return b;
 }
@@ -2383,7 +2828,7 @@ function adminMiniBtn(label, onclick, cls) {
 // --- Modal plumbing ---
 
 function closeAdminModal() {
-  document.getElementById("admin-modal").style.display = "none";
+  closeDialog("admin-modal");
   document.getElementById("admin-modal-body").innerHTML = "";
 }
 
@@ -2398,7 +2843,7 @@ function openCreateUserModal() {
       '<select id="mu-role"><option value="user">user</option><option value="admin">admin</option></select>',
     ) +
     `<div class="row"><button id="mu-submit">Criar</button></div>`;
-  document.getElementById("admin-modal").style.display = "";
+  openDialog("admin-modal", { initialFocus: "#mu-username" });
   document.getElementById("mu-submit").onclick = submitCreateUser;
 }
 
@@ -2445,7 +2890,7 @@ function openEditUserModal(u) {
       `<select id="eu-role"><option value="user" ${u.role === "user" ? "selected" : ""}>user</option><option value="admin" ${u.role === "admin" ? "selected" : ""}>admin</option></select>`,
     ) +
     `<div class="row"><button id="eu-submit">Salvar</button></div>`;
-  document.getElementById("admin-modal").style.display = "";
+  openDialog("admin-modal", { initialFocus: "#eu-token-limit" });
   document.getElementById("eu-submit").onclick = () => submitEditUser(u.id);
 }
 
@@ -2476,7 +2921,7 @@ function openResetPasswordModal(u) {
       '<input id="rp-password" type="password" autocomplete="new-password" />',
     ) +
     `<div class="row"><button id="rp-submit">Resetar senha</button></div>`;
-  document.getElementById("admin-modal").style.display = "";
+  openDialog("admin-modal", { initialFocus: "#rp-password" });
   document.getElementById("rp-submit").onclick = () => submitResetPassword(u.id);
 }
 
@@ -2500,7 +2945,11 @@ async function submitResetPassword(id) {
 
 async function adminToggleActive(u) {
   const verb = u.active ? "desativar" : "reativar";
-  if (!confirm(`Confirmar ${verb} "${u.username}"?`)) return;
+  if (!await confirmAction(`Confirmar ${verb} "${u.username}"?`, {
+    title: `${u.active ? "Desativar" : "Reativar"} usuário`,
+    confirmLabel: u.active ? "Desativar" : "Reativar",
+    danger: u.active,
+  })) return;
   try {
     await api(`/api/admin/users/${u.id}`, {
       method: "PATCH",
@@ -2514,9 +2963,10 @@ async function adminToggleActive(u) {
 }
 
 async function adminDeleteUser(u) {
-  if (!confirm(`Excluir "${u.username}" (id ${u.id})? Isto apaga saves e histórico.`))
-    return;
-  if (!confirm(`Tem certeza? Esta ação é irreversível.`)) return;
+  if (!await confirmAction(
+    `Excluir “${u.username}” (id ${u.id})? Saves e histórico também serão apagados. Esta ação é irreversível.`,
+    { title: "Excluir usuário", confirmLabel: "Excluir definitivamente", danger: true },
+  )) return;
   try {
     await api(`/api/admin/users/${u.id}`, { method: "DELETE" });
     await loadAdminPanel();
@@ -2527,7 +2977,7 @@ async function adminDeleteUser(u) {
 }
 
 function closeAdminDetail() {
-  document.getElementById("admin-detail").style.display = "none";
+  closeDialog("admin-detail");
 }
 
 async function loadUserDetail(id, username) {
@@ -2536,7 +2986,7 @@ async function loadUserDetail(id, username) {
     '<li class="meta">Carregando…</li>';
   document.getElementById("admin-usage-list").innerHTML =
     '<li class="meta">Carregando…</li>';
-  document.getElementById("admin-detail").style.display = "";
+  openDialog("admin-detail", { initialFocus: "#admin-detail-close" });
   try {
     const [activity, usage] = await Promise.all([
       api(`/api/admin/users/${id}/activity?limit=50`),
@@ -2609,6 +3059,21 @@ const WIZARD_STEPS = [
   "skills", "spells", "companions", "confirm",
 ];
 
+const WIZARD_STEP_META = [
+  { label: "Nomes", short: "Nomes" },
+  { label: "Raça", short: "Raça" },
+  { label: "Classe", short: "Classe" },
+  { label: "Subclasse", short: "Subclasse" },
+  { label: "Background", short: "Passado" },
+  { label: "Alinhamento", short: "Alinhamento" },
+  { label: "Nível", short: "Nível" },
+  { label: "Atributos", short: "Atributos" },
+  { label: "Perícias", short: "Perícias" },
+  { label: "Magias", short: "Magias" },
+  { label: "Companheiros", short: "Grupo" },
+  { label: "Revisão", short: "Revisão" },
+];
+
 function emptySpellSelection() {
   return {
     cantrips: [],
@@ -2620,6 +3085,7 @@ function emptySpellSelection() {
 
 let wizardState = {
   step: 0,             // index into WIZARD_STEPS
+  furthestStep: 0,      // enables revisiting completed steps without skipping ahead
   options: null,        // loaded catalog from /api/character-options
   campaign_name: "",
   // Per-campaign DM narration length. Default "longo" preserves the
@@ -2645,21 +3111,39 @@ let wizardState = {
 };
 
 async function openWizard() {
-  // Fetch catalog first.
-  setMsg("lobby-msg", "Carregando...", "");
+  show("wizard-screen");
+  setWizardLoadState("loading");
+  setMsg("lobby-msg", "", "");
   try {
     wizardState.options = await api("/api/character-options");
     wizardState.step = 0;
+    wizardState.furthestStep = 0;
     // Companions start empty; renderWizardCompanions rolls 4 candidates
     // against the player's class the first time step 10 is reached.
     wizardState.companions = [];
     wizardState.companionCandidates = null;
     wizardState.spell_selection = emptySpellSelection();
-    show("wizard-screen");
+    setWizardLoadState("ready");
     renderWizardStep();
-    setMsg("lobby-msg", "", "");
   } catch (e) {
-    setMsg("lobby-msg", "Erro ao carregar opções: " + e.message, "error");
+    setWizardLoadState("error", e.message);
+  }
+}
+
+function setWizardLoadState(state, detail = "") {
+  const loading = document.getElementById("wizard-loading");
+  const error = document.getElementById("wizard-load-error");
+  const workspace = document.getElementById("wizard-workspace");
+  loading.hidden = state !== "loading";
+  error.hidden = state !== "error";
+  workspace.hidden = state !== "ready";
+  document.getElementById("wizard-screen").setAttribute(
+    "aria-busy",
+    String(state === "loading"),
+  );
+  if (state === "error") {
+    document.getElementById("wizard-load-error-text").textContent =
+      detail ? `Detalhes: ${detail}` : "Confira sua conexão e tente novamente.";
   }
 }
 
@@ -2669,13 +3153,33 @@ function renderWizardStep() {
     const el = document.getElementById(`wizard-step-${i}`);
     if (el) el.classList.toggle("active", i === wizardState.step + 1);
   }
-  // Progress dots.
+  // Legible progress: current, completed and pending steps.
   const prog = document.getElementById("wizard-progress");
   prog.innerHTML = "";
   for (let i = 0; i < WIZARD_STEPS.length; i++) {
-    const dot = document.createElement("div");
-    dot.className = "dot" + (i < wizardState.step ? " done" : "") + (i === wizardState.step ? " active" : "");
-    prog.appendChild(dot);
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    const isCurrent = i === wizardState.step;
+    const isComplete = i <= wizardState.furthestStep && i !== wizardState.step;
+    button.type = "button";
+    button.className = "wizard-progress-item" +
+      (isCurrent ? " is-current" : "") +
+      (isComplete ? " is-complete" : "");
+    button.disabled = i > wizardState.furthestStep;
+    button.setAttribute("aria-label", `${i + 1}. ${WIZARD_STEP_META[i].label}`);
+    if (isCurrent) button.setAttribute("aria-current", "step");
+    const number = document.createElement("span");
+    number.className = "wizard-progress-number";
+    number.textContent = isComplete ? "✓" : String(i + 1);
+    number.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.className = "wizard-progress-label";
+    label.textContent = WIZARD_STEP_META[i].label;
+    button.appendChild(number);
+    button.appendChild(label);
+    button.onclick = () => wizardGoToStep(i);
+    item.appendChild(button);
+    prog.appendChild(item);
   }
   // Counter.
   document.getElementById("wz-step-counter").textContent =
@@ -2701,7 +3205,97 @@ function renderWizardStep() {
     case "companions": renderWizardCompanions(); break;
     case "confirm": renderWizardConfirm(); break;
   }
+  renderWizardPersistentSummary();
   setMsg("wizard-msg", "", "");
+  requestAnimationFrame(() => {
+    const activeTitle = document.querySelector(".wizard-step.active h2");
+    activeTitle?.setAttribute("tabindex", "-1");
+    activeTitle?.focus({ preventScroll: true });
+  });
+}
+
+function wizardGoToStep(step) {
+  if (step < 0 || step >= WIZARD_STEPS.length || step > wizardState.furthestStep) return;
+  wizardState.step = step;
+  renderWizardStep();
+  document.getElementById("wizard-screen").scrollIntoView({ block: "start" });
+}
+
+function createWizardChoice({ name, description = "", selected = false, recommended = false,
+  disabled = false, onSelect }) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "choice" + (selected ? " selected" : "") +
+    (disabled ? " is-unavailable" : "");
+  button.disabled = disabled;
+  button.setAttribute("aria-pressed", String(selected));
+  const title = document.createElement("span");
+  title.className = "name";
+  title.textContent = name;
+  button.appendChild(title);
+  if (description) {
+    const desc = document.createElement("span");
+    desc.className = "desc";
+    desc.textContent = description;
+    button.appendChild(desc);
+  }
+  if (recommended) {
+    const badge = document.createElement("span");
+    badge.className = "choice-badge";
+    badge.textContent = "Recomendado";
+    button.appendChild(badge);
+  }
+  button.onclick = onSelect;
+  return button;
+}
+
+function wizardCompanionNames() {
+  const catalog = wizardState.options?.companions || [];
+  return wizardState.companions.map(
+    (key) => catalog.find((companion) => companion.key === key)?.name || key,
+  );
+}
+
+function wizardPersistentSummaryRows() {
+  const origin = [wizardState.race, wizardState.subrace].filter(Boolean).join(" · ");
+  const vocation = [wizardState.char_class, wizardState.subclass].filter(Boolean).join(" · ");
+  return [
+    ["Personagem", wizardState.name || "A definir"],
+    ["Origem", origin || "A definir"],
+    ["Vocação", vocation || "A definir"],
+    ["Background", wizardState.background || "A definir"],
+    ["Nível", wizardState.level ? `Nível ${wizardState.level}` : "A definir"],
+    ["Grupo", wizardCompanionNames().join(", ") || "A definir"],
+  ];
+}
+
+function renderWizardMiniSheet(root) {
+  if (!root) return;
+  const list = document.createElement("dl");
+  list.className = "wizard-mini-sheet";
+  for (const [label, value] of wizardPersistentSummaryRows()) {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = value;
+    description.classList.toggle("is-empty", value === "A definir");
+    row.appendChild(term);
+    row.appendChild(description);
+    list.appendChild(row);
+  }
+  root.replaceChildren(list);
+}
+
+function renderWizardPersistentSummary() {
+  renderWizardMiniSheet(document.getElementById("wizard-summary-sidebar"));
+  renderWizardMiniSheet(document.getElementById("wizard-summary-mobile"));
+  const mobileLine = document.getElementById("wizard-mobile-summary-line");
+  if (mobileLine) {
+    mobileLine.textContent = [wizardState.name, wizardState.race, wizardState.char_class]
+      .filter(Boolean)
+      .join(" · ") || "Novo personagem";
+  }
 }
 
 // --- Step renderers ---
@@ -2711,9 +3305,11 @@ function renderWizardName() {
   document.getElementById("wz-char-name").value = wizardState.name;
   document.getElementById("wz-campaign-name").oninput = (e) => {
     wizardState.campaign_name = e.target.value;
+    renderWizardPersistentSummary();
   };
   document.getElementById("wz-char-name").oninput = (e) => {
     wizardState.name = e.target.value;
+    renderWizardPersistentSummary();
   };
   // Narration length: prefer the catalog when available, fall back to the
   // hard-coded options in index.html (which still ship as a defensive default).
@@ -2769,6 +3365,7 @@ async function suggestWizardName(kind) {
     input.value = value;
     if (kind === "campaign") wizardState.campaign_name = value;
     else wizardState.name = value;
+    renderWizardPersistentSummary();
     setMsg("wizard-msg", "", "");
   } catch (e) {
     if (e && e.status === 429) {
@@ -2786,16 +3383,16 @@ function renderWizardRace() {
   const root = document.getElementById("wz-races");
   root.innerHTML = "";
   for (const r of wizardState.options.races) {
-    const card = document.createElement("div");
-    card.className = "choice" + (wizardState.race === r.name ? " selected" : "");
-    card.innerHTML = `<div class="name">${r.name}</div>
-      <div class="desc">${r.size} · ${r.speed} ft${r.subraces.length ? ` · ${r.subraces.length} sub-raças` : ""}</div>`;
-    card.onclick = () => {
-      wizardState.race = r.name;
-      wizardState.subrace = null;
-      renderWizardStep();
-    };
-    root.appendChild(card);
+    root.appendChild(createWizardChoice({
+      name: r.name,
+      description: `${r.size} · ${r.speed} ft${r.subraces.length ? ` · ${r.subraces.length} sub-raças` : ""}`,
+      selected: wizardState.race === r.name,
+      onSelect: () => {
+        wizardState.race = r.name;
+        wizardState.subrace = null;
+        renderWizardStep();
+      },
+    }));
   }
   // Subrace dropdown (only if selected race has subraces and is selected).
   const wrap = document.getElementById("wz-subrace-wrap");
@@ -2806,7 +3403,10 @@ function renderWizardRace() {
       wrap.style.display = "";
       sel.innerHTML = `<option value="">(nenhuma)</option>` +
         race.subraces.map((s) => `<option value="${s}" ${s === wizardState.subrace ? "selected" : ""}>${s}</option>`).join("");
-      sel.onchange = (e) => { wizardState.subrace = e.target.value || null; };
+      sel.onchange = (e) => {
+        wizardState.subrace = e.target.value || null;
+        renderWizardPersistentSummary();
+      };
     } else {
       wrap.style.display = "none";
     }
@@ -2819,20 +3419,20 @@ function renderWizardClass() {
   const root = document.getElementById("wz-classes");
   root.innerHTML = "";
   for (const c of wizardState.options.classes) {
-    const card = document.createElement("div");
-    card.className = "choice" + (wizardState.char_class === c.name ? " selected" : "");
-    card.innerHTML = `<div class="name">${c.name}</div>
-      <div class="desc">${c.hit_dice} · ${c.num_skill_choices} perícias${c.is_spellcaster ? " · spellcaster" : ""}</div>`;
-    card.onclick = () => {
-      wizardState.char_class = c.name;
-      wizardState.subclass = null;
-      wizardState.skills = [];
-      wizardState.spell_selection = emptySpellSelection();
-      wizardState.companions = [];
-      wizardState.companionCandidates = null;
-      renderWizardStep();
-    };
-    root.appendChild(card);
+    root.appendChild(createWizardChoice({
+      name: c.name,
+      description: `${c.hit_dice} · ${c.num_skill_choices} perícias${c.is_spellcaster ? " · conjurador" : ""}`,
+      selected: wizardState.char_class === c.name,
+      onSelect: () => {
+        wizardState.char_class = c.name;
+        wizardState.subclass = null;
+        wizardState.skills = [];
+        wizardState.spell_selection = emptySpellSelection();
+        wizardState.companions = [];
+        wizardState.companionCandidates = null;
+        renderWizardStep();
+      },
+    }));
   }
 }
 
@@ -2840,25 +3440,25 @@ function renderWizardSubclass() {
   const root = document.getElementById("wz-subclasses");
   root.innerHTML = "";
   if (!wizardState.char_class) {
-    root.innerHTML = '<div class="msg">Escolha uma classe primeiro.</div>';
+    root.innerHTML = '<div class="wizard-empty is-unavailable">Escolha uma classe primeiro.</div>';
     return;
   }
   const cls = wizardState.options.classes.find((c) => c.name === wizardState.char_class);
   if (!cls || !cls.subclasses.length) {
-    root.innerHTML = '<div class="msg">Esta classe não tem subclasses no PHB.</div>';
+    root.innerHTML = '<div class="wizard-empty is-unavailable">Esta classe não tem subclasses disponíveis nesta criação. Você pode continuar.</div>';
     return;
   }
   for (const s of cls.subclasses) {
-    const card = document.createElement("div");
-    card.className = "choice" + (wizardState.subclass === s ? " selected" : "");
-    card.innerHTML = `<div class="name">${s}</div>`;
-    card.onclick = () => {
-      wizardState.subclass = wizardState.subclass === s ? null : s;
-      wizardState.companions = [];
-      wizardState.companionCandidates = null;
-      renderWizardStep();
-    };
-    root.appendChild(card);
+    root.appendChild(createWizardChoice({
+      name: s,
+      selected: wizardState.subclass === s,
+      onSelect: () => {
+        wizardState.subclass = wizardState.subclass === s ? null : s;
+        wizardState.companions = [];
+        wizardState.companionCandidates = null;
+        renderWizardStep();
+      },
+    }));
   }
 }
 
@@ -2866,15 +3466,15 @@ function renderWizardBackground() {
   const root = document.getElementById("wz-backgrounds");
   root.innerHTML = "";
   for (const b of wizardState.options.backgrounds) {
-    const card = document.createElement("div");
-    card.className = "choice" + (wizardState.background === b.name ? " selected" : "");
-    card.innerHTML = `<div class="name">${b.name}</div>
-      <div class="desc">${b.feature || ""}</div>`;
-    card.onclick = () => {
-      wizardState.background = b.name;
-      renderWizardStep();
-    };
-    root.appendChild(card);
+    root.appendChild(createWizardChoice({
+      name: b.name,
+      description: b.feature || "",
+      selected: wizardState.background === b.name,
+      onSelect: () => {
+        wizardState.background = b.name;
+        renderWizardStep();
+      },
+    }));
   }
 }
 
@@ -2882,14 +3482,14 @@ function renderWizardAlignment() {
   const root = document.getElementById("wz-alignments");
   root.innerHTML = "";
   for (const a of wizardState.options.alignments) {
-    const card = document.createElement("div");
-    card.className = "choice" + (wizardState.alignment === a ? " selected" : "");
-    card.innerHTML = `<div class="name">${a}</div>`;
-    card.onclick = () => {
-      wizardState.alignment = a;
-      renderWizardStep();
-    };
-    root.appendChild(card);
+    root.appendChild(createWizardChoice({
+      name: a,
+      selected: wizardState.alignment === a,
+      onSelect: () => {
+        wizardState.alignment = a;
+        renderWizardStep();
+      },
+    }));
   }
 }
 
@@ -2897,15 +3497,17 @@ function renderWizardLevel() {
   const root = document.getElementById("wz-levels");
   root.innerHTML = "";
   for (const lv of wizardState.options.levels) {
-    const card = document.createElement("div");
-    card.className = "choice" + (wizardState.level === lv ? " selected" : "");
-    card.innerHTML = `<div class="name">Nível ${lv}</div>`;
-    card.onclick = () => {
-      wizardState.level = lv;
-      wizardState.spell_selection = emptySpellSelection();
-      renderWizardStep();
-    };
-    root.appendChild(card);
+    root.appendChild(createWizardChoice({
+      name: `Nível ${lv}`,
+      description: lv === 1 ? "Comece com as bases da classe." : "Mais recursos desde o início.",
+      selected: wizardState.level === lv,
+      recommended: lv === 1,
+      onSelect: () => {
+        wizardState.level = lv;
+        wizardState.spell_selection = emptySpellSelection();
+        renderWizardStep();
+      },
+    }));
   }
 }
 
@@ -2913,14 +3515,15 @@ function renderWizardStats() {
   const root = document.getElementById("wz-stats-methods");
   root.innerHTML = "";
   for (const m of wizardState.options.stats_methods) {
-    const card = document.createElement("div");
-    card.className = "choice" + (wizardState.stats_method === m.id ? " selected" : "");
-    card.innerHTML = `<div class="name">${m.label}</div>`;
-    card.onclick = () => {
-      wizardState.stats_method = m.id;
-      renderWizardStep();
-    };
-    root.appendChild(card);
+    root.appendChild(createWizardChoice({
+      name: m.label,
+      selected: wizardState.stats_method === m.id,
+      recommended: m.id === "standard_array",
+      onSelect: () => {
+        wizardState.stats_method = m.id;
+        renderWizardStep();
+      },
+    }));
   }
   const info = document.getElementById("wz-stats-info");
   if (wizardState.stats_method === "roll") {
@@ -2959,6 +3562,7 @@ function renderWizardSkills() {
         wizardState.skills = wizardState.skills.filter((x) => x !== s);
       }
       renderWizardSkills();
+      renderWizardPersistentSummary();
     };
     const span = document.createElement("span");
     span.textContent = s;
@@ -3017,7 +3621,7 @@ function renderSpellCheckboxList(root, title, spells, selected, max, field) {
 
   if (!spells.length || max === 0) {
     const empty = document.createElement("div");
-    empty.className = "msg";
+    empty.className = "wizard-empty is-unavailable";
     empty.textContent = "Nenhuma escolha disponivel neste nivel.";
     section.appendChild(empty);
     root.appendChild(section);
@@ -3048,6 +3652,7 @@ function renderSpellCheckboxList(root, title, spells, selected, max, field) {
         }
       }
       renderWizardSpells();
+      renderWizardPersistentSummary();
     };
 
     const text = document.createElement("span");
@@ -3154,6 +3759,10 @@ function renderWizardCompanions() {
   // this step. Subsequent re-renders (e.g. toggling checkboxes) reuse
   // the cached candidates so we don't re-roll on every navigation.
   if (!wizardState.companionCandidates) {
+    root.setAttribute("aria-busy", "true");
+    root.innerHTML = [1, 2, 3, 4].map(() =>
+      '<div class="wizard-companion-skeleton" aria-hidden="true"></div>'
+    ).join("");
     api("/api/companions/roll", {
       method: "POST",
       body: {
@@ -3167,9 +3776,18 @@ function renderWizardCompanions() {
         if (wizardState.companions.length === 0) {
           wizardState.companions = res.candidates.map((c) => c.key);
         }
+        root.setAttribute("aria-busy", "false");
         renderWizardCompanions();
+        renderWizardPersistentSummary();
       })
       .catch((e) => {
+        root.setAttribute("aria-busy", "false");
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "button button-secondary";
+        retry.textContent = "Tentar novamente";
+        retry.onclick = renderWizardCompanions;
+        root.replaceChildren(retry);
         setMsg("wizard-msg", "Erro ao rolar companheiros: " + e.message, "error");
       });
     setMsg("wizard-msg", "Rolando companheiros...", "");
@@ -3186,6 +3804,7 @@ function renderWizardCompanions() {
       } else {
         wizardState.companions = wizardState.companions.filter((x) => x !== c.key);
       }
+      renderWizardPersistentSummary();
     };
     const span = document.createElement("span");
     span.innerHTML = `<b>${c.name}</b> — <i>${c.race} ${c.class_ || ""}</i>: ${c.description || ""}`;
@@ -3197,48 +3816,78 @@ function renderWizardCompanions() {
 
 function renderWizardConfirm() {
   const root = document.getElementById("wz-summary");
-  const summary = [
-    ["Campanha", wizardState.campaign_name || "(vazio)"],
-    ["Narração", wizardState.narration_length],
-    [
-      "Cenário inicial",
-      wizardState.initial_scenario
-        ? (wizardState.initial_scenario.length > 80
-            ? wizardState.initial_scenario.slice(0, 79) + "…"
-            : wizardState.initial_scenario)
-        : "(mestre decide)",
-    ],
-    ["Personagem", wizardState.name || "(vazio)"],
-    ["Raça", wizardState.race + (wizardState.subrace ? ` (${wizardState.subrace})` : "")],
-    ["Classe", wizardState.char_class + (wizardState.subclass ? ` (${wizardState.subclass})` : "")],
-    ["Background", wizardState.background],
-    ["Alinhamento", wizardState.alignment],
-    ["Nível", wizardState.level],
-    ["Método de atributos", wizardState.stats_method],
-    ["Perícias", wizardState.skills.join(", ") || "(nenhuma)"],
-    ["Truques", wizardState.spell_selection.cantrips.join(", ") || "(nenhum)"],
-    ["Magias", wizardSpellSummary()],
-    ["Companheiros", wizardState.companions.length
-      ? wizardState.companions.map((k) => wizardState.options.companions.find((c) => c.key === k)?.name || k).join(", ")
-      : "(solo)"],
+  const sections = [
+    {
+      title: "Aventura",
+      step: 0,
+      rows: [
+        ["Campanha", wizardState.campaign_name || "A definir"],
+        ["Personagem", wizardState.name || "A definir"],
+        ["Narração", wizardState.narration_length],
+        ["Cenário inicial", wizardState.initial_scenario || "O Mestre decide"],
+      ],
+    },
+    {
+      title: "Identidade",
+      step: 1,
+      rows: [
+        ["Raça", [wizardState.race, wizardState.subrace].filter(Boolean).join(" · ")],
+        ["Classe", [wizardState.char_class, wizardState.subclass].filter(Boolean).join(" · ")],
+        ["Background", wizardState.background],
+        ["Alinhamento", wizardState.alignment],
+        ["Nível", `Nível ${wizardState.level}`],
+      ],
+    },
+    {
+      title: "Habilidades",
+      step: 7,
+      rows: [
+        ["Atributos", wizardState.stats_method],
+        ["Perícias", wizardState.skills.join(", ") || "Nenhuma"],
+        ["Truques", wizardState.spell_selection.cantrips.join(", ") || "Nenhum"],
+        ["Magias", wizardSpellSummary()],
+      ],
+    },
+    {
+      title: "Grupo",
+      step: 10,
+      rows: [["Companheiros", wizardCompanionNames().join(", ") || "Aventura solo"]],
+    },
   ];
-  const block = document.createElement("div");
-  block.className = "summary-block";
-  for (const [k, v] of summary) {
-    const r = document.createElement("div");
-    r.className = "row";
-    const ke = document.createElement("div");
-    ke.className = "key";
-    ke.textContent = k;
-    const ve = document.createElement("div");
-    ve.className = "val";
-    ve.textContent = v;
-    r.appendChild(ke);
-    r.appendChild(ve);
-    block.appendChild(r);
+  const review = document.createElement("div");
+  review.className = "wizard-review";
+  for (const sectionData of sections) {
+    const section = document.createElement("section");
+    section.className = "wizard-review-section";
+    const heading = document.createElement("div");
+    heading.className = "wizard-review-heading";
+    const title = document.createElement("h3");
+    title.textContent = sectionData.title;
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "wizard-review-edit";
+    edit.textContent = "Editar";
+    edit.setAttribute("aria-label", `Editar ${sectionData.title.toLowerCase()}`);
+    edit.onclick = () => wizardGoToStep(sectionData.step);
+    heading.appendChild(title);
+    heading.appendChild(edit);
+    const list = document.createElement("dl");
+    list.className = "wizard-review-list";
+    for (const [label, rawValue] of sectionData.rows) {
+      const row = document.createElement("div");
+      const term = document.createElement("dt");
+      const value = document.createElement("dd");
+      term.textContent = label;
+      value.textContent = rawValue || "A definir";
+      row.appendChild(term);
+      row.appendChild(value);
+      list.appendChild(row);
+    }
+    section.appendChild(heading);
+    section.appendChild(list);
+    review.appendChild(section);
   }
-  root.innerHTML = "";
-  root.appendChild(block);
+  root.replaceChildren(review);
 }
 
 function wizardSpellSummary() {
@@ -3295,20 +3944,22 @@ function hasWizardSpellSelection() {
 
 function wizardPrev() {
   if (wizardState.step > 0) {
-    wizardState.step--;
-    renderWizardStep();
+    wizardGoToStep(wizardState.step - 1);
   }
 }
 
 function wizardNext() {
   const err = wizardValidateStep(wizardState.step);
   if (err) {
+    document.getElementById(`wizard-step-${wizardState.step + 1}`)?.classList.add("has-error");
     setMsg("wizard-msg", err, "error");
     return;
   }
   if (wizardState.step < WIZARD_STEPS.length - 1) {
     wizardState.step++;
+    wizardState.furthestStep = Math.max(wizardState.furthestStep, wizardState.step);
     renderWizardStep();
+    document.getElementById("wizard-screen").scrollIntoView({ block: "start" });
   }
 }
 
@@ -3360,6 +4011,7 @@ async function wizardFinish() {
   }
   const btn = document.getElementById("wz-finish");
   btn.disabled = true;
+  btn.classList.add("button-loading");
   setMsg("wizard-msg", "Criando personagem...", "");
   try {
     const payload = {
@@ -3407,5 +4059,6 @@ async function wizardFinish() {
     setMsg("wizard-msg", "Erro: " + e.message, "error");
   } finally {
     btn.disabled = false;
+    btn.classList.remove("button-loading");
   }
 }

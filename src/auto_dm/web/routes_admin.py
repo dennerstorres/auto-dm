@@ -52,6 +52,7 @@ from auto_dm.web.usage import (
     usage_by_day,
     usage_today,
 )
+from auto_dm.web.save_metadata import extract_save_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,10 @@ class AdminSaveOut(BaseModel):
     updated_at: str
     created_at: str
     archived: bool = False
+    campaign_name: str = ""
+    character_name: str = ""
+    character_level: int | None = None
+    current_location: str = ""
 
     @classmethod
     def from_save(cls, save: Save) -> "AdminSaveOut":
@@ -82,6 +87,7 @@ class AdminSaveOut(BaseModel):
             updated_at=save.updated_at.isoformat() if save.updated_at else "",
             created_at=save.created_at.isoformat() if save.created_at else "",
             archived=bool(save.archived),
+            **extract_save_metadata(save.state),
         )
 
 

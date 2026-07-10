@@ -1,0 +1,14 @@
+{
+  "name": "auto-dm-frontend-tests",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots",
+    "test:e2e:report": "playwright show-report",
+    "test:assets": "node tests/frontend/check-asset-budgets.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.59.1"
+  }
+}
