@@ -78,6 +78,22 @@
   width: 16px;
 }
 
+.icon {
+  fill: none;
+  flex: 0 0 auto;
+  height: 20px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  width: 20px;
+}
+
+.icon-compact {
+  height: 16px;
+  width: 16px;
+}
+
 .field {
   display: grid;
   gap: var(--space-2);

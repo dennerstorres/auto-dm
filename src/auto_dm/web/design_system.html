@@ -4,10 +4,11 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Auto DM | Referência de componentes</title>
-        <link rel="stylesheet" href="/css/tokens.css?v=56" />
-        <link rel="stylesheet" href="/css/base.css?v=56" />
-        <link rel="stylesheet" href="/css/components.css?v=56" />
-        <link rel="stylesheet" href="/css/utilities.css?v=56" />
+        <link rel="stylesheet" href="/css/tokens.css?v=59" />
+        <link rel="stylesheet" href="/css/base.css?v=59" />
+        <link rel="stylesheet" href="/css/components.css?v=59" />
+        <link rel="stylesheet" href="/css/utilities.css?v=59" />
+        <link rel="stylesheet" href="/css/shell.css?v=59" />
     </head>
     <body class="component-reference">
         <main class="wrapper">
@@ -22,7 +23,10 @@
             <section>
                 <h2>Botões</h2>
                 <div class="preview">
-                    <button class="button button-primary">Ação primária</button>
+                    <button class="button button-primary">
+                        Ação primária
+                        <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#arrow-right"></use></svg>
+                    </button>
                     <button class="button button-secondary">Ação secundária</button>
                     <button class="button button-ghost">Ação discreta</button>
                     <button class="button button-danger">Excluir campanha</button>
@@ -96,6 +100,24 @@
                         <span class="loading-spinner" aria-hidden="true"></span>
                         <p>Consultando o arquivo do Mestre…</p>
                         <div class="skeleton"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h2>Feedback global</h2>
+                <div class="preview-column">
+                    <div class="offline-banner" role="status">
+                        <svg class="icon" aria-hidden="true"><use href="/assets/icons/lucide.svg#wifi-off"></use></svg>
+                        <div><strong>Você está offline.</strong> <span>Algumas ações aguardam a conexão voltar.</span></div>
+                    </div>
+                    <div class="toast toast-success" role="status">
+                        <span>Campanha salva com sucesso.</span>
+                        <button class="toast-close" aria-label="Fechar notificação">×</button>
+                    </div>
+                    <div class="toast toast-error" role="alert">
+                        <span>Não foi possível concluir a ação.</span>
+                        <button class="toast-close" aria-label="Fechar notificação">×</button>
                     </div>
                 </div>
             </section>

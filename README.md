@@ -172,6 +172,29 @@ ruff format src/             # auto-format
 Line length: 100. Python 3.11+. `pyproject.toml` is the source of
 truth for tooling.
 
+### Frontend e testes de interface
+
+O frontend é uma SPA sem framework servida diretamente pelo FastAPI. A estrutura fica em
+`src/auto_dm/web/static/`: `index.html` mantém a marcação e os contratos de IDs, `app.js`
+coordena os fluxos da aplicação, `shell.js` concentra navegação e feedback global, e `css/`
+separa tokens, componentes e estilos por tela. Ícones e imagens locais ficam em `assets/`.
+
+Os testes de navegador usam Playwright com APIs mockadas e determinísticas; não exigem banco,
+Redis nem chave de LLM. Eles cobrem 390×844, 768×1024 e 1440×900, incluindo fluxos funcionais,
+snapshots e auditoria axe. Na primeira execução, instale as dependências e o Chromium:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:e2e             # funcional, visual e acessibilidade
+npm run test:e2e:update      # aceitar alterações visuais intencionais
+npm run test:assets          # budgets de hero, CSS e JavaScript inicial
+```
+
+Os snapshots ficam ao lado dos testes em `tests/e2e/*-snapshots/`. Antes de atualizá-los,
+confirme a mudança nos três viewports. O workflow `Frontend quality` executa esses gates em
+pull requests; falhas deixam trace, screenshot e relatório HTML como artefato do CI.
+
 ### Project layout
 
 ```text

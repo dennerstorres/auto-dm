@@ -1,0 +1,55 @@
+name: Frontend quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install Python quality tools
+        run: pip install pytest ruff
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Static frontend contracts
+        run: >-
+          pytest
+          tests/web/test_design_system_phase_44.py
+          tests/web/test_shell_phase_45.py
+          tests/web/test_lobby_phase_46.py
+          tests/web/test_wizard_phase_47.py
+          tests/web/test_game_phase_48.py
+          tests/web/test_admin_phase_49.py
+          tests/web/test_frontend_quality_phase_50.py
+      - name: Frontend syntax and Phase 50 lint
+        run: |
+          node --check src/auto_dm/web/static/app.js
+          node --check src/auto_dm/web/static/shell.js
+          ruff check tests/web/test_frontend_quality_phase_50.py
+      - name: Asset budgets
+        run: npm run test:assets
+      - name: Functional, visual and accessibility tests
+        run: npm run test:e2e
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
