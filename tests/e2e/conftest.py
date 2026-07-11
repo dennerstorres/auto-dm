@@ -42,7 +42,7 @@ def api_url():
     os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:36379/0")
     os.environ.setdefault("JWT_SECRET", "phase43-e2e-secret-at-least-32-characters")
     os.environ.setdefault("FRONTEND_URL", "http://127.0.0.1")
-    os.environ["INVITE_CODE"] = ""
+    os.environ["INVITE_CODE"] = "phase43-e2e-invite"
     os.environ["ENVIRONMENT"] = "testing"
 
     # Imports happen after environment configuration so Settings cannot cache dev values.

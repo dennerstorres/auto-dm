@@ -1,6 +1,7 @@
 """HTTP helpers shared by Phase 43 real-stack scenarios."""
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -8,8 +9,12 @@ from datetime import datetime, timezone
 async def signup_login(client):
     username = f"e2e_{uuid.uuid4().hex[:12]}"
     password = "phase43-password"
+    payload = {"username": username, "password": password}
+    invite_code = os.getenv("INVITE_CODE")
+    if invite_code:
+        payload["invite_code"] = invite_code
     response = await client.post(
-        "/api/auth/signup", json={"username": username, "password": password}
+        "/api/auth/signup", json=payload
     )
     assert response.status_code == 201, response.text
     signup = response.json()
