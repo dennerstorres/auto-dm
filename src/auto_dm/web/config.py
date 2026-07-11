@@ -142,6 +142,24 @@ class Settings(BaseSettings):
         description="Hard cap on input text length for /api/tts/speak.",
     )
 
+    # --- BYOK / multi-provider (Phase 51) -------------------------------
+    # Master switch for "bring your own key". Deployments with public signup
+    # should enable it: accounts without an invite are BYOK-only and never fall
+    # back to the global AUTO_DM_* key. See web/crypto.py and web/routes_llm.py.
+    byok_enabled: bool = Field(
+        default=False,
+        validation_alias="AUTO_DM_BYOK_ENABLED",
+        description="Enable per-user LLM credentials (BYOK) + the IA preferences tab.",
+    )
+    # Comma-separated versioned Fernet keys, e.g. "2:<b64>,1:<b64>". The
+    # first entry encrypts new records; all decrypt. Empty = BYOK endpoints
+    # return 503 (the app still boots). See web/crypto.py for the full format.
+    credentials_key: Optional[str] = Field(
+        default=None,
+        validation_alias="AUTO_DM_CREDENTIALS_KEY",
+        description="Versioned Fernet master key(s) for encrypting user API keys.",
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -1,17 +1,19 @@
 """LLM provider abstraction.
 
-Every provider (Claude, OpenAI, Gemini, GLM, Minimax) implements the
-`LLMProvider` protocol defined in `base.py`. The factory in `factory.py`
-selects the right implementation based on config.
+Every provider implements the `LLMProvider` protocol from `base.py`. The
+central registry in `registry.py` (Phase 51a) is the source of truth for
+which providers exist, which models each allows, and how to build their
+adapters.
 
-Currently implemented:
-    - MinimaxProvider (MiniMax OpenAI-compatible API)
+Implemented providers:
+    - MinimaxProvider   — MiniMax (OpenAI-compatible)
+    - OpenAIProvider    — OpenAI native (GPT-5.x)
+    - AnthropicProvider — Anthropic Claude (native Messages API)
+    - GeminiProvider    — Google Gemini (OpenAI-compatible endpoint)
+    - DeepSeekProvider  — DeepSeek (OpenAI-compatible)
 
-Coming in Phase 10:
-    - ClaudeProvider (Anthropic SDK)
-    - GeminiProvider (Google Generative AI SDK)
-    - OpenAIProvider (OpenAI native)
-    - GLMProvider (Zhipu OpenAI-compatible)
+GLM is out of the initial Phase 51 scope and may be added later through
+the same registry.
 """
 from auto_dm.llm.base import LLMConfig, LLMProvider, Message
 from auto_dm.llm.factory import get_provider

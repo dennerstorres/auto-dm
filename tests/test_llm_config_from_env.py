@@ -126,17 +126,19 @@ def test_default_provider_factory_no_env_raises():
 
 
 def test_default_provider_factory_unknown_provider_rejected():
-    """Even with env vars set, unsupported providers raise."""
+    """Even with env vars set, unregistered providers raise."""
     import os
     from auto_dm.web.server import _default_provider_factory
 
-    os.environ["AUTO_DM_PROVIDER"] = "claude"
+    # Phase 51a: claude/openai/gemini/deepseek are now registered; use an
+    # unregistered id (glm is out of scope) to exercise the unknown path.
+    os.environ["AUTO_DM_PROVIDER"] = "glm"
     os.environ["AUTO_DM_API_KEY"] = "sk"
-    os.environ["AUTO_DM_MODEL"] = "claude-3"
+    os.environ["AUTO_DM_MODEL"] = "glm-3"
     try:
-        with pytest.raises(RuntimeError) as exc:
+        with pytest.raises(ValueError) as exc:
             _default_provider_factory()
-        assert "claude" in str(exc.value).lower()
+        assert "glm" in str(exc.value).lower()
     finally:
         for k in ("AUTO_DM_PROVIDER", "AUTO_DM_API_KEY", "AUTO_DM_MODEL"):
             os.environ.pop(k, None)

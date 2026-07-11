@@ -22,8 +22,8 @@ def test_wizard_stylesheet_is_isolated_and_uses_current_cache_version() -> None:
     html = read_static("index.html")
     css = read_static("css/wizard.css")
 
-    assert '/css/wizard.css?v=63' in html
-    assert html.index('/css/landing.css?v=63') < html.index('/css/wizard.css?v=63')
+    assert '/css/wizard.css?v=65' in html
+    assert html.index('/css/landing.css?v=65') < html.index('/css/wizard.css?v=65')
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert "body[data-screen=\"wizard-screen\"]" in css
     assert "var(--brand-gold)" in css

@@ -8,17 +8,17 @@
             name="description"
             content="Viva campanhas solo de fantasia com um mestre de jogo movido por IA e regras 5e."
         />
-        <link rel="stylesheet" href="/css/tokens.css?v=63" />
-        <link rel="stylesheet" href="/css/base.css?v=63" />
-        <link rel="stylesheet" href="/css/components.css?v=63" />
-        <link rel="stylesheet" href="/css/utilities.css?v=63" />
-        <link rel="stylesheet" href="/style.css?v=63" />
-        <link rel="stylesheet" href="/css/shell.css?v=63" />
-        <link rel="stylesheet" href="/css/lobby.css?v=63" />
-        <link rel="stylesheet" href="/css/landing.css?v=63" />
-        <link rel="stylesheet" href="/css/wizard.css?v=63" />
-        <link rel="stylesheet" href="/css/game.css?v=63" />
-        <link rel="stylesheet" href="/css/admin.css?v=63" />
+        <link rel="stylesheet" href="/css/tokens.css?v=65" />
+        <link rel="stylesheet" href="/css/base.css?v=65" />
+        <link rel="stylesheet" href="/css/components.css?v=65" />
+        <link rel="stylesheet" href="/css/utilities.css?v=65" />
+        <link rel="stylesheet" href="/style.css?v=65" />
+        <link rel="stylesheet" href="/css/shell.css?v=65" />
+        <link rel="stylesheet" href="/css/lobby.css?v=65" />
+        <link rel="stylesheet" href="/css/landing.css?v=65" />
+        <link rel="stylesheet" href="/css/wizard.css?v=65" />
+        <link rel="stylesheet" href="/css/game.css?v=65" />
+        <link rel="stylesheet" href="/css/admin.css?v=66" />
     </head>
     <body class="auth-visible">
         <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
@@ -250,6 +250,7 @@
                                     placeholder="Se você recebeu um"
                                     autocomplete="off"
                                 />
+                                <span class="field-hint">Opcional. Com um convite válido, você também pode usar a IA do servidor; sem ele, use sua própria chave.</span>
                             </div>
                             <button id="login-btn" class="button button-primary auth-submit" type="submit">
                                 Entrar na campanha
@@ -1157,6 +1158,7 @@
                     <div class="tabs prefs-tabs" role="tablist" aria-label="Categorias de preferências">
                         <button id="prefs-tab-narration" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="prefs-panel-narration" data-prefs-tab="narration">Narração</button>
                         <button id="prefs-tab-music" class="tab" type="button" role="tab" aria-selected="false" aria-controls="prefs-panel-music" data-prefs-tab="music" tabindex="-1">Música</button>
+                        <button id="prefs-tab-ai" class="tab" type="button" role="tab" aria-selected="false" aria-controls="prefs-panel-ai" data-prefs-tab="ai" tabindex="-1">IA</button>
                         <button id="prefs-tab-account" class="tab" type="button" role="tab" aria-selected="false" aria-controls="prefs-panel-account" data-prefs-tab="account" tabindex="-1">Conta</button>
                     </div>
                     <div id="prefs-msg" class="msg prefs-feedback" role="status" aria-live="polite"></div>
@@ -1206,6 +1208,43 @@
                         </label>
                     </fieldset>
 
+                    <fieldset id="prefs-panel-ai" class="prefs-section" role="tabpanel" aria-labelledby="prefs-tab-ai" hidden>
+                        <legend>Inteligência artificial</legend>
+                        <div id="prefs-ai-disabled" class="prefs-ai-disabled" hidden>
+                            <p>Em breve: use sua própria chave de IA (BYOK) para jogar sem consumir a cota do servidor.</p>
+                        </div>
+                        <div id="prefs-ai-enabled" hidden>
+                            <fieldset class="prefs-radio-group" aria-labelledby="prefs-ai-mode-label">
+                                <legend id="prefs-ai-mode-label">Modo de IA</legend>
+                                <label class="prefs-radio"><input id="prefs-ai-system-mode" type="radio" name="prefs-ai-mode" value="legacy" checked /> <span>IA do servidor</span></label>
+                                <label class="prefs-radio"><input type="radio" name="prefs-ai-mode" value="byok" /> <span>Minha chave (BYOK)</span></label>
+                            </fieldset>
+                            <p id="prefs-ai-system-note" class="field-hint" hidden>Esta conta foi registrada sem convite e usa somente chave própria.</p>
+                            <div class="prefs-ai-byok" id="prefs-ai-byok" hidden>
+                                <label class="field">
+                                    <span class="field-label">Provedor</span>
+                                    <select id="prefs-ai-provider" class="field-control"></select>
+                                </label>
+                                <label class="field">
+                                    <span class="field-label">Modelo</span>
+                                    <select id="prefs-ai-model" class="field-control"></select>
+                                </label>
+                                <button id="prefs-ai-save" class="button button-secondary" type="button">Salvar provedor e modelo</button>
+                                <hr class="prefs-divider" />
+                                <label class="field">
+                                    <span class="field-label">Chave de API</span>
+                                    <input id="prefs-ai-key" class="field-control" type="password" autocomplete="off" placeholder="Cole sua chave — ela é criptografada antes de salvar" />
+                                    <span class="field-hint" id="prefs-ai-key-hint"></span>
+                                </label>
+                                <div class="prefs-ai-actions">
+                                    <button id="prefs-ai-save-key" class="button button-secondary" type="button">Salvar chave</button>
+                                    <button id="prefs-ai-test" class="button button-secondary" type="button">Testar</button>
+                                    <button id="prefs-ai-remove" class="button button-danger" type="button">Remover</button>
+                                </div>
+                            </div>
+                        </div>
+                    </fieldset>
+
                     <section id="prefs-panel-account" class="prefs-section prefs-account" role="tabpanel" aria-labelledby="prefs-tab-account" hidden>
                         <h4>Conta</h4>
                         <dl>
@@ -1237,6 +1276,6 @@
             <div id="toast-region" class="toast-region" aria-label="Notificações"></div>
         </div>
 
-        <script src="/app.js?v=64" type="module"></script>
+        <script src="/app.js?v=65" type="module"></script>
     </body>
 </html>

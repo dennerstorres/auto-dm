@@ -15,9 +15,9 @@ def test_admin_styles_are_isolated_tokenized_and_loaded_last() -> None:
     html = read_static("index.html")
     css = read_static("css/admin.css")
 
-    assert '/css/admin.css?v=63' in html
-    assert '/app.js?v=64' in html
-    assert html.index('/css/game.css?v=63') < html.index('/css/admin.css?v=63')
+    assert '/css/admin.css?v=66' in html
+    assert '/app.js?v=65' in html
+    assert html.index('/css/game.css?v=65') < html.index('/css/admin.css?v=66')
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert 'body[data-screen="admin-panel-screen"]' in css
     assert "var(--status-danger)" in css
@@ -111,6 +111,7 @@ def test_preferences_have_keyboard_tabs_and_persistent_feedback() -> None:
 def test_preference_controls_are_labeled_and_fit_narrow_viewports() -> None:
     html = read_static("index.html")
     css = read_static("css/admin.css")
+    legacy_css = read_static("style.css")
 
     assert html.count('role="switch"') >= 3
     assert 'id="prefs-volume-output" for="prefs-music-volume"' in html
@@ -120,3 +121,10 @@ def test_preference_controls_are_labeled_and_fit_narrow_viewports() -> None:
     assert "@media (max-width: 399px)" in css
     assert "max-height: 100dvh" in css
     assert "width: 100%" in css
+    assert ".prefs-section .field {" in css
+    assert "grid-template-columns: repeat(4, minmax(0, 1fr))" in css
+    assert '.prefs-volume input[type="range"]' in css
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in css
+    assert ".prefs-section .prefs-toggle {" in css
+    assert '.prefs-radio-group .prefs-radio input[type="radio"]' in css
+    assert ".prefs-section label {" not in legacy_css

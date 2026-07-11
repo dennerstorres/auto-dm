@@ -71,6 +71,12 @@ class ActivityType(str, Enum):
     USER_CREATED = "user_created"
     USER_DELETED = "user_deleted"
     LIMIT_OVERRIDE = "limit_override"
+    # Phase 51 — BYOK credential/settings lifecycle. Meta never contains the
+    # key itself, only the provider id + masked suffix + outcome.
+    CREDENTIAL_SET = "credential_set"
+    CREDENTIAL_REMOVED = "credential_removed"
+    CREDENTIAL_VALIDATED = "credential_validated"
+    LLM_SETTINGS_CHANGED = "llm_settings_changed"
 
 
 class Base(DeclarativeBase):
@@ -116,6 +122,13 @@ class User(Base):
         Boolean, default=True, server_default=true(), nullable=False,
     )
     disabled_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Invitation entitlement: accounts created with the configured invite
+    # code may use the deploy's global LLM key.  Existing accounts backfill
+    # to True during migration; public signups explicitly set this to False
+    # unless their invite matches.  BYOK remains available to both groups.
+    system_llm_access: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False,
+    )
     # --- User preferences (Phase 42) ------------------------------------
     # Single JSON column holding the {tts, music} preferences blob. JSONB on
     # Postgres / JSON on SQLite (generic JSON type handles both). NULL for
@@ -132,6 +145,18 @@ class User(Base):
     activity_log: Mapped[list["ActivityLog"]] = relationship(
         "ActivityLog", back_populates="user", cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+    # Phase 51 — BYOK. Cascade-delete in the ORM (not passive_deletes) so
+    # removing the account wipes the stored credentials/settings on SQLite
+    # tests too; the FK ON DELETE CASCADE still backs it on Postgres. There
+    # are only a few credentials per user, so loading them is cheap.
+    llm_settings: Mapped[Optional["UserLLMSettings"]] = relationship(
+        "UserLLMSettings", back_populates="user", cascade="all, delete-orphan",
+        uselist=False,
+    )
+    provider_credentials: Mapped[list["UserProviderCredential"]] = relationship(
+        "UserProviderCredential", back_populates="user",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
@@ -194,6 +219,12 @@ class UsageEvent(Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="fallback")
+    # Phase 51d — which key paid for the call: "legacy" (invitation-authorized
+    # global AUTO_DM_* key) or "byok" (user's own encrypted key). Defaults to
+    # legacy so existing rows/analytics read correctly.
+    credential_source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="legacy", server_default="legacy",
+    )
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -236,3 +267,87 @@ class ActivityLog(Base):
 
     def __repr__(self) -> str:
         return f"<ActivityLog id={self.id} user_id={self.user_id} {self.event_type!r}>"
+
+
+class UserLLMSettings(Base):
+    """Per-user LLM mode/provider/model (Phase 51b).
+
+    One row per user (or none = invitation-authorized global mode). ``mode``
+    is ``byok``; selecting the global provider removes the row.
+
+    Sensitive material (the API key itself) lives in a *separate* table
+    (:class:`UserProviderCredential`) and never appears here.
+    """
+
+    __tablename__ = "user_llm_settings"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True,
+    )
+    # "byok". Absence of a row = global mode when the user is entitled.
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="byok")
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Reserved for future per-user params (temperature override, etc.).
+    params: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, server_default=func.now(),
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="llm_settings")
+
+    def __repr__(self) -> str:
+        return (
+            f"<UserLLMSettings user_id={self.user_id} mode={self.mode!r} "
+            f"provider={self.provider!r} model={self.model!r}>"
+        )
+
+
+class UserProviderCredential(Base):
+    """An encrypted user-supplied provider API key (Phase 51b).
+
+    Ciphertext only — the plaintext is never stored, logged, serialized, or
+    returned by any endpoint. ``masked_suffix`` is the safe display token.
+    Unique per (user_id, provider) so a user keeps at most one key per
+    provider. See :mod:`auto_dm.web.crypto` for the encryption scheme.
+    """
+
+    __tablename__ = "user_provider_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Fernet token is base64 (URL-safe) → TEXT is the natural column type.
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    key_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    masked_suffix: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    # "unchecked" | "valid" | "invalid" — last validation outcome.
+    validation_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="unchecked",
+    )
+    validated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, server_default=func.now(),
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="provider_credentials")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "provider", name="uq_user_provider_credential"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<UserProviderCredential id={self.id} user_id={self.user_id} "
+            f"provider={self.provider!r} status={self.validation_status!r}>"
+        )

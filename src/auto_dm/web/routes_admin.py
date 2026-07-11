@@ -283,7 +283,7 @@ async def create_user(
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
 ) -> AdminUserOut:
-    """Create a user directly (bypasses the invite-code gate)."""
+    """Create a user directly with system LLM access (admin invitation)."""
     from sqlalchemy.exc import IntegrityError
 
     existing = await session.execute(select(User).where(User.username == body.username))

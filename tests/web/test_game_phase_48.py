@@ -22,8 +22,8 @@ def test_game_styles_are_isolated_tokenized_and_loaded_last() -> None:
     html = read_static("index.html")
     css = read_static("css/game.css")
 
-    assert '/css/game.css?v=63' in html
-    assert html.index('/css/wizard.css?v=63') < html.index('/css/game.css?v=63')
+    assert '/css/game.css?v=65' in html
+    assert html.index('/css/wizard.css?v=65') < html.index('/css/game.css?v=65')
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert 'body[data-screen="game-screen"]' in css
     for token in (

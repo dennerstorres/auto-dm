@@ -16,16 +16,16 @@ STATIC_DIR = REPO_ROOT / "src" / "auto_dm" / "web" / "static"
 def test_design_system_stylesheets_are_loaded_before_legacy_css() -> None:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     foundation = [
-        "/css/tokens.css?v=63",
-        "/css/base.css?v=63",
-        "/css/components.css?v=63",
-        "/css/utilities.css?v=63",
-        "/style.css?v=63",
+        "/css/tokens.css?v=65",
+        "/css/base.css?v=65",
+        "/css/components.css?v=65",
+        "/css/utilities.css?v=65",
+        "/style.css?v=65",
     ]
 
     positions = [html.index(path) for path in foundation]
     assert positions == sorted(positions)
-    assert html.index("/style.css?v=63") < html.index("/css/landing.css?v=63")
+    assert html.index("/style.css?v=65") < html.index("/css/landing.css?v=65")
 
 
 def test_tokens_match_design_specification() -> None:

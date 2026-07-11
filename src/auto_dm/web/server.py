@@ -31,6 +31,7 @@ from auto_dm.web.routes_admin import router as admin_router
 from auto_dm.web.routes_auth import router as auth_router
 from auto_dm.web.routes_game import router as game_router
 from auto_dm.web.routes_inventory import router as inventory_router
+from auto_dm.web.routes_llm import router as llm_router
 from auto_dm.web.routes_preferences import router as preferences_router
 from auto_dm.web.routes_setup import router as setup_router
 from auto_dm.web.routes_tts import router as tts_router
@@ -68,24 +69,23 @@ def get_app_state() -> AppState:
 
 
 def _default_provider_factory() -> object:
-    """Default LLM provider factory (loads from env).
+    """Default (global) LLM provider factory (loads from env).
 
     Reads ``AUTO_DM_PROVIDER``, ``AUTO_DM_API_KEY``,
     ``AUTO_DM_BASE_URL``, ``AUTO_DM_MODEL`` from the environment and
-    instantiates the matching provider. Falls back to raising so we
-    never accidentally spin up an LLM during app construction if the
-    caller didn't set up env vars.
+    instantiates the matching provider via the central registry
+    (:mod:`auto_dm.llm.registry`). Any registered provider is accepted;
+    the deploy's ``AUTO_DM_PROVIDER`` (typically ``minimax``) selects one.
+
+    Raises when the env vars are missing or the provider is unknown, so we
+    never accidentally spin up an LLM during app construction.
     """
     from auto_dm.llm.base import LLMConfig
-    from auto_dm.llm.minimax import MinimaxProvider
+    from auto_dm.llm.registry import get_spec
 
     cfg = LLMConfig.from_env()
-    if cfg.name != "minimax":
-        raise RuntimeError(
-            f"Provider {cfg.name!r} is not supported yet. "
-            "Only 'minimax' is wired in the MVP."
-        )
-    return MinimaxProvider(cfg)
+    spec = get_spec(cfg.name)  # ValueError (pt-BR) for unknown providers
+    return spec.factory(cfg)
 
 
 def _ensure_save_columns(conn) -> None:
@@ -197,6 +197,28 @@ def _ensure_user_preferences(conn) -> None:
     logger.info("Added users.preferences column")
 
 
+def _ensure_system_llm_access(conn) -> None:
+    """Add the invitation-based system LLM entitlement to existing users.
+
+    Existing accounts retain the access they had before this rule existed.
+    New public signups set the value explicitly from invite validation.
+    """
+    from sqlalchemy import inspect
+
+    insp = inspect(conn)
+    if "users" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("users")}
+    if "system_llm_access" in existing:
+        return
+    default = "1" if conn.dialect.name == "sqlite" else "true"
+    conn.exec_driver_sql(
+        "ALTER TABLE users ADD COLUMN system_llm_access BOOLEAN NOT NULL "
+        f"DEFAULT {default}"
+    )
+    logger.info("Added users.system_llm_access column")
+
+
 def _ensure_usage_tables(conn) -> None:
     """Create the Phase 30 ``usage_events`` and ``activity_log`` tables.
 
@@ -290,6 +312,104 @@ def _ensure_usage_tables(conn) -> None:
         logger.info("Created activity_log table")
 
 
+def _ensure_byok_tables(conn) -> None:
+    """Create the Phase 51 BYOK tables + usage_events.credential_source.
+
+    ``create_all`` covers fresh databases; these CREATE IF NOT EXISTS /
+    ALTER statements cover databases that already existed. Dialect-aware
+    (SQLite vs Postgres), same pattern as :func:`_ensure_usage_tables`.
+    """
+    from sqlalchemy import inspect
+
+    insp = inspect(conn)
+    tables = set(insp.get_table_names())
+    is_sqlite = conn.dialect.name == "sqlite"
+    json_type = "TEXT" if is_sqlite else "JSONB"
+    now = "CURRENT_TIMESTAMP" if is_sqlite else "now()"
+
+    if "user_llm_settings" not in tables:
+        conn.exec_driver_sql(
+            f"""
+            CREATE TABLE user_llm_settings (
+                user_id INTEGER NOT NULL,
+                mode VARCHAR(16) NOT NULL DEFAULT 'byok',
+                provider VARCHAR(32) NOT NULL,
+                model VARCHAR(128) NOT NULL,
+                params {json_type} NULL,
+                created_at DATETIME NOT NULL DEFAULT {now},
+                updated_at DATETIME NOT NULL DEFAULT {now},
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                PRIMARY KEY (user_id)
+            )
+            """
+            if is_sqlite
+            else f"""
+            CREATE TABLE user_llm_settings (
+                user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+                mode VARCHAR(16) NOT NULL DEFAULT 'byok',
+                provider VARCHAR(32) NOT NULL,
+                model VARCHAR(128) NOT NULL,
+                params {json_type},
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                PRIMARY KEY (user_id)
+            )
+            """
+        )
+        logger.info("Created user_llm_settings table")
+
+    if "user_provider_credentials" not in tables:
+        conn.exec_driver_sql(
+            f"""
+            CREATE TABLE user_provider_credentials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                provider VARCHAR(32) NOT NULL,
+                ciphertext TEXT NOT NULL,
+                key_version INTEGER NOT NULL,
+                masked_suffix VARCHAR(8) NOT NULL DEFAULT '',
+                validation_status VARCHAR(16) NOT NULL DEFAULT 'unchecked',
+                validated_at DATETIME NULL,
+                created_at DATETIME NOT NULL DEFAULT {now},
+                updated_at DATETIME NOT NULL DEFAULT {now},
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE (user_id, provider)
+            )
+            """
+            if is_sqlite
+            else """
+            CREATE TABLE user_provider_credentials (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+                provider VARCHAR(32) NOT NULL,
+                ciphertext TEXT NOT NULL,
+                key_version INTEGER NOT NULL,
+                masked_suffix VARCHAR(8) NOT NULL DEFAULT '',
+                validation_status VARCHAR(16) NOT NULL DEFAULT 'unchecked',
+                validated_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (user_id, provider)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            "CREATE INDEX ix_user_provider_credentials_user_id "
+            "ON user_provider_credentials (user_id)"
+        )
+        logger.info("Created user_provider_credentials table")
+
+    # credential_source column on usage_events (Phase 51d) — idempotent ALTER.
+    if "usage_events" in insp.get_table_names():
+        existing = {c["name"] for c in insp.get_columns("usage_events")}
+        if "credential_source" not in existing:
+            conn.exec_driver_sql(
+                "ALTER TABLE usage_events ADD COLUMN "
+                "credential_source VARCHAR(16) NOT NULL DEFAULT 'legacy'"
+            )
+            logger.info("Added usage_events.credential_source column")
+
+
 async def _seed_admin(settings) -> None:
     """Create the single admin account at startup if configured.
 
@@ -361,7 +481,21 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(_ensure_user_limits)
         await conn.run_sync(_ensure_usage_tables)
         await conn.run_sync(_ensure_user_preferences)
+        await conn.run_sync(_ensure_system_llm_access)
+        await conn.run_sync(_ensure_byok_tables)
     logger.info("DB schema ready")
+
+    # BYOK readiness: flag on without a usable master key means the IA tab
+    # and credential endpoints will 503. Warn loudly so ops notice at boot.
+    if settings.byok_enabled:
+        from auto_dm.web.crypto import is_crypto_available
+
+        if not is_crypto_available(settings):
+            logger.warning(
+                "BYOK habilitado (AUTO_DM_BYOK_ENABLED=1) mas a chave mestra "
+                "(AUTO_DM_CREDENTIALS_KEY) está ausente/inválida — endpoints de "
+                "credencial vão retornar 503."
+            )
 
     # Seed the single admin account (idempotent).
     await _seed_admin(settings)
@@ -427,6 +561,7 @@ def create_app(provider_factory: Optional[Callable] = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(tts_router)
     app.include_router(preferences_router)
+    app.include_router(llm_router)
 
     # Health check (no auth required)
     @app.get("/api/health")

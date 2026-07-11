@@ -87,6 +87,14 @@ async def _install_stub(app_instance, **provider_kwargs) -> _OpeningProvider:
     sm = SessionManager(provider_factory=factory)
     app_instance.state.session_manager = sm
     srv._state.session_manager = sm
+    # Phase 51d-lite — the route resolver reads the *app-level*
+    # ``provider_factory`` as a fallback when the user is in legacy mode,
+    # so a test that swaps the per-session manager must also wire the
+    # factory at the same level. Without this, the resolver falls back
+    # to the conftest's stub and the test's scripted provider is never
+    # invoked.
+    app_instance.state.provider_factory = factory
+    srv._state.provider_factory = factory
     return stub
 
 

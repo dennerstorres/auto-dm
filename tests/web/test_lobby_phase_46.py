@@ -149,9 +149,9 @@ def test_lobby_stylesheet_is_scoped_tokenized_and_responsive() -> None:
     html = read_static("index.html")
     css = read_static("css/lobby.css")
 
-    assert '/css/lobby.css?v=63' in html
-    assert html.index('/css/shell.css?v=63') < html.index('/css/lobby.css?v=63')
-    assert html.index('/css/lobby.css?v=63') < html.index('/css/landing.css?v=63')
+    assert '/css/lobby.css?v=65' in html
+    assert html.index('/css/shell.css?v=65') < html.index('/css/lobby.css?v=65')
+    assert html.index('/css/lobby.css?v=65') < html.index('/css/landing.css?v=65')
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert ".campaign-row" in css
     assert "grid-template-columns: minmax(0, 1fr) auto" in css

@@ -8,9 +8,8 @@ Me:     GET  /api/auth/me      →  Authorization: Bearer     →  { user }
 The token is a JWT; the frontend stores it in localStorage and
 sends it as ``Authorization: Bearer <token>`` on every request.
 
-If the server is configured with an ``INVITE_CODE`` env var, signup
-requires a matching ``invite_code`` field in the body. Leave the env
-var unset in dev to keep signup open.
+Signup is always open.  A matching ``INVITE_CODE`` grants access to the
+server-funded LLM; accounts created without a valid invite are BYOK-only.
 """
 from __future__ import annotations
 
@@ -62,6 +61,7 @@ class UserOut(BaseModel):
     id: int
     username: str
     role: str
+    system_llm_access: bool
     created_at: str
     # Phase 42 — preferences blob (defaults back-filled). Surfaced on /me,
     # /login, /signup so the client can init TTS/music without an extra round
@@ -78,6 +78,7 @@ class UserOut(BaseModel):
             id=user.id,
             username=user.username,
             role=user.role,
+            system_llm_access=user.system_llm_access,
             created_at=user.created_at.isoformat() if user.created_at else "",
             preferences=merge_defaults(getattr(user, "preferences", None)),
         )
@@ -101,20 +102,13 @@ async def signup(
 ) -> TokenResponse:
     """Create a new user. Returns a JWT and the public user info."""
     settings = get_settings()
-    # Invite-code gate (only enforced when the server has one configured).
-    if settings.invite_code:
-        if not body.invite_code or not hmac.compare_digest(
-            body.invite_code, settings.invite_code
-        ):
-            # Same error for "missing" and "wrong" — don't leak which.
-            logger.info(
-                "Signup rejected: bad or missing invite code for username=%r",
-                body.username,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid or missing invite code",
-            )
+    # Registration is open.  The invite is an entitlement, not a gate:
+    # only a timing-safe exact match grants use of the server's LLM key.
+    has_system_llm_access = bool(
+        settings.invite_code
+        and body.invite_code
+        and hmac.compare_digest(body.invite_code, settings.invite_code)
+    )
     # Reject if username taken.
     existing = await session.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none() is not None:
@@ -127,6 +121,7 @@ async def signup(
         password_hash=hash_password(body.password),
         # Role is hardcoded — signup can never create an admin.
         role=UserRole.USER.value,
+        system_llm_access=has_system_llm_access,
     )
     session.add(user)
     try:
@@ -140,7 +135,12 @@ async def signup(
         )
     await session.refresh(user)
     token = create_access_token(user.id, user.username)
-    await log_activity(session, user_id=user.id, event=ActivityType.SIGNUP)
+    await log_activity(
+        session,
+        user_id=user.id,
+        event=ActivityType.SIGNUP,
+        meta={"system_llm_access": has_system_llm_access},
+    )
     return TokenResponse(
         token=token,
         user=UserOut.from_user(user),

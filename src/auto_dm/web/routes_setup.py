@@ -43,14 +43,26 @@ from auto_dm.companions import (
     roll_party_candidates,
 )
 from auto_dm.llm.base import Message
+from auto_dm.llm.errors import (
+    ProviderAuthError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    ProviderUnavailableError,
+)
 from auto_dm.llm.usage import chat_with_usage
 from auto_dm.phb import get_class, get_race, get_spells_for_class
 from auto_dm.state.models import AbilityScores, Character, GameState
 from auto_dm.web.activity import log_activity
 from auto_dm.web.auth import current_user
 from auto_dm.web.config import get_settings
+from auto_dm.web.crypto import CredentialCryptoError, CredentialDecryptError
 from auto_dm.web.db import get_session
 from auto_dm.web.limits import check_quota
+from auto_dm.web.llm_context import (
+    LLMNotConfiguredError,
+    make_provider_factory,
+    resolve_llm_context,
+)
 from auto_dm.web.models import ActivityType, UsageKind, User
 from auto_dm.web.sessions import SessionManager
 from auto_dm.web.usage import persist_usage_events
@@ -476,8 +488,13 @@ async def create_session_with_character(
     body: WithCharacterRequest,
     user: Annotated[User, Depends(current_user)],
     sm: Annotated[SessionManager, Depends(get_session_manager)],
+    db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SessionCreated:
-    """Build a Character + GameState from the wizard spec and start a session."""
+    """Build a Character + GameState from the wizard spec and start a session.
+
+    Phase 51d-lite: binds the new session to the user's resolved LLM.
+    A missing BYOK credential returns 409 (not a silent fallback).
+    """
     # Validate campaign / spec
     try:
         player = _build_character(body.player_character)
@@ -501,6 +518,15 @@ async def create_session_with_character(
         # Stable unique id (avoid colliding with player's id)
         comp = comp.model_copy(update={"id": f"c_{key}"})
         chosen_companions.append(comp)
+    settings = get_settings()
+    try:
+        llm_ctx = await resolve_llm_context(db, user, settings)
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": exc.detail},
+        ) from exc
+    factory = make_provider_factory(llm_ctx)
     # Build GameState
     from auto_dm.persistence import slugify
 
@@ -517,7 +543,11 @@ async def create_session_with_character(
         npcs=[],
         player_character_id=player.id,
     )
-    sess = await sm.create(user.id, state)
+    sess = await sm.create(
+        user.id, state,
+        provider_factory=factory,
+        provider_signature=llm_ctx.signature,
+    )
     return SessionCreated(
         session_id=sess.session_id,
         slug=slugify(body.campaign_name),
@@ -636,14 +666,14 @@ async def suggest_names(
         )
         raise HTTPException(status_code=429, detail=exceeded)
 
-    from auto_dm.web.server import get_app_state
-
-    factory = getattr(get_app_state(), "provider_factory", None)
-    if factory is None:
+    try:
+        llm_ctx = await resolve_llm_context(db, user, settings)
+    except LLMNotConfiguredError as exc:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Provedor de LLM não configurado.",
-        )
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": exc.detail},
+        ) from exc
+    factory = make_provider_factory(llm_ctx)
     messages = [
         Message(role="system", content=_NAMING_SYSTEM),
         Message(role="user", content=_naming_user_prompt(body.kind, body.theme)),
@@ -654,6 +684,37 @@ async def suggest_names(
         # event is billed under "naming" instead of the default "player".
         report = replace(report, kind=UsageKind.NAMING.value)
         parsed = _extract_json_object(content)
+    except ProviderAuthError:
+        await _invalidate_user_credential(db, user.id, llm_ctx.provider_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "provider_auth",
+                "message": "Sua chave do provedor foi recusada. "
+                "Abra Preferências → IA para revisar.",
+            },
+        )
+    except ProviderRateLimitError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "provider_rate_limit",
+                "message": "O provedor está limitando chamadas. Tente novamente.",
+            },
+        )
+    except (ProviderTimeoutError, ProviderUnavailableError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "provider_unavailable",
+                "message": "O provedor está indisponível. Tente novamente.",
+            },
+        )
+    except (CredentialCryptoError, CredentialDecryptError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "credential_corrupt", "message": str(exc)},
+        ) from exc
     except Exception as exc:  # noqa: BLE001 — surface any LLM/parse failure as 502
         logger.warning("suggest-names LLM/parse failed: %s", exc)
         raise HTTPException(
@@ -678,8 +739,41 @@ async def suggest_names(
             reports=[report],
             settings=settings,
             kind=UsageKind.NAMING.value,
+            credential_source=llm_ctx.credential_source,
         )
-    except Exception:  # noqa: BLE001 — billing must never break the wizard
+    except Exception:  # noqa: BLE001 — usage tracking must never break the wizard
         logger.exception("Failed to persist naming usage event")
 
     return SuggestNamesResponse(campaign_name=campaign, character_name=character)
+
+
+async def _invalidate_user_credential(
+    db: AsyncSession, user_id: int, provider_id: str,
+) -> None:
+    """Best-effort flip a stored BYOK credential to ``validation_status=invalid``.
+
+    Mirror of the helper in ``routes_game`` — used by ``/suggest-names`` to
+    mark a credential invalid when the provider rejects a live call.
+    Never raises.
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from auto_dm.web.models import UserProviderCredential
+
+    try:
+        result = await db.execute(
+            select(UserProviderCredential).where(
+                UserProviderCredential.user_id == user_id,
+                UserProviderCredential.provider == provider_id,
+            )
+        )
+        cred = result.scalar_one_or_none()
+        if cred is None:
+            return
+        cred.validation_status = "invalid"
+        cred.validated_at = datetime.now(timezone.utc)
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to mark BYOK credential invalid")

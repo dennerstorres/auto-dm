@@ -13,6 +13,14 @@ os.environ.setdefault("JWT_SECRET", "test-secret-must-be-at-least-32-bytes-long-
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("FRONTEND_URL", "http://localhost:3000")
+# Phase 51d-lite — the per-user resolver calls ``LLMConfig.from_env`` when
+# the user is in legacy mode (the default during migration). The legacy
+# env vars are dummy here — tests that actually invoke LLM stub the
+# provider factory via SessionManager overrides; tests that don't invoke
+# LLM just need the resolver to return a context, never to send a request.
+os.environ.setdefault("AUTO_DM_PROVIDER", "minimax")
+os.environ.setdefault("AUTO_DM_API_KEY", "test-key-not-real")
+os.environ.setdefault("AUTO_DM_MODEL", "MiniMax-M3")
 
 from auto_dm.web import db as web_db
 from auto_dm.web import redis_client as web_redis
@@ -89,13 +97,31 @@ async def client(app_instance) -> AsyncIterator[AsyncClient]:
 
 @pytest_asyncio.fixture
 async def auth_token(client: AsyncClient):
-    """Create a test user and return (token, user, headers)."""
+    """Create an invited test user and return (token, user, headers).
+
+    Most pre-entitlement tests exercise the historical system-LLM path, so
+    this shared fixture grants that capability directly. Invite-specific
+    tests create their own public users through the signup endpoint.
+    """
     resp = await client.post(
         "/api/auth/signup",
         json={"username": "testuser", "password": "testpass1234"},
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()
+    from auto_dm.web.db import get_session_factory
+    from auto_dm.web.models import User
+
+    async with get_session_factory()() as session:
+        stored = await session.get(User, data["user"]["id"])
+        stored.system_llm_access = True
+        await session.commit()
+    login = await client.post(
+        "/api/auth/login",
+        json={"username": "testuser", "password": "testpass1234"},
+    )
+    assert login.status_code == 200, login.text
+    data = login.json()
     return data["token"], data["user"], {"Authorization": f"Bearer {data['token']}"}
 
 

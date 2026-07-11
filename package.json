@@ -2,6 +2,10 @@
   "name": "auto-dm-frontend-tests",
   "private": true,
   "scripts": {
+    "start": "docker compose -f docker-compose.dev.yml up --build",
+    "start:detach": "docker compose -f docker-compose.dev.yml up --build -d",
+    "stop": "docker compose -f docker-compose.dev.yml down",
+    "logs": "docker compose -f docker-compose.dev.yml logs -f auto-dm",
     "test:e2e": "playwright test",
     "test:e2e:update": "playwright test --update-snapshots",
     "test:e2e:report": "playwright show-report",

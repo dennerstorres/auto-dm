@@ -1,288 +1,282 @@
 # Auto DM
 
-> AI-powered solo D&D 5e game master. One human player, a party of
-> AI companions, and a fully autonomous AI DM — now running as a web
-> app, shipped in Docker.
+Mestre de jogo solo inspirado nas regras 5e, com companions controlados por IA,
+motor de regras determinístico e interface web completa.
 
-See [SPEC.md](SPEC.md) for the full specification and
-[PLAN.md](PLAN.md) for the phased implementation plan. Production
-deploy details live in [DEPLOY.md](DEPLOY.md).
+O jogador controla um personagem enquanto a IA conduz o Mestre e os demais
+integrantes do grupo. A narrativa é gerada pelo modelo de linguagem, mas as
+mecânicas são resolvidas pelo código Python: rolagens, ataques, dano, condições,
+recursos, iniciativa e progressão não ficam a critério da IA.
 
----
+> Status: projeto funcional em desenvolvimento ativo. O produto é 100% web;
+> o antigo CLI e o streaming SSE foram arquivados.
 
-## What it does
+## Principais recursos
 
-You are one character in a party. Your companions (a rotating cast
-including Thorgrim the dwarf fighter, Lyra the elf ranger, Mira the
-halfling cleric, Vex the half-elf rogue, and more) are controlled by
-an LLM that reasons about their motivations and tactical preferences.
-The Dungeon Master — also an LLM — narrates the world and adjudicates
-the story. The **rules engine in Python is authoritative**: dice
-rolls, attacks, damage, conditions and death saves are computed in
-code. The LLM only narrates.
+- Campanhas solo com Mestre e companions controlados por IA.
+- Criação de personagem pelo navegador, com raças, classes, subclasses,
+  backgrounds, perícias, magias e seleção do grupo.
+- Motor de combate com iniciativa, ações, reações, condições, concentração,
+  death saves e recursos de classe.
+- Progressão por XP, níveis 1–20, ASI e atualização de spell slots.
+- Inventário, equipamentos, sintonização, loot, lojas e ouro.
+- Viagens, clima, encontros aleatórios e tesouros.
+- Saves persistidos em PostgreSQL e sessões ativas em Redis.
+- Memória narrativa de longo prazo por sumarização periódica.
+- Narração por voz e música ambiente opcionais.
+- Interface responsiva, acessível e testada com Playwright.
+- Providers Minimax, OpenAI, Anthropic Claude, Google Gemini e DeepSeek.
+- BYOK: cada usuário pode armazenar sua própria chave de API criptografada.
 
-The game is a **web app** — a FastAPI backend (auth, sessions, save
-state in Postgres and live sessions in Redis) serving a
-vanilla HTML/CSS/JS frontend with a full in-browser character creation
-wizard.
+## Como o acesso à IA funciona
 
----
+O cadastro é aberto e o código de convite é opcional:
 
-## Quick start (Docker — recommended)
+- **Sem convite:** a conta usa exclusivamente uma chave própria (BYOK).
+- **Com convite válido:** a conta pode alternar entre BYOK e a chave global
+  configurada pelo responsável pelo servidor.
 
-There are two compose stacks:
+Uma conta BYOK-only nunca utiliza silenciosamente a chave global. Se a chave do
+usuário estiver ausente, inválida ou indisponível, a chamada é bloqueada antes de
+chegar ao provider.
 
-- **`docker-compose.dev.yml`** — local development. Brings up
-  **Postgres + Redis + the backend** in one go and serves the frontend
-  at `http://localhost:14004/`. No external services required.
-- **`docker-compose.yml`** — production. Backend only; expects
-  Postgres + Redis to already be running on the host. Binds the API
-  to `127.0.0.1:4004` behind a reverse proxy. See [DEPLOY.md](DEPLOY.md).
+Para aceitar cadastros públicos, habilite `AUTO_DM_BYOK_ENABLED=1` e configure
+`AUTO_DM_CREDENTIALS_KEY`. Caso contrário, usuários sem convite conseguirão criar
+a conta, mas não poderão iniciar chamadas de IA.
 
-### Local dev stack
+## Stack
+
+| Camada | Tecnologia |
+|---|---|
+| Backend | Python 3.11+, FastAPI, Pydantic e SQLAlchemy async |
+| Frontend | HTML, CSS e JavaScript ES modules, sem framework |
+| Banco | PostgreSQL |
+| Sessões e rate limit | Redis |
+| Providers | Minimax, OpenAI, Anthropic, Gemini e DeepSeek |
+| Testes | pytest, Ruff, Playwright e axe |
+| Deploy | Docker Compose e Uvicorn |
+
+## Início rápido com Docker
+
+### Pré-requisitos
+
+- Docker com Compose
+- Uma chave de API de ao menos um provider
+- Git
+
+### Ambiente de desenvolvimento
 
 ```bash
-# 1. Configure secrets
+git clone https://github.com/dennerstorres/auto-dm.git
+cd auto-dm
 cp .env.example .env
-# Edit .env — set at minimum:
-#   JWT_SECRET          (≥32 chars; e.g. `openssl rand -hex 32`)
-#   AUTO_DM_API_KEY     (your Minimax key, sk-...)
-#   AUTO_DM_PROVIDER    (defaults to "minimax")
-
-# 2. Boot the whole stack (Postgres + Redis + backend)
-docker compose -f docker-compose.dev.yml up --build
-
-# 3. Open the game in your browser
-#    http://localhost:14004
 ```
 
-Tear down (keeps the Postgres volume):
+Edite o `.env` e configure, no mínimo:
+
+```dotenv
+JWT_SECRET=gere-um-segredo-com-pelo-menos-32-caracteres
+AUTO_DM_PROVIDER=minimax
+AUTO_DM_API_KEY=sua-chave-global
+AUTO_DM_BYOK_ENABLED=1
+AUTO_DM_CREDENTIALS_KEY=1:sua-chave-fernet
+```
+
+Para gerar uma chave Fernet:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print('1:' + Fernet.generate_key().decode())"
+```
+
+Suba PostgreSQL, Redis e a aplicação:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Acesse <http://localhost:14004>.
+
+Para encerrar sem apagar os dados:
 
 ```bash
 docker compose -f docker-compose.dev.yml down
 ```
 
-Wipe all data (including saves):
+Para apagar também os volumes locais:
 
 ```bash
 docker compose -f docker-compose.dev.yml down -v
 ```
 
-> **Port collisions:** the dev stack uses alt ports to avoid clashing
-> with any local Postgres/Redis — Postgres on `127.0.0.1:25432`,
-> Redis on `127.0.0.1:26379`, backend on `127.0.0.1:14004`. The
-> backend talks to Postgres/Redis over the compose network, so the
-> host-side ports are only for your inspection.
+> O stack de desenvolvimento publica PostgreSQL em `127.0.0.1:25432`, Redis em
+> `127.0.0.1:26379` e a aplicação em `127.0.0.1:14004`.
 
-### Required environment variables
+## Configuração
 
-All runtime config flows through the environment (compose
-interpolates `${VAR}` from your `.env`):
+As variáveis abaixo são as mais importantes. Consulte [.env.example](.env.example)
+para o template completo.
 
-| Variable | Required | Notes |
-|---|---|---|
-| `JWT_SECRET` | ✅ | ≥32 chars. `openssl rand -hex 32` |
-| `AUTO_DM_API_KEY` | ✅ | Minimax API key (`sk-...`) |
-| `AUTO_DM_PROVIDER` | defaults `minimax` | Only Minimax is wired up |
-| `AUTO_DM_MODEL` | defaults `MiniMax-Text-01` | |
-| `AUTO_DM_BASE_URL` | optional | Leave empty for provider default |
-| `AUTO_DM_TEMPERATURE` | defaults `0.8` | |
-| `AUTO_DM_MAX_TOKENS` | defaults `2048` | |
-| `DATABASE_URL` | dev: pre-set; prod: must set | `postgresql+asyncpg://...` |
-| `REDIS_URL` | dev: pre-set; prod: must set | `redis://...` |
-| `FRONTEND_URL` | yes (CORS) | Comma-separated allowed origins |
-| `INVITE_CODE` | optional | Gate signup; leave empty for open signup |
+| Variável | Finalidade |
+|---|---|
+| `JWT_SECRET` | Assinatura dos tokens de autenticação; use pelo menos 32 caracteres. |
+| `DATABASE_URL` | Conexão async com PostgreSQL. |
+| `REDIS_URL` | Conexão com Redis. |
+| `FRONTEND_URL` | Origens permitidas pelo CORS, separadas por vírgula. |
+| `AUTO_DM_PROVIDER` | Provider global utilizado pelo servidor. |
+| `AUTO_DM_API_KEY` | Chave global do provider escolhido. |
+| `AUTO_DM_MODEL` | Modelo global; quando vazio, usa o padrão do provider. |
+| `AUTO_DM_BYOK_ENABLED` | Habilita credenciais por usuário. |
+| `AUTO_DM_CREDENTIALS_KEY` | Chave Fernet versionada para criptografar credenciais BYOK. |
+| `INVITE_CODE` | Convite opcional que concede acesso à IA global no cadastro. |
+| `ADMIN_USERNAME` | Nome da conta administrativa inicial. |
+| `ADMIN_PASSWORD` | Senha usada para criar o primeiro administrador. |
 
-Hoje o deploy usa Minimax e uma credencial global `AUTO_DM_*`. A Fase 10 antiga
-foi arquivada. O roadmap da Fase 51 substituirá esse desenho por Minimax,
-OpenAI, Claude, Gemini e DeepSeek, com duas modalidades: conta gratuita usando
-chave própria (BYOK) ou assinatura usando as credenciais da plataforma dentro
-da cota do plano. CLI e streaming SSE estão arquivados definitivamente.
+Nunca versione o arquivo `.env` nem chaves reais de provider.
 
-The first launch gives you the auth screen → lobby → in-browser
-character creation wizard (name → race → class → subclass →
-background → alignment → level → stats → skills → companions →
-confirm), then the game screen with `/help /save /load /list /status
-/quit`. As respostas do Mestre chegam completas por REST; SSE foi arquivado.
+## Desenvolvimento local sem Docker
 
----
-
-## In-game commands
-
-Inside the game screen, meta-commands start with `/`:
-
-```text
-/help                 Show available commands.
-/save [slug]          Save the current game.
-/load <slug>          Load a saved game.
-/list                 List available saves.
-/status               Show party + combat status.
-/quit                 Exit the game.
-```
-
-Anything else is sent to the DM as a free-form action in pt-BR
-(e.g. *"Eu abro a porta com cuidado"*, *"Ataco o goblin!"*).
-
----
-
-## Architecture (high level)
-
-| Layer | Module | Responsibility |
-|------:|--------|----------------|
-| Web | `auto_dm.web` | FastAPI server: auth, sessions, REST, static frontend. |
-| Agents | `auto_dm.agents` | DM + companion LLM wrappers; narrative loop. |
-| State | `auto_dm.state` | Pydantic models + StateManager. |
-| Engine | `auto_dm.engine` | Dice, combat. **Source of truth for mechanics.** |
-| PHB | `auto_dm.phb` | Loads the SRD 5.1 markdown into structured data. |
-| Character | `auto_dm.character` | CharacterBuilder + spell selection. |
-| Companions | `auto_dm.companions` | Pre-defined roster + party roll/synergy. |
-| LLM | `auto_dm.llm` | Provider abstraction (Protocol + adapters). |
-| Persistence | `auto_dm.persistence` | JSON save/load helpers + slugify. |
-
-The four architectural principles from `SPEC.md` are:
-
-1. **Mechanics are authoritative** — the Python engine decides
-   hit/miss/damage; the LLM only narrates.
-2. **LLM proposes, engine disposes** — every action is validated and
-   resolved by the engine before the LLM sees the result.
-3. **Context is managed actively** — recent narrative is summarized
-   to keep token usage under control on long campaigns.
-4. **Configurable by design** — provider, model, temperature,
-   language, narration level all come from environment + config.
-
-### Deploy topology
-
-```
-┌──────────────┐   HTTPS    ┌────────────┐   HTTP    ┌──────────────────┐
-│  Browser     │ ─────────► │  nginx/TLS │ ────────► │  docker: auto-dm │
-│  (static JS) │            │  :443      │  :4004    │  FastAPI/uvicorn │
-└──────────────┘            └────────────┘           └────────┬─────────┘
-                                                               │ asyncpg / redis
-                                               ┌───────────────┴────────────┐
-                                               ▼                            ▼
-                                    ┌──────────────────┐         ┌──────────────────┐
-                                    │  docker: postgres│         │  docker: redis   │
-                                    └──────────────────┘         └──────────────────┘
-```
-
----
-
-## Development
+Crie um ambiente virtual e instale o projeto com as dependências de desenvolvimento:
 
 ```bash
-pytest                       # full test suite (1656 tests)
-ruff check src/              # lint
-ruff format src/             # auto-format
-make e2e                     # API real + Postgres + Redis (4 cenarios canonicos)
-make all                     # unitarios + E2E real
+python -m venv .venv
 ```
 
-Line length: 100. Python 3.11+. `pyproject.toml` is the source of
-truth for tooling.
+Linux/macOS:
 
-### E2E real do backend (Fase 43)
+```bash
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
 
-`make e2e` sobe Postgres 16 e Redis 7 isolados pelo
-`docker-compose.e2e.yml`, inicia o FastAPI numa porta efemera e executa requisicoes HTTP
-reais. A suite cobre criacao de Wizard L3 com tres companions, turnos, save/logout/login/load,
-combate e fichas, compra com saldo insuficiente e viagem com encontro e loot. Somente o
-provedor pago de LLM e substituido por um fake deterministico; parsing, motores, API,
-autenticacao e persistencia sao os componentes de producao.
+Windows PowerShell:
 
-Requisitos: Docker com Compose e as dependencias de desenvolvimento (`pip install -e
-".[dev]"`). Os containers usam `tmpfs` e sao removidos ao final. O workflow
-`Backend real E2E` executa o mesmo target em cada pull request.
+```powershell
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+```
 
-### Frontend e testes de interface
+PostgreSQL e Redis precisam estar disponíveis nas URLs configuradas. Inicie o backend:
 
-O frontend é uma SPA sem framework servida diretamente pelo FastAPI. A estrutura fica em
-`src/auto_dm/web/static/`: `index.html` mantém a marcação e os contratos de IDs, `app.js`
-coordena os fluxos da aplicação, `shell.js` concentra navegação e feedback global, e `css/`
-separa tokens, componentes e estilos por tela. Ícones e imagens locais ficam em `assets/`.
+```bash
+uvicorn auto_dm.web.server:create_app --factory --reload
+```
 
-Os testes de navegador usam Playwright com APIs mockadas e determinísticas; não exigem banco,
-Redis nem chave de LLM. Eles cobrem 390×844, 768×1024 e 1440×900, incluindo fluxos funcionais,
-snapshots e auditoria axe. Na primeira execução, instale as dependências e o Chromium:
+## Testes e qualidade
+
+Backend:
+
+```bash
+pytest
+ruff check src tests
+ruff format --check src tests
+```
+
+E2E real com PostgreSQL e Redis isolados:
+
+```bash
+make e2e
+make all
+```
+
+Frontend:
 
 ```bash
 npm ci
 npx playwright install chromium
-npm run test:e2e             # funcional, visual e acessibilidade
-npm run test:e2e:update      # aceitar alterações visuais intencionais
-npm run test:assets          # budgets de hero, CSS e JavaScript inicial
+npm run test:e2e
+npm run test:assets
 ```
 
-Os snapshots ficam ao lado dos testes em `tests/e2e/*-snapshots/`. Antes de atualizá-los,
-confirme a mudança nos três viewports. O workflow `Frontend quality` executa esses gates em
-pull requests; falhas deixam trace, screenshot e relatório HTML como artefato do CI.
+Os testes de navegador cobrem landing, autenticação, lobby, wizard, mesa e
+administração em viewports mobile, tablet e desktop, incluindo acessibilidade
+com axe e snapshots visuais.
 
-### Project layout
+## Arquitetura
+
+| Módulo | Responsabilidade |
+|---|---|
+| `auto_dm.web` | API FastAPI, autenticação, sessões, persistência e frontend. |
+| `auto_dm.agents` | Mestre, companions, prompts, heurísticas e narrativa. |
+| `auto_dm.engine` | Regras, dados, combate, progressão, inventário e mundo. |
+| `auto_dm.state` | Modelos Pydantic e transições de estado. |
+| `auto_dm.phb` | Carregamento e consulta dos dados SRD 5.1. |
+| `auto_dm.character` | Construção e evolução de personagens. |
+| `auto_dm.llm` | Registry, adapters e contrato comum dos providers. |
+| `auto_dm.persistence` | Serialização e helpers de save. |
+
+Princípios do projeto:
+
+1. **A mecânica é autoritativa:** o engine decide; a IA narra.
+2. **A IA propõe, o engine dispõe:** ações são validadas antes da execução.
+3. **O contexto é gerenciado:** resumos preservam campanhas longas.
+4. **Providers são isolados:** detalhes de SDK não vazam para o domínio.
+5. **Credenciais são protegidas:** BYOK é criptografado e nunca retornado pela API.
+
+## Estrutura do repositório
 
 ```text
 src/auto_dm/
-├── web/              # FastAPI: server.py, routes_*, db.py, sse.py, static/
-├── agents/           # DM + companion agents, narrative loop
-├── state/            # Pydantic models + StateManager
-├── engine/           # dice, combat, resources, conditions (pure Python)
-├── phb/              # SRD 5.1 markdown loader + lookup
-├── character/        # CharacterBuilder + spell selection + level-up
-├── companions/       # roster + party roll/synergy
-├── llm/              # provider abstraction
-└── persistence/      # save / load JSON
-tests/                # pytest suite (1656 tests)
-data/phb/             # SRD 5.1 markdown (read-only)
-Dockerfile            # single-stage python:3.11-slim image
-docker-compose.yml            # prod: backend only (external Postgres+Redis)
-docker-compose.dev.yml        # dev: Postgres + Redis + backend
-SPEC.md / PLAN.md / DEPLOY.md
+├── agents/          # Mestre, companions e narrativa
+├── character/       # criação e progressão de personagens
+├── companions/      # roster e sinergia do grupo
+├── engine/          # motor de regras
+├── llm/             # registry e adapters dos providers
+├── persistence/     # serialização de saves
+├── phb/             # loader e lookups do SRD
+├── state/           # modelos e estado do jogo
+└── web/             # FastAPI e frontend estático
+data/phb/             # conteúdo derivado do SRD 5.1
+tests/                # testes Python, web e E2E
 ```
 
----
+## Documentação
 
-## Status
+- [SPEC.md](SPEC.md): especificação funcional e técnica.
+- [PLAN.md](PLAN.md): roadmap e fases de implementação.
+- [HISTORY.md](HISTORY.md): histórico detalhado das entregas.
+- [DESIGN.md](DESIGN.md): design system e regras da interface.
 
-**v0.1 (MVP) — feature complete, web-deployed.** Highlights:
+## Limitações conhecidas
 
-- Full rules engine: dice, combat, conditions (PHB 14 + tactical),
-  spellcasting with slots/upcast/concentration, barbarian rage, sneak
-  attack, divine smite, fighting styles, resource pools, passive
-  defenses, subclasses, leveling L1–L20 with class capstones.
-- PHB/SRD loader: 9 races, 12 classes, subclasses, ~290 spells,
-  monsters, magic items, backgrounds, tools, gear, mounts, vehicles,
-  poisons/traps/diseases, languages.
-- DM + companion agents with a narrative loop; 12-companion roster
-  with party roll and synergy.
-- **Web app**: FastAPI + Postgres + Redis, bcrypt/JWT auth, invite-code
-  gate, in-browser character creation wizard, lobby,
-  save/load — all containerized.
+- O projeto não implementa multiclasse nem feats.
+- As respostas do jogo são retornadas completas por REST; não há SSE.
+- O conteúdo incluído é o **SRD 5.1**, não o Player's Handbook completo.
+- Custos, disponibilidade e limites das APIs de IA dependem de cada provider.
 
-Out of scope for v0.1: multi-classing, feats, content outside the
-PHB/SRD.
+## Licença
 
----
+O código original do Auto DM é disponibilizado sob a
+[PolyForm Noncommercial License 1.0.0](LICENSE):
 
-## License
+- uso pessoal, estudo, pesquisa, testes e projetos não comerciais são permitidos;
+- alterações e redistribuição são permitidas apenas para finalidades não comerciais;
+- vender, licenciar comercialmente, cobrar pelo acesso ou incorporar o código em
+  produto ou serviço comercial não é permitido sem autorização separada do titular.
 
-This project is dual-licensed:
+Essa é uma licença **source-available**, não uma licença open source aprovada pela OSI.
+Para solicitar uma licença comercial, abra uma issue no repositório para iniciar
+o contato com o titular.
 
-- **Source code** (`src/`, `tests/`, etc.) — MIT License. See [LICENSE](LICENSE).
-- **Game data** under `data/phb/` — derived from the D&D 5e System
-  Reference Document v5.1 (SRD 5.1), © Wizards of the Coast LLC, used
-  under the [Open Game License v1.0a](data/phb/LICENSE) and the
-  [Creative Commons Attribution 4.0 License](https://creativecommons.org/licenses/by/4.0/).
-  See `data/phb/LICENSE` for the full OGL text and attribution.
+Esta licença vale para a versão atual e para versões futuras que a indiquem.
+Versões anteriormente publicadas sob MIT continuam disponíveis nos termos que
+acompanhavam aquelas versões; a mudança de licença não revoga permissões já concedidas.
 
-The Markdown conversion of the SRD 5.1 was produced by the community
-project [oldmanumby/dnd.srd.5.1](https://github.com/oldmanumby/dnd.srd.5.1)
-and the remastered fork
-[palikhov/DND5E.SRD.Wiki](https://github.com/palikhov/DND5E.SRD.Wiki).
+O conteúdo em `data/phb/` possui licenciamento próprio, descrito em
+[data/phb/LICENSE](data/phb/LICENSE), e não é relicenciado pela PolyForm.
 
-This project is not affiliated with or endorsed by Wizards of the Coast.
-"Dungeons & Dragons" and "D&D" are trademarks of Wizards of the Coast LLC.
+## Aviso sobre D&D e SRD
 
-### Terminology note
+Os dados de regras incluídos derivam do Dungeons & Dragons 5th Edition System
+Reference Document v5.1, disponibilizado pela Wizards of the Coast sob OGL 1.0a
+e CC BY 4.0. Consulte [data/phb/LICENSE](data/phb/LICENSE) para os textos e
+atribuições aplicáveis.
 
-Earlier versions of this project used the term "PHB" (Player's Handbook)
-to describe the bundled data. The actual content is the **SRD 5.1**,
-which is the free, public subset of D&D 5e published by WotC. The PHB
-itself is proprietary and is not included in this repository.
+Este projeto não é afiliado, patrocinado nem endossado pela Wizards of the Coast.
+“Dungeons & Dragons” e “D&D” são marcas de seus respectivos titulares. O
+Player's Handbook proprietário não está incluído neste repositório.
+
+## Contribuições
+
+Issues e pull requests são bem-vindos. Ao contribuir, você concorda que sua
+contribuição poderá ser distribuída sob a mesma licença não comercial aplicada
+ao código original do projeto.

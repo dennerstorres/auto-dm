@@ -242,12 +242,19 @@ label do centro visual.
 ### Campos
 
 - Label visível acima do controle.
+- Em formulários e modais, cada grupo de label, controle, hint e erro forma uma
+  pilha vertical e ocupa toda a largura disponível. Inputs de texto, URL,
+  senha, selects e textareas nunca dividem a linha com seu label ou hint.
 - Grupos equivalentes de label e input usam o mesmo `gap` interno e a mesma
   distância vertical entre grupos.
 - Placeholder exemplifica; não substitui label.
 - Hint vem antes do erro e mantém espaço estável quando possível.
 - Erro aparece próximo ao campo e no resumo do formulário quando houver vários.
 - Inputs em mobile usam no mínimo 16 px para evitar zoom automático.
+- Switches, checkboxes e radios são as exceções: podem alinhar controle e texto
+  na mesma linha, desde que descrições longas quebrem sem comprimir o controle.
+- Em campos de faixa, label e valor atual podem compartilhar a primeira linha;
+  o slider ocupa sozinho a linha seguinte e sempre usa 100% da largura.
 
 ### Segmented controls e tabs
 
@@ -261,6 +268,14 @@ label do centro visual.
 - Drawer para inspeção ou ferramentas que preservam o contexto da tela.
 - Sempre: título, fechamento familiar, `Esc`, focus trap, retorno de foco e
   scroll interno quando necessário.
+- Formulários dentro de modal seguem a mesma grade vertical dos formulários de
+  página. Abas não mudam largura, alinhamento ou espaçamento dos controles entre
+  painéis irmãos.
+- Barras de abas curtas distribuem opções em trilhas de largura estável. Só usar
+  rolagem horizontal quando os labels não couberem sem truncamento no menor
+  viewport suportado.
+- Ações relacionadas ficam em uma região própria depois dos campos; podem formar
+  colunas equivalentes no desktop e empilham no mobile compacto.
 - Mobile usa modal central quando couber; formulários longos podem usar sheet de
   tela cheia.
 
