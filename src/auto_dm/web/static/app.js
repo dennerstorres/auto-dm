@@ -281,7 +281,7 @@ function setAuthMode(mode) {
 
   title.textContent = signup ? "Comece sua jornada" : "Bem-vindo de volta";
   subtitle.textContent = signup
-    ? "Crie sua conta e prepare seu primeiro personagem."
+    ? "Crie sua conta. O convite é opcional e libera também a IA do servidor."
     : "Sua campanha está esperando por você.";
   loginTab.classList.toggle("active", !signup);
   signupTab.classList.toggle("active", signup);
@@ -319,7 +319,7 @@ function setAuthBusy(isBusy) {
 
 function authErrorMessage(error) {
   if (error.status === 401) return "Usuário ou senha incorretos.";
-  if (error.status === 403) return "Código de convite inválido ou ausente.";
+  if (error.status === 403) return "Esta ação não está disponível para sua conta.";
   if (error.status === 409) return "Esse nome de aventureiro já está em uso.";
   if (error.status === 422) {
     return "Confira o nome e use uma senha com pelo menos 8 caracteres.";
@@ -2442,6 +2442,10 @@ async function openPrefsModal() {
     }
   }
   sel.value = p.tts.voice || "";
+
+  // Phase 51 — load BYOK catalog + current settings (best-effort; tab may
+  // show the "coming soon" panel when BYOK is disabled on the server).
+  loadLlmSettings().catch(() => {});
 }
 
 function closePrefsModal() {
@@ -2498,6 +2502,156 @@ function schedulePrefsSave() {
       })
       .catch((e) => setMsg("prefs-msg", "Erro: " + e.message, "error"));
   }, 400);
+}
+
+// --- Phase 51: BYOK / IA provider settings ---
+let llmCatalog = null;
+
+function fillProviderSelects() {
+  const provSel = document.getElementById("prefs-ai-provider");
+  const modelSel = document.getElementById("prefs-ai-model");
+  provSel.innerHTML = "";
+  for (const p of (llmCatalog?.providers || [])) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.label;
+    provSel.appendChild(opt);
+  }
+  const refreshModels = () => {
+    const p = (llmCatalog?.providers || []).find((x) => x.id === provSel.value);
+    modelSel.innerHTML = "";
+    for (const m of (p?.models || [])) {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m;
+      modelSel.appendChild(opt);
+    }
+    if (p) modelSel.value = p.default_model;
+  };
+  provSel.onchange = refreshModels;
+  refreshModels();
+}
+
+async function loadLlmSettings() {
+  const catalog = await api("/api/llm/catalog");
+  llmCatalog = catalog;
+  const enabled = !!catalog.byok_enabled;
+  const systemAccess = !!catalog.system_llm_access;
+  document.getElementById("prefs-ai-disabled").hidden = enabled;
+  document.getElementById("prefs-ai-enabled").hidden = !enabled;
+  if (!enabled && !systemAccess) {
+    document.getElementById("prefs-ai-disabled").textContent =
+      "Esta conta requer chave própria, mas o BYOK está desativado neste servidor.";
+  }
+  if (!enabled) return;
+  fillProviderSelects();
+
+  const settings = await api("/api/me/llm-settings");
+  const canUseSystem = !!settings.system_llm_access;
+  const systemMode = document.getElementById("prefs-ai-system-mode");
+  const systemNote = document.getElementById("prefs-ai-system-note");
+  systemMode.disabled = !canUseSystem;
+  systemNote.hidden = canUseSystem;
+  const mode = canUseSystem ? (settings.mode || "legacy") : "byok";
+  document.querySelector('input[name="prefs-ai-mode"][value="byok"]').checked = mode === "byok";
+  systemMode.checked = mode !== "byok";
+  updateByokSection();
+  if (settings.provider) {
+    document.getElementById("prefs-ai-provider").value = settings.provider;
+    document.getElementById("prefs-ai-provider").onchange?.();
+  }
+  if (settings.model) document.getElementById("prefs-ai-model").value = settings.model;
+  renderKeyHint(settings.credentials || {});
+}
+
+function updateByokSection() {
+  const byok = document.querySelector('input[name="prefs-ai-mode"][value="byok"]').checked;
+  document.getElementById("prefs-ai-byok").hidden = !byok;
+}
+
+function renderKeyHint(creds) {
+  const hint = document.getElementById("prefs-ai-key-hint");
+  const provider = document.getElementById("prefs-ai-provider").value;
+  const c = creds[provider];
+  document.getElementById("prefs-ai-key").value = "";
+  if (!c) {
+    hint.textContent = "Nenhuma chave cadastrada para este provedor.";
+    return;
+  }
+  const status =
+    c.validation_status === "valid" ? "válida" :
+    c.validation_status === "invalid" ? "recusada" : "não testada";
+  hint.textContent = `Chave atual: ${c.masked_suffix || "••••"} — ${status}.`;
+}
+
+async function saveLlmSettings() {
+  const mode = document.querySelector('input[name="prefs-ai-mode"]:checked')?.value || "legacy";
+  const body = { mode };
+  if (mode === "byok") {
+    body.provider = document.getElementById("prefs-ai-provider").value;
+    body.model = document.getElementById("prefs-ai-model").value;
+  }
+  try {
+    const settings = await api("/api/me/llm-settings", { method: "PUT", body });
+    updateByokSection();
+    renderKeyHint(settings.credentials || {});
+    setMsg("prefs-msg", "Configuração de IA salva.", "ok");
+  } catch (e) {
+    setMsg("prefs-msg", "Erro: " + e.message, "error");
+  }
+}
+
+async function saveLlmKey() {
+  const provider = document.getElementById("prefs-ai-provider").value;
+  const key = document.getElementById("prefs-ai-key").value.trim();
+  if (!provider || key.length < 8) {
+    setMsg("prefs-msg", "Informe um provedor e uma chave válida.", "error");
+    return;
+  }
+  try {
+    const data = await api(`/api/me/llm-credentials/${encodeURIComponent(provider)}`, {
+      method: "PUT", body: { api_key: key },
+    });
+    const settings = await api("/api/me/llm-settings");
+    renderKeyHint(settings.credentials || {});
+    setMsg("prefs-msg", `Chave salva (${data.masked_suffix || "••••"}).`, "ok");
+  } catch (e) {
+    setMsg("prefs-msg", "Erro: " + e.message, "error");
+  }
+}
+
+async function testLlmKey() {
+  const provider = document.getElementById("prefs-ai-provider").value;
+  setMsg("prefs-msg", "Testando chave…", "");
+  try {
+    const data = await api(`/api/me/llm-credentials/${encodeURIComponent(provider)}/validate`, {
+      method: "POST",
+    });
+    if (data.validation_status === "valid") setMsg("prefs-msg", "Chave válida.", "ok");
+    else if (data.validation_status === "invalid")
+      setMsg("prefs-msg", "Chave recusada pelo provedor.", "error");
+    else setMsg("prefs-msg", data.detail || "Não foi possível testar agora.", "error");
+    const settings = await api("/api/me/llm-settings");
+    renderKeyHint(settings.credentials || {});
+  } catch (e) {
+    setMsg("prefs-msg", "Erro: " + e.message, "error");
+  }
+}
+
+async function removeLlmKey() {
+  const provider = document.getElementById("prefs-ai-provider").value;
+  const ok = await confirmAction(
+    `Remover a chave de ${provider}? As chamadas BYOK deste provedor vão parar.`
+  );
+  if (!ok) return;
+  try {
+    await api(`/api/me/llm-credentials/${encodeURIComponent(provider)}`, { method: "DELETE" });
+    const settings = await api("/api/me/llm-settings");
+    renderKeyHint(settings.credentials || {});
+    setMsg("prefs-msg", "Chave removida.", "ok");
+  } catch (e) {
+    setMsg("prefs-msg", "Erro: " + e.message, "error");
+  }
 }
 
 // --- Wire up events ---
@@ -2612,6 +2766,18 @@ document.addEventListener("DOMContentLoaded", () => {
     closePrefsModal();
     doLogout();
   });
+  // Phase 51 — BYOK / IA tab.
+  document.querySelectorAll('input[name="prefs-ai-mode"]').forEach((radio) => {
+    radio.addEventListener("change", updateByokSection);
+  });
+  document.getElementById("prefs-ai-provider")?.addEventListener("change", async () => {
+    const settings = await api("/api/me/llm-settings").catch(() => null);
+    if (settings) renderKeyHint(settings.credentials || {});
+  });
+  document.getElementById("prefs-ai-save")?.addEventListener("click", saveLlmSettings);
+  document.getElementById("prefs-ai-save-key")?.addEventListener("click", saveLlmKey);
+  document.getElementById("prefs-ai-test")?.addEventListener("click", testLlmKey);
+  document.getElementById("prefs-ai-remove")?.addEventListener("click", removeLlmKey);
   document.getElementById("wz-prev").onclick = wizardPrev;
   document.getElementById("wz-next").onclick = wizardNext;
   document.getElementById("wz-finish").onclick = wizardFinish;

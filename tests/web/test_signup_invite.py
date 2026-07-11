@@ -1,9 +1,9 @@
-"""Tests for the invite-code signup gate (Phase 26e).
+"""Tests for optional invite-based system LLM access.
 
 Behaviour:
-- ``INVITE_CODE`` unset (default / dev) → signup is open.
-- ``INVITE_CODE`` set (production)    → signup requires matching
-   ``invite_code`` field; missing or wrong → 403.
+- signup is always open;
+- a matching configured invite grants ``system_llm_access``;
+- missing/wrong/unconfigured invites create a BYOK-only account.
 
 We mutate the env var per-test and clear the settings cache so the
 ``Settings`` singleton re-reads from env each time.
@@ -35,14 +35,14 @@ async def test_signup_open_when_no_invite_configured(client, monkeypatch):
         json={"username": "open_user", "password": "openpass1234"},
     )
     assert resp.status_code == 201, resp.text
+    assert resp.json()["user"]["system_llm_access"] is False
 
 
 @pytest.mark.asyncio
 async def test_signup_ignores_invite_field_when_not_configured(
     client, monkeypatch
 ):
-    """If the server has no INVITE_CODE, a stray invite_code in the
-    body is harmless."""
+    """An invite cannot grant access when the server has no code configured."""
     monkeypatch.delenv("INVITE_CODE", raising=False)
     _fresh_settings()
     resp = await client.post(
@@ -54,27 +54,28 @@ async def test_signup_ignores_invite_field_when_not_configured(
         },
     )
     assert resp.status_code == 201, resp.text
+    assert resp.json()["user"]["system_llm_access"] is False
 
 
 # ============================================================================
-# Gated signup (INVITE_CODE set)
+# Invite entitlement (INVITE_CODE set)
 # ============================================================================
 
 
 @pytest.mark.asyncio
-async def test_signup_without_code_rejected_when_configured(client, monkeypatch):
+async def test_signup_without_code_creates_byok_only_account(client, monkeypatch):
     monkeypatch.setenv("INVITE_CODE", "secret-invite-xyz")
     _fresh_settings()
     resp = await client.post(
         "/api/auth/signup",
         json={"username": "alice", "password": "alicepass1234"},
     )
-    assert resp.status_code == 403
-    assert "invite" in resp.json()["detail"].lower()
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["user"]["system_llm_access"] is False
 
 
 @pytest.mark.asyncio
-async def test_signup_with_wrong_code_rejected(client, monkeypatch):
+async def test_signup_with_wrong_code_creates_byok_only_account(client, monkeypatch):
     monkeypatch.setenv("INVITE_CODE", "secret-invite-xyz")
     _fresh_settings()
     resp = await client.post(
@@ -85,7 +86,8 @@ async def test_signup_with_wrong_code_rejected(client, monkeypatch):
             "invite_code": "guess",
         },
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["user"]["system_llm_access"] is False
 
 
 @pytest.mark.asyncio
@@ -103,12 +105,12 @@ async def test_signup_with_correct_code_accepted(client, monkeypatch):
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["user"]["username"] == "alice"
+    assert body["user"]["system_llm_access"] is True
     assert "token" in body
 
 
 @pytest.mark.asyncio
-async def test_signup_wrong_and_missing_share_same_message(client, monkeypatch):
-    """Don't leak whether the code was wrong vs missing."""
+async def test_signup_wrong_and_missing_receive_same_entitlement(client, monkeypatch):
     monkeypatch.setenv("INVITE_CODE", "secret-invite-xyz")
     _fresh_settings()
     r_missing = await client.post(
@@ -123,14 +125,14 @@ async def test_signup_wrong_and_missing_share_same_message(client, monkeypatch):
             "invite_code": "guess",
         },
     )
-    assert r_missing.status_code == r_wrong.status_code == 403
-    assert r_missing.json() == r_wrong.json()
+    assert r_missing.status_code == r_wrong.status_code == 201
+    assert r_missing.json()["user"]["system_llm_access"] is False
+    assert r_wrong.json()["user"]["system_llm_access"] is False
 
 
 @pytest.mark.asyncio
 async def test_login_unaffected_by_invite_code(client, monkeypatch):
-    """Once an account exists, login still works even if INVITE_CODE
-    is later enabled — invite gates *signup*, not login."""
+    """Login preserves the entitlement assigned when the account was created."""
     monkeypatch.delenv("INVITE_CODE", raising=False)
     _fresh_settings()
     await client.post(
@@ -145,6 +147,7 @@ async def test_login_unaffected_by_invite_code(client, monkeypatch):
         json={"username": "carol", "password": "carolpass1234"},
     )
     assert resp.status_code == 200
+    assert resp.json()["user"]["system_llm_access"] is False
 
 
 # ============================================================================
@@ -155,9 +158,7 @@ async def test_login_unaffected_by_invite_code(client, monkeypatch):
 @pytest.mark.asyncio
 async def test_signup_uses_timing_safe_compare(client, monkeypatch):
     """The signup route must use ``hmac.compare_digest`` so that an
-    attacker can't fingerprint the secret by measuring response time
-    of wrong-code attempts. We just verify the import path works and
-    the gate still rejects when the prefix matches but the rest doesn't.
+    attacker can't fingerprint the secret by measuring wrong-code attempts.
     """
     import hmac
 
@@ -171,9 +172,25 @@ async def test_signup_uses_timing_safe_compare(client, monkeypatch):
             "invite_code": "very-long-secret-code-XXXXXXX",  # prefix match
         },
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 201
+    assert resp.json()["user"]["system_llm_access"] is False
     # And verify the helper actually equal-evaluates them.
     assert not hmac.compare_digest(
         "very-long-secret-code-XXXXXXX",
         "very-long-secret-code-1234567890",
     )
+
+
+def test_system_llm_access_migration_is_idempotent(app_instance):
+    """Existing databases keep global-LLM access after the migration."""
+    import anyio
+
+    from auto_dm.web.db import get_engine
+    from auto_dm.web.server import _ensure_system_llm_access
+
+    async def _run():
+        async with get_engine().begin() as conn:
+            await conn.run_sync(_ensure_system_llm_access)
+            await conn.run_sync(_ensure_system_llm_access)
+
+    anyio.run(_run)

@@ -60,7 +60,17 @@ async def _signup(client, username):
         json={"username": username, "password": "testpass1234"},
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["token"], resp.json()["user"]
+    data = resp.json()
+    # These quota tests target the historical global-provider path, not the
+    # public BYOK-only signup policy. Treat their helper as an invited user.
+    from auto_dm.web.db import get_session_factory
+    from auto_dm.web.models import User
+
+    async with get_session_factory()() as session:
+        user = await session.get(User, data["user"]["id"])
+        user.system_llm_access = True
+        await session.commit()
+    return data["token"], data["user"]
 
 
 async def _insert_usage(user_id, total_tokens):

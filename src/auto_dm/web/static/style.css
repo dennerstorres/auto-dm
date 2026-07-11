@@ -1610,37 +1610,3 @@ select {
 .audio-volume input[type="range"] {
   width: 80px;
 }
-
-/* Voz & Música preferences modal */
-#prefs-modal .modal-card {
-  width: min(480px, 92vw);
-}
-.prefs-section {
-  border: 1px solid #2a2e39;
-  border-radius: 6px;
-  margin: 0.75rem 0;
-  padding: 0.6rem 0.75rem;
-}
-.prefs-section legend {
-  color: #c89b3c;
-  font-size: 0.85rem;
-  padding: 0 0.4rem;
-}
-.prefs-section label {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0.4rem 0;
-  font-size: 0.9rem;
-}
-.prefs-section label .lbl {
-  color: #888;
-  font-size: 0.8rem;
-}
-.prefs-section input[type="url"],
-.prefs-section select {
-  flex: 1;
-}
-.prefs-section input[type="range"] {
-  flex: 1;
-}

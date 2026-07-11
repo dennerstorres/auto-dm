@@ -6,8 +6,8 @@
 > **não voltará**; o Auto DM é um produto 100% web. O streaming SSE da Fase
 > 26b também foi arquivado e não faz parte do roadmap: as respostas do jogo
 > continuam chegando completas por REST. A Fase 10 original foi arquivada e
-> substituída pela Fase 51, que trata multi-provider, chaves por usuário e o
-> modelo SaaS como uma única arquitetura.
+> substituída pela Fase 51, que trata multi-provider, chaves por usuário e
+> acesso à chave global controlado por convite.
 >
 > As fases antigas abaixo (0, 5, 6, 11, etc.) descrevem um CLI
 > que **não existe mais** no código: `src/auto_dm/cli/` e `main.py` foram
@@ -230,7 +230,7 @@ auto_dm/
 
 > **Arquivada definitivamente.** O escopo original era apenas adicionar adapters
 > globais e não contemplava isolamento de credenciais, configuração por usuário,
-> BYOK, assinatura ou controle de custo. Não deve ser implementada como escrita.
+> BYOK, isolamento por usuário ou controle de acesso à chave global.
 > O trabalho futuro está especificado na **Fase 51**.
 
 **Objetivo:** os 5 providers funcionando
@@ -860,20 +860,20 @@ impedem regressões críticas.
 
 ---
 
-# Quarta onda — Plataforma multi-provider e SaaS
+# Quarta onda — Multi-provider, BYOK e acesso por convite
 
-## Fase 51 — Multi-provider, BYOK e assinatura (12-18 dias)
+## Fase 51 — Multi-provider, BYOK e acesso controlado (10-14 dias)
 
 > **Substitui integralmente a Fase 10 arquivada.** Esta fase será implementada
 > depois do gate E2E real da Fase 43. Até lá, Minimax com configuração global
 > `AUTO_DM_*` continua sendo o único caminho de produção suportado.
 
-**Objetivo:** publicar o Auto DM com dois modos sustentáveis e isolados:
+**Objetivo:** publicar o Auto DM com dois modos isolados, sem cobrança:
 
 1. **Gratuito/BYOK:** o usuário fornece a própria chave e paga diretamente ao
    provider escolhido.
-2. **Assinatura da plataforma:** o usuário paga uma mensalidade e usa as chaves
-   globais do Auto DM dentro das cotas do plano.
+2. **Convidado:** quem se registra com o convite configurado pode escolher entre
+   BYOK e a chave global mantida pelo operador.
 
 O modo escolhido deve ser explícito. Uma falha de chave BYOK **nunca** pode cair
 silenciosamente para a chave global, pois isso transfere custo para a plataforma.
@@ -903,7 +903,7 @@ mesmo registro.
 
 **Modelo de dados proposto:**
 
-- `user_llm_settings`: `user_id`, `mode` (`byok|platform`), `provider`, `model`,
+- `user_llm_settings`: `user_id`, `mode` (`byok|legacy`), `provider`, `model`,
   parâmetros permitidos e timestamps.
 - `user_provider_credentials`: `user_id`, `provider`, `ciphertext`, `key_version`,
   `masked_suffix`, `validation_status`, `validated_at`, timestamps e unicidade
@@ -927,30 +927,23 @@ mesmo registro.
 
 **UX/API:**
 
-- Preferências ganham área “IA e cobrança” para escolher BYOK ou plataforma,
+- Preferências ganham área “IA” para escolher BYOK ou IA do servidor,
   provider/model, cadastrar/testar/remover chave e visualizar seu estado.
-- A conta gratuita pode jogar somente com uma credencial BYOK válida. Limites de
-  infraestrutura e abuso continuam aplicáveis, mesmo sem custo de tokens global.
-- A configuração global atual permanece como compatibilidade de migração para
-  admin/desenvolvimento, mas não vira fallback implícito de usuários públicos.
+- Cadastro é sempre aberto. Sem convite válido, a conta é BYOK-only; código
+  ausente ou incorreto nunca impede a criação da conta.
+- A configuração global nunca vira fallback implícito de usuários BYOK-only.
 
-### 51c — Planos, assinatura e entitlements (3-4 dias)
+### 51c — Entitlement por convite (1-2 dias)
 
 **Entregáveis:**
 
-- Entidades `plans`, `subscriptions`, `billing_events` e/ou `entitlements`, sem
-  acoplar o domínio ao SDK do processador de pagamento.
-- Estado de assinatura normalizado: `trialing`, `active`, `past_due`, `canceled`
-  e `expired`, com período vigente e cancelamento ao fim do ciclo.
-- Checkout/portal do cliente e webhooks com assinatura verificada, idempotência,
-  proteção contra replay e armazenamento do ID externo — nunca dados de cartão.
-- O processador de pagamento será escolhido antes da implementação; Stripe é uma
-  opção, não uma dependência arquitetural desta especificação.
-- Plano mínimo configurável com cota mensal de tokens/custo, limite diário de
-  proteção, modelos permitidos e concorrência. O entitlement, não o papel do
-  usuário, autoriza o uso de chaves globais.
-- Período vencido ou cota esgotada bloqueia novas chamadas antes do provider e
-  oferece BYOK como alternativa; campanhas e saves permanecem acessíveis.
+- `users.system_llm_access: bool`, com `True` para contas existentes na migração.
+- Signup sempre aberto; convite correto grava `True`, ausente/incorreto grava
+  `False`, usando comparação timing-safe.
+- `UserOut`, catálogo e preferências expõem somente o boolean de autorização.
+- Resolver e endpoint de preferências bloqueiam o modo global para BYOK-only.
+- Interface desabilita “IA do servidor” e explica que a conta requer chave própria.
+- Admin e contas antigas mantêm acesso; não existem assinatura, checkout ou billing.
 
 ### 51d — Roteamento, medição e proteção de margem (2-3 dias)
 
@@ -959,55 +952,48 @@ mesmo registro.
 1. Ler a configuração efetiva da conta.
 2. Em `byok`, descriptografar somente em memória e instanciar o provider do
    usuário; erro encerra a chamada sem tocar em credencial global.
-3. Em `platform`, validar assinatura, entitlement e cota antes de selecionar a
-   credencial global.
-4. O modo global legado só é aceito em ambiente privado/admin durante a migração.
+3. Sem BYOK, validar `system_llm_access` antes de selecionar a credencial global.
 
 **Entregáveis:**
 
 - `ProviderContext`/resolver injetado em DM, companheiros, sumarizador, sugestão
   de nomes e qualquer outro ponto de uso de LLM; nenhum endpoint cria provider
   diretamente a partir do ambiente.
-- Usage atribuído a `credential_source=byok|platform|legacy`, provider, modelo,
+- Usage atribuído a `credential_source=byok|legacy`, provider, modelo,
   usuário, sessão e tipo de chamada.
-- BYOK registra tokens para diagnóstico, mas não debita a franquia paga. O modo
-  plataforma usa preços configuráveis por modelo, reserva/validação pré-chamada
-  e reconciliação pelo usage real retornado pelo provider.
+- BYOK registra tokens para diagnóstico sem consumir a cota da chave global.
 - Hard caps, timeout, concorrência por usuário, circuit breaker e mensagens
-  claras para chave inválida, provider indisponível, assinatura e quota.
-- Painel admin separa consumo BYOK de custo global e mostra receita, custo,
-  margem estimada, assinaturas e eventos de cobrança sem expor credenciais.
+  claras para chave inválida, provider indisponível e quota.
+- Painel admin separa consumo BYOK de custo global sem expor credenciais.
 
 ### 51e — Migração, testes e rollout (1-3 dias)
 
 **Entregáveis:**
 
-- Migrações idempotentes e rollback documentado; usuários atuais continuam no
-  modo global legado até a publicação exigir escolha entre BYOK e assinatura.
-- Feature flag para habilitar providers, BYOK e cobrança separadamente.
+- Migrações idempotentes e rollback documentado; usuários atuais mantêm acesso
+  ao modo global e novos usuários recebem a permissão conforme o convite.
+- Feature flag para habilitar providers e BYOK separadamente.
 - Termos/privacidade explicam processamento por terceiros, retenção da chave,
-  cobrança, cotas, exclusão e responsabilidade pelo saldo no provider BYOK.
+  cotas, exclusão e responsabilidade pelo saldo no provider BYOK.
 - Métricas sem segredo: taxa de erro por provider/model, latência, tokens,
-  custo global, conversão e churn.
+  custo global e adoção de BYOK.
 
 **Testes mínimos:**
 
 - Contract tests dos cinco adapters e testes opcionais de integração real.
 - Criptografia/rotação/máscara/exclusão e isolamento rigoroso entre usuários.
 - BYOK inválido nunca usa chave global; usuário A nunca acessa chave de B.
-- Assinatura ativa autoriza, vencida bloqueia, webhook duplicado é idempotente e
-  cota impede a chamada antes de gerar custo.
+- Conta sem convite nunca usa a chave global; conta convidada pode alternar modos.
 - Usage de todos os caminhos LLM recebe provider/model/source corretos.
-- Fluxos Playwright de configuração BYOK, troca de provider, assinatura e estados
+- Fluxos Playwright de configuração BYOK, troca de provider, convite e estados
   de erro nos três viewports suportados.
-- E2E real da Fase 43 executado uma vez em BYOK fake e uma vez em plataforma fake.
+- E2E real da Fase 43 executado uma vez em BYOK fake e uma vez em modo global fake.
 
-**Critério pronto:** um usuário gratuito consegue cadastrar uma chave própria e
-jogar sem consumir credenciais globais; um assinante ativo consegue jogar com a
-infraestrutura da plataforma dentro de sua cota; nenhum segredo é retornado ou
-logado; isolamento, cobrança, medição e bloqueios passam no CI.
+**Critério pronto:** qualquer pessoa cria conta e joga com chave própria; somente
+quem recebeu convite pode optar pela chave global; nenhum segredo é retornado ou
+logado; isolamento, medição e bloqueios passam no CI.
 
 **Fora de escopo inicial:** streaming SSE, CLI, marketplace de chaves, revenda de
-créditos avulsos, endpoint customizado informado pelo usuário, fallback automático
-entre providers e cobrança por consumo excedente sem consentimento explícito.
+SaaS, assinatura, billing, créditos avulsos, endpoint customizado informado pelo
+usuário e fallback automático entre providers.
 

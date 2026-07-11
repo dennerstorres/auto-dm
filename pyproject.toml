@@ -5,7 +5,7 @@ description = "AI-powered solo D&D 5e game master"
 requires-python = ">=3.11"
 authors = [{ name = "Auto DM contributors" }]
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "PolyForm-Noncommercial-1.0.0" }
 dependencies = [
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
@@ -28,9 +28,14 @@ dependencies = [
     # 6.1.x is rejected by the upstream service (HTTP 403); 7.2.x carries
     # the current DRM handshake used by the consumer speech endpoint.
     "edge-tts>=7.2.8,<8",
-    # Phase 10 deps (other providers) — added when implemented
-    # "anthropic>=0.40.0",
-    # "google-generativeai>=0.8.0",
+    # Phase 51a — LLM providers. Anthropic uses the native Messages API;
+    # OpenAI/DeepSeek/Gemini reuse the ``openai`` SDK (compatible endpoints).
+    # Anthropic is imported lazily in ``auto_dm/llm/anthropic_provider.py``.
+    "anthropic>=0.40.0",
+    # Phase 51b — at-rest encryption of user BYOK credentials (Fernet).
+    "cryptography>=42",
+    # Phase 10 deps still out of scope:
+    # "google-generativeai>=0.8.0",   # deprecated; Gemini uses OpenAI-compat
     # "langchain>=0.3.0",
     # "langgraph>=0.2.0",
 ]

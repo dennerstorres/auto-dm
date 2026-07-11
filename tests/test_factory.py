@@ -38,8 +38,10 @@ def test_factory_custom_base_url():
 
 
 def test_factory_unknown_provider_raises():
-    config = LLMConfig(name="claude", api_key="x", model="y")
-    with pytest.raises(ValueError, match="Unknown LLM provider"):
+    # Phase 51a: claude/openai/gemini/deepseek are now registered providers;
+    # use an unregistered id to exercise the unknown path.
+    config = LLMConfig(name="glm", api_key="x", model="y")
+    with pytest.raises(ValueError, match="Provedor desconhecido"):
         get_provider(config)
 
 

@@ -9,14 +9,60 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+import openai
 from openai import OpenAI
 
 from auto_dm.llm.base import LLMConfig, Message
+from auto_dm.llm.errors import (
+    ProviderAuthError,
+    ProviderError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    ProviderUnavailableError,
+)
 from auto_dm.llm.usage import UsageReport
 from auto_dm.llm.utils import strip_thinking
 
 
 logger = logging.getLogger(__name__)
+
+
+def _wrap_openai_errors(provider: str):
+    """Context manager that maps ``openai`` SDK exceptions to our hierarchy.
+
+    The mapped errors carry only a generic message (never the SDK payload),
+    while the original exception is preserved as ``__cause__`` for debugging.
+    Non-matching exceptions pass through unchanged.
+    """
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _cm():
+        try:
+            yield
+        except openai.AuthenticationError as exc:
+            raise ProviderAuthError(provider) from exc
+        except openai.PermissionDeniedError as exc:
+            raise ProviderAuthError(provider) from exc
+        except openai.RateLimitError as exc:
+            raise ProviderRateLimitError(provider) from exc
+        except openai.APITimeoutError as exc:
+            raise ProviderTimeoutError(provider) from exc
+        except openai.APIConnectionError as exc:
+            raise ProviderUnavailableError(provider) from exc
+        except openai.InternalServerError as exc:
+            raise ProviderUnavailableError(provider) from exc
+        except openai.APIStatusError as exc:
+            # Remaining status errors: 5xx are transient, anything else is
+            # surfaced as a generic provider error (the web layer maps
+            # unknown failures to 502). Auth/rate-limit/timeout were caught
+            # above by their specific subclasses.
+            status = getattr(exc, "status_code", None) or 0
+            if status >= 500:
+                raise ProviderUnavailableError(provider) from exc
+            raise ProviderError(provider) from exc
+
+    return _cm()
 
 
 class OpenAICompatibleProvider:
@@ -39,10 +85,17 @@ class OpenAICompatibleProvider:
             )
 
         self.config = config
-        self.client = OpenAI(
-            base_url=config.base_url or self.DEFAULT_BASE_URL,
-            api_key=config.api_key,
-        )
+        client_kwargs: dict = {
+            "base_url": config.base_url or self.DEFAULT_BASE_URL,
+            "api_key": config.api_key,
+        }
+        # Per-request timeout (seconds) is optional; only forwarded when the
+        # caller set it via config.extra["timeout"]. Key validation uses a
+        # short timeout; gameplay calls leave it unset (SDK default).
+        timeout = config.extra.get("timeout") if config.extra else None
+        if timeout is not None:
+            client_kwargs["timeout"] = timeout
+        self.client = OpenAI(**client_kwargs)
 
     # -- extra_body / thinking --------------------------------------------
 
@@ -113,11 +166,14 @@ class OpenAICompatibleProvider:
         """Single-shot completion that also returns real token usage.
 
         Falls back to the chars//3 heuristic when the provider's response
-        carries no ``usage`` payload.
+        carries no ``usage`` payload. SDK errors are normalized to
+        :class:`auto_dm.llm.errors.ProviderError` subclasses (auth,
+        rate-limit, timeout, unavailable) with generic messages.
         """
-        response = self.client.chat.completions.create(
-            **self._request_kwargs(messages)
-        )
+        with _wrap_openai_errors(self.name):
+            response = self.client.chat.completions.create(
+                **self._request_kwargs(messages)
+            )
         choice = response.choices[0]
         if getattr(choice, "finish_reason", None) == "length":
             if self.config.max_tokens > 0:

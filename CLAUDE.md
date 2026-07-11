@@ -6,7 +6,7 @@ AI-powered solo D&D 5e game master. Um jogador humano, party de companheiros con
 
 > **Decisões permanentes:** o produto é 100% web; o CLI da Fase 34 e o SSE da
 > Fase 26b estão arquivados e não voltarão. A Fase 10 também foi arquivada e
-> substituída pela futura Fase 51 (multi-provider, BYOK e assinatura SaaS).
+> substituída pela Fase 51 (multi-provider, BYOK e acesso global por convite).
 
 ---
 
@@ -23,8 +23,8 @@ AI-powered solo D&D 5e game master. Um jogador humano, party de companheiros con
 - **Pydantic** para modelos de estado e validação
 - **FastAPI + Uvicorn** para o backend web (auth, sessões e REST; SSE arquivado)
 - **LangChain/LangGraph** para orquestração de agentes (DM + companheiros)
-- **Provider LLM atual**: **Minimax** por configuração global. Multi-provider,
-  BYOK por usuário e assinatura SaaS estão planejados na Fase 51.
+- **Providers LLM**: Minimax/OpenAI/Anthropic/Gemini/DeepSeek; BYOK está
+  disponível para todos e a configuração global exige entitlement por convite.
 - **PHB 5e** em `data/phb/` como fonte de verdade para regras (não hardcoded em Python)
 
 ## Estrutura do projeto
@@ -85,9 +85,8 @@ ruff check .               # lint
 
 - **Nunca ler `.env`** — contém API keys. Usar `.env.example` como referência de template.
 - **`data/phb/` é leitura livre** — esses `.md` são a fonte de regras. Conteúdo derivado do D&D 5e **SRD v5.1** (Open Game License + CC BY 4.0) — não é o PHB completo. Arquivos com prefixo `#` (ex: `# Racial Traits.md`) são índices introdutórios; sem prefixo são conteúdo.
-- **Provider ativo é Minimax** — a Fase 10 está arquivada. Novos adapters e
-  configuração por usuário devem seguir integralmente a futura Fase 51
-  (Minimax/OpenAI/Claude/Gemini/DeepSeek + BYOK/assinatura), sem reativar o escopo antigo.
+- **Providers** — a Fase 10 está arquivada. A Fase 51 implementa
+  Minimax/OpenAI/Claude/Gemini/DeepSeek + BYOK e acesso global por convite.
 - **D&D 5e, PHB only** no MVP. Níveis 1-5 no MVP (estendido a 1-20 pelas Fases 25f/25g). Sem multiclasse, sem feats, sem classes/raças/magias fora do PHB.
 - **Idioma do produto**: pt-BR (interface, narração, mensagens). Código/identificadores em inglês.
 - **Tarefas são rastreadas** via TaskList. Ao começar uma fase, marcá-la `in_progress`; ao terminar, `completed`. Criar tasks pra qualquer trabalho com 3+ passos.
@@ -114,8 +113,8 @@ ruff check .               # lint
 - **Fases 25a–25h** — conteúdo PHB: monsters, subclasses,
   backgrounds/tools/gear, magic items, movement/mounts, leveling L6–L20 +
   capstones de classe.
-- **Fases 26a–26e** — web: FastAPI + auth, wizard no browser, deploy Docker,
-  invite-code gate.
+- **Fases 26a–26e** — web: FastAPI + auth, wizard no browser, deploy Docker e
+  código de convite (posteriormente convertido em entitlement na Fase 51c).
 - **Fases 27–33** — produto: 12 companheiros + synergy roll, busy feedback,
   roles admin, painel admin + limites/custos de uso, narração configurável,
   cenário inicial, sumarização periódica (memória de longo prazo).
@@ -127,9 +126,20 @@ ruff check .               # lint
 - **Fases 44–50** — redesign frontend: design system, shell/navegação/feedback
   global, lobby, wizard, mesa de jogo, admin/preferências, qualidade
   (Playwright + budgets de assets + CI).
+- **Fase 51a** — registry de provedores (Minimax/OpenAI/Anthropic/Gemini/DeepSeek)
+  + adapters (OpenAI/Anthropic nativos, Gemini e DeepSeek via OpenAI-compat) +
+  exceções `Provider*Error` normalizadas com mensagens fixas.
+- **Fase 51b** — criptografia Fernet de credenciais BYOK, schema
+  `user_llm_settings`/`user_provider_credentials`, rotas `/api/llm/*`,
+  aba "IA" em Preferências, cache do front em v64.
+- **Fase 51d-lite** — resolver por usuário (`resolve_llm_context`) com regra
+  "BYOK inválido nunca cai silenciosamente para a chave global",
+  `SessionManager.provider_signature` para invalidar cache ao trocar de
+  provedor, `usage_events.credential_source` ("legacy"/"byok").
+- **Fase 51c** — cadastro aberto com `system_llm_access`: convite válido libera
+  IA global + BYOK; sem convite a conta fica estritamente BYOK-only.
 
 **Arquivadas (não voltarão):** Fase 10 (adapters globais → substituída pela
 51), Fase 26b (SSE), Fase 34 (CLI removido — produto é 100% web).
 
-**Próxima:** Fase 51 — Multi-provider, BYOK e assinatura SaaS (não iniciada;
-ver `PLAN.md`).
+**Próxima:** consolidar a Fase 51 (testes amplos, rollout e documentação).

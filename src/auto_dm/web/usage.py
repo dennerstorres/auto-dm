@@ -163,12 +163,19 @@ async def persist_usage_events(
     settings: Settings,
     session_id: Optional[str] = None,
     kind: str = "player",
+    credential_source: str = "legacy",
 ) -> None:
     """Insert one :class:`UsageEvent` per report and commit.
 
     Best-effort: a failure here must not break the game turn, so callers
     wrap this in try/except. ``kind`` defaults to ``"player"``; the DM
     follow-up narration and companion turns can override it.
+
+    ``credential_source`` (Phase 51d) tags which key paid for the call:
+    ``"legacy"`` = the deploy's global ``AUTO_DM_API_KEY``;
+    ``"byok"`` = the user's own encrypted key. Routed from the resolved LLM
+    context so admin cost reports can separate BYOK diagnostic usage from
+    calls paid by the deploy's global key.
     """
     if not reports:
         return
@@ -182,6 +189,7 @@ async def persist_usage_events(
                 provider=report.provider,
                 model=report.model,
                 source=report.source,
+                credential_source=credential_source,
                 prompt_tokens=report.prompt_tokens,
                 completion_tokens=report.completion_tokens,
                 total_tokens=report.total_tokens,

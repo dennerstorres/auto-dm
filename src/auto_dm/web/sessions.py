@@ -37,6 +37,21 @@ from auto_dm.web.redis_client import get_redis, session_key
 logger = logging.getLogger(__name__)
 
 
+def _signature_matches(
+    existing: Optional[tuple[str, str, str]],
+    requested: Optional[tuple[str, str, str]],
+) -> bool:
+    """True when the cache can be reused without rebuilding agents.
+
+    Both empty (legacy call): always match — preserves back-compat for
+    callers (and tests) that don't pass a signature. Same value: match.
+    Mismatch: caller asked for a different LLM, rebuild required.
+    """
+    if requested is None:
+        return True
+    return existing == requested
+
+
 @dataclass
 class WebSession:
     """A running game session tied to one user.
@@ -53,6 +68,12 @@ class WebSession:
     companion_agents: dict[str, CompanionAgent] = field(default_factory=dict)
     combat_engine: Optional[CombatEngine] = None
     provider_factory: Optional[Callable] = None
+    #: ``(credential_source, provider, model)`` of the LLM used to build
+    #: this session. On :meth:`SessionManager.get`, a different signature
+    #: triggers a fresh hydration with the new factory so a provider
+    #: change (e.g. user flips on BYOK mid-game) takes effect on the next
+    #: call without waiting for the Redis TTL.
+    provider_signature: Optional[tuple[str, str, str]] = None
 
     @property
     def state(self) -> GameState:
@@ -78,18 +99,28 @@ class SessionManager:
         self,
         user_id: int,
         state: GameState,
+        *,
+        provider_factory: Optional[Callable] = None,
+        provider_signature: Optional[tuple[str, str, str]] = None,
     ) -> WebSession:
-        """Create a new session for ``state``, persist to Redis."""
+        """Create a new session for ``state``, persist to Redis.
+
+        ``provider_factory`` (keyword-only) overrides the SessionManager's
+        default for this call — used by BYOK to bind the session to the
+        user's resolved LLM. ``provider_signature`` is stored alongside
+        so the next :meth:`get` can detect a provider change and rebuild.
+        """
+        factory = provider_factory or self._provider_factory
         session_id = uuid.uuid4().hex
         sm = StateManager(state)
-        dm = DMAgent(provider=self._provider_factory(), state_manager=sm)
+        dm = DMAgent(provider=factory(), state_manager=sm)
         # Build companion agents for non-player party members.
         comp_agents: dict[str, CompanionAgent] = {}
         for c in state.party:
             if c.is_player:
                 continue
             comp_agents[c.id] = CompanionAgent(
-                provider=self._provider_factory(),
+                provider=factory(),
                 character=c,
                 state_manager=sm,
             )
@@ -100,7 +131,8 @@ class SessionManager:
             dm_agent=dm,
             companion_agents=comp_agents,
             combat_engine=CombatEngine(),
-            provider_factory=self._provider_factory,
+            provider_factory=factory,
+            provider_signature=provider_signature,
         )
         # Persist to Redis with TTL.
         redis = get_redis()
@@ -113,11 +145,34 @@ class SessionManager:
         self._cache[self._cache_key(user_id, session_id)] = sess
         return sess
 
-    async def get(self, user_id: int, session_id: str) -> Optional[WebSession]:
-        """Get a session, hydrating from Redis if not cached."""
+    async def get(
+        self,
+        user_id: int,
+        session_id: str,
+        *,
+        provider_factory: Optional[Callable] = None,
+        provider_signature: Optional[tuple[str, str, str]] = None,
+    ) -> Optional[WebSession]:
+        """Get a session, hydrating from Redis if not cached.
+
+        When ``provider_factory`` is supplied and the cached/loaded
+        session was built under a different ``provider_signature``, the
+        session is rebuilt with the new factory so DM + companion agents
+        use the user's currently-resolved LLM. Pass ``provider_signature``
+        together with ``provider_factory`` — the signature is what makes
+        the rebuild decision; omitting both keeps the legacy behavior.
+        """
         key = self._cache_key(user_id, session_id)
-        if key in self._cache:
-            return self._cache[key]
+        cached = self._cache.get(key)
+        if cached is not None:
+            if _signature_matches(cached.provider_signature, provider_signature):
+                return cached
+            # Signature drift on the live cache: rebuild and replace.
+            rebuilt = await self._rebuild_agents(
+                cached, provider_factory, provider_signature,
+            )
+            self._cache[key] = rebuilt
+            return rebuilt
         # Try Redis.
         redis = get_redis()
         rkey = session_key(user_id, session_id)
@@ -125,14 +180,15 @@ class SessionManager:
         if not data:
             return None
         state = GameState.model_validate_json(data)
+        factory = provider_factory or self._provider_factory
         sm = StateManager(state)
-        dm = DMAgent(provider=self._provider_factory(), state_manager=sm)
+        dm = DMAgent(provider=factory(), state_manager=sm)
         comp_agents: dict[str, CompanionAgent] = {}
         for c in state.party:
             if c.is_player:
                 continue
             comp_agents[c.id] = CompanionAgent(
-                provider=self._provider_factory(),
+                provider=factory(),
                 character=c,
                 state_manager=sm,
             )
@@ -143,10 +199,46 @@ class SessionManager:
             dm_agent=dm,
             companion_agents=comp_agents,
             combat_engine=CombatEngine(),
-            provider_factory=self._provider_factory,
+            provider_factory=factory,
+            provider_signature=provider_signature,
         )
         self._cache[key] = sess
         return sess
+
+    async def _rebuild_agents(
+        self,
+        existing: "WebSession",
+        factory: Optional[Callable],
+        signature: Optional[tuple[str, str, str]],
+    ) -> "WebSession":
+        """Swap in a new provider for an already-hydrated session.
+
+        Used when the user changes their LLM mid-game (e.g. flips BYOK
+        on, switches provider): the state is intact, only the agent
+        providers need to be replaced. Returns a *new* ``WebSession``
+        with fresh agents; the caller updates the cache.
+        """
+        use_factory = factory or existing.provider_factory or self._provider_factory
+        new_dm = DMAgent(provider=use_factory(), state_manager=existing.state_manager)
+        new_companions: dict[str, CompanionAgent] = {}
+        for c in existing.state.party:
+            if c.is_player:
+                continue
+            new_companions[c.id] = CompanionAgent(
+                provider=use_factory(),
+                character=c,
+                state_manager=existing.state_manager,
+            )
+        return WebSession(
+            session_id=existing.session_id,
+            user_id=existing.user_id,
+            state_manager=existing.state_manager,
+            dm_agent=new_dm,
+            companion_agents=new_companions,
+            combat_engine=existing.combat_engine or CombatEngine(),
+            provider_factory=use_factory,
+            provider_signature=signature,
+        )
 
     async def save(self, session: WebSession) -> None:
         """Persist the session to Redis with TTL refresh."""

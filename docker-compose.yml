@@ -38,8 +38,8 @@ services:
       # Comma-separated list of origins allowed to call the API.
       # Include your Vercel frontend URL(s) and any local dev origins.
       FRONTEND_URL: "${FRONTEND_URL:-http://localhost:3000}"
-      # Invite-code gate (Phase 26e). Set in .env for production to
-      # require all signups to provide this code. Leave empty for dev.
+      # Signup is always open. A matching invite grants access to the global
+      # LLM; accounts without it are restricted to BYOK.
       INVITE_CODE: "${INVITE_CODE:-}"
       # --- Admin seed (Phase 29) ---
       # Seeds the single admin account at startup. Leave ADMIN_PASSWORD
@@ -58,6 +58,10 @@ services:
       # Set AUTO_DM_MAX_TOKENS=0 in .env for "sem limite" (omits the cap
       # from the request; the model's own output ceiling applies).
       AUTO_DM_MAX_TOKENS: "${AUTO_DM_MAX_TOKENS:-8192}"
+      # --- Per-user LLM credentials (BYOK) ---
+      # AUTO_DM_CREDENTIALS_KEY must be versioned, e.g. "1:<fernet-key>".
+      AUTO_DM_BYOK_ENABLED: "${AUTO_DM_BYOK_ENABLED:-0}"
+      AUTO_DM_CREDENTIALS_KEY: "${AUTO_DM_CREDENTIALS_KEY:-}"
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx, os; r = httpx.get(f'http://localhost:{os.environ.get(\"PORT\", 4004)}/api/health', timeout=3); r.raise_for_status()"]
       interval: 30s

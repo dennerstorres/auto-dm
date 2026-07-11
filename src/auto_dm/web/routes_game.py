@@ -38,13 +38,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auto_dm.agents import generate_opening, process_player_action
 from auto_dm.engine.checks import ABILITY_LABELS, roll_character_check
 from auto_dm.engine.combat_engine import CombatEngine
+from auto_dm.llm.errors import (
+    ProviderAuthError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    ProviderUnavailableError,
+)
 from auto_dm.llm.usage import UsageReport
 from auto_dm.state.models import GameState
 from auto_dm.web.activity import log_activity
 from auto_dm.web.auth import current_user, require_admin
 from auto_dm.web.config import get_settings
+from auto_dm.web.crypto import CredentialCryptoError, CredentialDecryptError
 from auto_dm.web.db import get_session
 from auto_dm.web.limits import check_quota
+from auto_dm.web.llm_context import (
+    LLMNotConfiguredError,
+    make_provider_factory,
+    resolve_llm_context,
+)
 from auto_dm.web.models import ActivityType, Save, UsageKind, User
 from auto_dm.web.sessions import SessionManager
 from auto_dm.web.save_metadata import extract_save_metadata
@@ -189,6 +201,39 @@ def get_session_manager() -> SessionManager:
     return get_app_state().session_manager
 
 
+async def _invalidate_user_credential(
+    db: AsyncSession, user_id: int, provider_id: str,
+) -> None:
+    """Best-effort flip a stored BYOK credential to ``validation_status=invalid``.
+
+    Called when the provider rejects a live call with ``ProviderAuthError``.
+    No-op if the user has no stored row (invitation-authorized global mode) — the
+    operator's dashboard is the right place to fix a global key. Never
+    raises.
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from auto_dm.web.models import UserProviderCredential
+
+    try:
+        result = await db.execute(
+            select(UserProviderCredential).where(
+                UserProviderCredential.user_id == user_id,
+                UserProviderCredential.provider == provider_id,
+            )
+        )
+        cred = result.scalar_one_or_none()
+        if cred is None:
+            return
+        cred.validation_status = "invalid"
+        cred.validated_at = datetime.now(timezone.utc)
+        await db.commit()
+    except Exception:  # noqa: BLE001 — side-effect must never break the turn
+        logger.exception("Failed to mark BYOK credential invalid")
+
+
 # ============================================================================
 # Session endpoints
 # ============================================================================
@@ -199,11 +244,15 @@ async def create_session(
     body: CreateSessionRequest,
     user: Annotated[User, Depends(require_admin)],
     sm: Annotated[SessionManager, Depends(get_session_manager)],
+    db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SessionCreated:
     """Create a new active game session from a GameState payload.
 
     Admin only — used by the "Criar jogo vazio" advanced option. Regular
     users create games through the character wizard (``/sessions/with-character``).
+
+    Phase 51d-lite: binds the session to the admin's resolved LLM so the
+    run behaves identically to a player-created session.
     """
     try:
         state = GameState.model_validate(body.state)
@@ -212,7 +261,20 @@ async def create_session(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid GameState: {exc}",
         )
-    sess = await sm.create(user.id, state)
+    settings = get_settings()
+    try:
+        llm_ctx = await resolve_llm_context(db, user, settings)
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": exc.detail},
+        ) from exc
+    factory = make_provider_factory(llm_ctx)
+    sess = await sm.create(
+        user.id, state,
+        provider_factory=factory,
+        provider_signature=llm_ctx.signature,
+    )
     return SessionCreated(
         session_id=sess.session_id,
         state=sess.state.model_dump(mode="json"),
@@ -357,15 +419,36 @@ async def session_input(
     Returns the ``NarrativeResult`` (narration, action, action_result,
     follow_up, error). The session state is auto-persisted to Redis.
     Enforces the daily quota (429 when exceeded) and records token usage.
+
+    Phase 51d-lite: which LLM pays for this call is decided by the
+    resolver (:func:`auto_dm.web.llm_context.resolve_llm_context`).
+    Switching providers mid-game triggers an agent rebuild — see
+    :meth:`SessionManager.get`.
     """
-    sess = await sm.get(user.id, session_id)
+    settings = get_settings()
+    # Resolve LLM first — a missing BYOK credential MUST fail with 409
+    # before we hit quota (otherwise the player would see "limit reached"
+    # when the real issue is "configure your API key").
+    try:
+        llm_ctx = await resolve_llm_context(db, user, settings)
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": exc.detail},
+        ) from exc
+    factory = make_provider_factory(llm_ctx)
+
+    sess = await sm.get(
+        user.id, session_id,
+        provider_factory=factory,
+        provider_signature=llm_ctx.signature,
+    )
     if sess is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found or expired",
         )
     # Quota check before any LLM call.
-    settings = get_settings()
     exceeded = await check_quota(db, user, settings)
     if exceeded is not None:
         await log_activity(
@@ -382,6 +465,40 @@ async def session_input(
             sess.dm_agent,
             combat_engine=sess.combat_engine,
         )
+    except ProviderAuthError:
+        # Best-effort: mark the stored credential invalid so the UI can
+        # hint the player to rotate the key. Legacy (no stored row) is
+        # a no-op — the operator's dashboard is the right place to fix.
+        await _invalidate_user_credential(db, user.id, llm_ctx.provider_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "provider_auth",
+                "message": "Sua chave do provedor foi recusada. "
+                "Abra Preferências → IA para revisar.",
+            },
+        )
+    except ProviderRateLimitError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "provider_rate_limit",
+                "message": "O provedor está limitando chamadas. Tente novamente em instantes.",
+            },
+        )
+    except (ProviderTimeoutError, ProviderUnavailableError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "provider_unavailable",
+                "message": "O provedor está indisponível. Tente novamente em instantes.",
+            },
+        )
+    except (CredentialCryptoError, CredentialDecryptError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "credential_corrupt", "message": str(exc)},
+        ) from exc
     except Exception as exc:
         logger.exception("process_player_action failed")
         raise HTTPException(
@@ -396,6 +513,8 @@ async def session_input(
     # separately so the summarizer's cost doesn't pollute the player's
     # daily quota. Empty ``kind`` defaults to ``"player"`` for
     # backward-compat (DM and follow-up narration).
+    # Phase 51d-lite: tag each row with ``credential_source`` so the
+    # admin panel can separate BYOK diagnostic usage from global-key cost.
     usages: list[UsageReport] = list(getattr(result, "usages", []) or [])
     if usages:
         try:
@@ -415,6 +534,7 @@ async def session_input(
                     settings=settings,
                     session_id=session_id,
                     kind=kind_value,
+                    credential_source=llm_ctx.credential_source,
                 )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to persist usage events")
@@ -730,8 +850,25 @@ async def session_opening(
 
     Enforces the daily quota (429 when exceeded) and records token usage
     with ``kind="opening"``.
+
+    Phase 51d-lite: uses the per-user LLM resolver (same as /input) so
+    BYOK players get opening narration from their own key.
     """
-    sess = await sm.get(user.id, session_id)
+    settings = get_settings()
+    try:
+        llm_ctx = await resolve_llm_context(db, user, settings)
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": exc.detail},
+        ) from exc
+    factory = make_provider_factory(llm_ctx)
+
+    sess = await sm.get(
+        user.id, session_id,
+        provider_factory=factory,
+        provider_signature=llm_ctx.signature,
+    )
     if sess is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -748,7 +885,6 @@ async def session_opening(
             "state": sess.state.model_dump(mode="json"),
         }
     # Quota check before the LLM call.
-    settings = get_settings()
     exceeded = await check_quota(db, user, settings)
     if exceeded is not None:
         await log_activity(
@@ -763,6 +899,37 @@ async def session_opening(
         raise HTTPException(status_code=429, detail=exceeded)
     try:
         result = generate_opening(sess.state_manager, sess.dm_agent)
+    except ProviderAuthError:
+        await _invalidate_user_credential(db, user.id, llm_ctx.provider_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "provider_auth",
+                "message": "Sua chave do provedor foi recusada. "
+                "Abra Preferências → IA para revisar.",
+            },
+        )
+    except ProviderRateLimitError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "provider_rate_limit",
+                "message": "O provedor está limitando chamadas. Tente novamente em instantes.",
+            },
+        )
+    except (ProviderTimeoutError, ProviderUnavailableError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "provider_unavailable",
+                "message": "O provedor está indisponível. Tente novamente em instantes.",
+            },
+        )
+    except (CredentialCryptoError, CredentialDecryptError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "credential_corrupt", "message": str(exc)},
+        ) from exc
     except Exception as exc:
         logger.exception("generate_opening failed")
         raise HTTPException(
@@ -781,6 +948,7 @@ async def session_opening(
                 settings=settings,
                 session_id=session_id,
                 kind="opening",
+                credential_source=llm_ctx.credential_source,
             )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to persist opening usage events")
@@ -861,7 +1029,11 @@ async def load_save(
     session: Annotated[AsyncSession, Depends(get_session)],
     sm: Annotated[SessionManager, Depends(get_session_manager)],
 ) -> dict[str, Any]:
-    """Load a save and create a new active session from it."""
+    """Load a save and create a new active session from it.
+
+    Phase 51d-lite: binds the new session to the user's resolved LLM so
+    BYOK players continue with their own provider when resuming a save.
+    """
     result = await session.execute(
         select(Save).where(Save.user_id == user.id, Save.slug == slug)
     )
@@ -872,7 +1044,20 @@ async def load_save(
             detail=f"Save {slug!r} not found",
         )
     state = GameState.model_validate_json(save.state)
-    sess = await sm.create(user.id, state)
+    settings = get_settings()
+    try:
+        llm_ctx = await resolve_llm_context(session, user, settings)
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": exc.detail},
+        ) from exc
+    factory = make_provider_factory(llm_ctx)
+    sess = await sm.create(
+        user.id, state,
+        provider_factory=factory,
+        provider_signature=llm_ctx.signature,
+    )
     return {
         "session_id": sess.session_id,
         "slug": slug,
