@@ -333,7 +333,7 @@ class LLMProvider(Protocol):
 ```json
 {
   "provider": "minimax",
-  "model": "MiniMax-Text-01",
+  "model": "MiniMax-M3",
   "temperature": 0.8,
   "max_tokens": 2048,
   "language": "pt-BR",

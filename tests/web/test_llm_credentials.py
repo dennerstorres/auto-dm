@@ -61,7 +61,7 @@ async def test_put_settings_byok_roundtrip(client, auth_token):
 async def test_put_settings_legacy_clears_row(client, auth_token):
     _tok, _user, headers = auth_token
     await client.put("/api/me/llm-settings", headers=headers, json={
-        "mode": "byok", "provider": "openai", "model": "gpt-5-mini",
+        "mode": "byok", "provider": "openai", "model": "gpt-5.4-mini",
     })
     resp = await client.put("/api/me/llm-settings", headers=headers, json={
         "mode": "legacy",
@@ -116,7 +116,7 @@ async def test_put_settings_byok_forbidden_when_flag_off(client, auth_token, mon
     monkeypatch.setenv("AUTO_DM_BYOK_ENABLED", "0")
     get_settings.cache_clear()
     resp = await client.put("/api/me/llm-settings", headers=headers, json={
-        "mode": "byok", "provider": "openai", "model": "gpt-5-mini",
+        "mode": "byok", "provider": "openai", "model": "gpt-5.4-mini",
     })
     assert resp.status_code == 403
 

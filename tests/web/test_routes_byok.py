@@ -172,7 +172,7 @@ async def test_input_409_when_byok_mode_but_no_credential(
     # Mark the user BYOK on openai with NO stored credential.
     async with factory() as s:
         s.add(UserLLMSettings(
-            user_id=uid, mode="byok", provider="openai", model="gpt-5-mini",
+            user_id=uid, mode="byok", provider="openai", model="gpt-5.4-mini",
         ))
         await s.commit()
 
@@ -207,10 +207,10 @@ async def test_input_uses_byok_provider_factory(
     # The resolver will return a BYOK context.
     captured_factory_calls: list[Any] = []
     byok_ctx = ResolvedLLMContext(
-        provider_id="openai", model="gpt-5-mini",
+        provider_id="openai", model="gpt-5.4-mini",
         credential_source=CREDENTIAL_SOURCE_BYOK,
         api_key="sk-test-1234567890",
-        signature=(CREDENTIAL_SOURCE_BYOK, "openai", "gpt-5-mini"),
+        signature=(CREDENTIAL_SOURCE_BYOK, "openai", "gpt-5.4-mini"),
     )
 
     # Wire the SessionManager + app.state to also accept our factory.
@@ -250,7 +250,7 @@ async def test_input_uses_byok_provider_factory(
     fake = FakeNarrative(
         narration="No chão vejo marcas.",
         usages=[__import__("auto_dm").llm.usage.UsageReport(
-            provider="openai", model="gpt-5-mini", source="api",
+            provider="openai", model="gpt-5.4-mini", source="api",
             prompt_tokens=10, completion_tokens=5, total_tokens=15,
         )],
     )
@@ -298,7 +298,7 @@ async def test_remove_key_returns_to_409_not_legacy(
     ciphertext, version = encrypt_credential(settings, "sk-test-1234567890")
     async with factory() as s:
         s.add(UserLLMSettings(
-            user_id=uid, mode="byok", provider="openai", model="gpt-5-mini",
+            user_id=uid, mode="byok", provider="openai", model="gpt-5.4-mini",
         ))
         s.add(UserProviderCredential(
             user_id=uid, provider="openai",

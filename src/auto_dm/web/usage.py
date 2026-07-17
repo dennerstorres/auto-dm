@@ -20,6 +20,7 @@ from typing import Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auto_dm.llm.pricing import get_token_price
 from auto_dm.llm.usage import UsageReport
 from auto_dm.web.config import Settings
 from auto_dm.web.models import UsageEvent
@@ -31,13 +32,18 @@ from auto_dm.web.models import UsageEvent
 
 
 def compute_cost(report: UsageReport, settings: Settings) -> Decimal:
-    """USD cost of one :class:`UsageReport` at the configured token prices."""
-    in_cost = Decimal(report.prompt_tokens) * Decimal(
-        str(settings.token_price_per_1k_input_usd)
-    ) / Decimal(1000)
-    out_cost = Decimal(report.completion_tokens) * Decimal(
-        str(settings.token_price_per_1k_output_usd)
-    ) / Decimal(1000)
+    """USD cost using the model catalog, with a configurable legacy fallback."""
+    price = get_token_price(report.provider, report.model)
+    if price is not None:
+        input_rate = Decimal(str(price.input_per_million_usd))
+        output_rate = Decimal(str(price.output_per_million_usd))
+        divisor = Decimal(1_000_000)
+    else:
+        input_rate = Decimal(str(settings.token_price_per_1k_input_usd))
+        output_rate = Decimal(str(settings.token_price_per_1k_output_usd))
+        divisor = Decimal(1000)
+    in_cost = Decimal(report.prompt_tokens) * input_rate / divisor
+    out_cost = Decimal(report.completion_tokens) * output_rate / divisor
     return (in_cost + out_cost).quantize(Decimal("0.00000001"))
 
 

@@ -83,7 +83,7 @@ services:
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
       AUTO_DM_PROVIDER: "${AUTO_DM_PROVIDER:-minimax}"
       AUTO_DM_API_KEY: "${AUTO_DM_API_KEY:?Set AUTO_DM_API_KEY in .env}"
-      AUTO_DM_MODEL: "${AUTO_DM_MODEL:-MiniMax-Text-01}"
+      AUTO_DM_MODEL: "${AUTO_DM_MODEL:-MiniMax-M3}"
       AUTO_DM_TEMPERATURE: "${AUTO_DM_TEMPERATURE:-0.8}"
       # 0 = sem limite (omits the cap from the request).
       AUTO_DM_MAX_TOKENS: "${AUTO_DM_MAX_TOKENS:-8192}"

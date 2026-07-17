@@ -166,6 +166,25 @@ def test_compat_keeps_temperature_for_minimax():
     assert kwargs["max_tokens"] == 512
 
 
+def test_gemini_35_omits_sampling_parameters():
+    from auto_dm.llm.gemini import GeminiProvider
+
+    provider = _compat_provider(GeminiProvider, max_tokens=512)
+    kwargs = provider._request_kwargs([Message("user", "x")])
+    assert "temperature" not in kwargs
+    assert "top_p" not in kwargs
+    assert "top_k" not in kwargs
+    assert kwargs["max_tokens"] == 512
+
+
+def test_deepseek_v4_enables_thinking_explicitly():
+    from auto_dm.llm.deepseek import DeepSeekProvider
+
+    provider = _compat_provider(DeepSeekProvider)
+    kwargs = provider._request_kwargs([Message("user", "x")])
+    assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
+
+
 # ----------------------------------------------------------------------------
 # Error normalization (OpenAI-compatible)
 # ----------------------------------------------------------------------------

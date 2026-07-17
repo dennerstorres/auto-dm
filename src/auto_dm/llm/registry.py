@@ -66,15 +66,15 @@ def _anthropic_factory() -> Callable[[LLMConfig], object]:
     return _build
 
 
-# REVIEW: catalog of models — re-check provider docs before release.
-# OpenAI and Gemini ids drift frequently; Anthropic ids are current.
+# Reviewed against the official provider API catalogs on 2026-07-17.
+# Re-check before each release: model ids and lifecycle dates drift quickly.
 PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
     "minimax": ProviderSpec(
         id="minimax",
         label="MiniMax",
         base_url="https://api.minimax.io/v1",
         default_model="MiniMax-M3",
-        allowed_models=("MiniMax-M3",),
+        allowed_models=("MiniMax-M3", "MiniMax-M2.7-highspeed"),
         validation_model="MiniMax-M3",
         factory=MinimaxProvider,
     ),
@@ -82,9 +82,9 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         id="openai",
         label="OpenAI",
         base_url="https://api.openai.com/v1",
-        default_model="gpt-5-mini",
-        allowed_models=("gpt-5.1", "gpt-5-mini"),
-        validation_model="gpt-5-mini",
+        default_model="gpt-5.4-mini",
+        allowed_models=("gpt-5.4-mini", "gpt-5.4", "gpt-5.5"),
+        validation_model="gpt-5.4-mini",
         factory=OpenAIProvider,
     ),
     "anthropic": ProviderSpec(
@@ -104,18 +104,18 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         id="gemini",
         label="Google Gemini",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        default_model="gemini-2.5-flash",
-        allowed_models=("gemini-2.5-flash", "gemini-2.5-pro"),
-        validation_model="gemini-2.5-flash",
+        default_model="gemini-3.5-flash",
+        allowed_models=("gemini-3.5-flash", "gemini-3.1-flash-lite"),
+        validation_model="gemini-3.1-flash-lite",
         factory=GeminiProvider,
     ),
     "deepseek": ProviderSpec(
         id="deepseek",
         label="DeepSeek",
         base_url="https://api.deepseek.com/v1",
-        default_model="deepseek-chat",
-        allowed_models=("deepseek-chat", "deepseek-reasoner"),
-        validation_model="deepseek-chat",
+        default_model="deepseek-v4-flash",
+        allowed_models=("deepseek-v4-flash", "deepseek-v4-pro"),
+        validation_model="deepseek-v4-flash",
         factory=DeepSeekProvider,
     ),
 }

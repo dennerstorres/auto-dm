@@ -11,7 +11,7 @@ def test_from_env_minimal():
     env = {
         "AUTO_DM_PROVIDER": "minimax",
         "AUTO_DM_API_KEY": "sk-test-1234567890",
-        "AUTO_DM_MODEL": "MiniMax-Text-01",
+        "AUTO_DM_MODEL": "MiniMax-M3",
     }
     for k, v in env.items():
         import os
@@ -20,7 +20,7 @@ def test_from_env_minimal():
         cfg = LLMConfig.from_env()
         assert cfg.name == "minimax"
         assert cfg.api_key == "sk-test-1234567890"
-        assert cfg.model == "MiniMax-Text-01"
+        assert cfg.model == "MiniMax-M3"
         assert cfg.temperature == pytest.approx(0.8)
         assert cfg.max_tokens == 8192
         assert cfg.base_url is None

@@ -129,7 +129,7 @@ async def test_resolve_byok_returns_decrypted_key(app_instance):
     async with factory() as s:
         s.add(UserLLMSettings(
             user_id=user.id, mode="byok",
-            provider="openai", model="gpt-5-mini",
+            provider="openai", model="gpt-5.4-mini",
         ))
         s.add(UserProviderCredential(
             user_id=user.id, provider="openai",
@@ -140,9 +140,9 @@ async def test_resolve_byok_returns_decrypted_key(app_instance):
         ctx = await resolve_llm_context(s, user, settings)
     assert ctx.credential_source == "byok"
     assert ctx.provider_id == "openai"
-    assert ctx.model == "gpt-5-mini"
+    assert ctx.model == "gpt-5.4-mini"
     assert ctx.api_key == "sk-test-key-1234567890"
-    assert ctx.signature == ("byok", "openai", "gpt-5-mini")
+    assert ctx.signature == ("byok", "openai", "gpt-5.4-mini")
 
 
 async def test_resolve_byok_raises_when_no_credential(app_instance):
@@ -157,7 +157,7 @@ async def test_resolve_byok_raises_when_no_credential(app_instance):
     async with factory() as s:
         s.add(UserLLMSettings(
             user_id=user.id, mode="byok",
-            provider="openai", model="gpt-5-mini",
+            provider="openai", model="gpt-5.4-mini",
         ))
         await s.commit()
         # spy / sentinel: build_provider would raise if invoked
@@ -191,7 +191,7 @@ async def test_resolve_byok_raises_when_decryption_fails(app_instance, monkeypat
     async with factory() as s:
         s.add(UserLLMSettings(
             user_id=user.id, mode="byok",
-            provider="openai", model="gpt-5-mini",
+            provider="openai", model="gpt-5.4-mini",
         ))
         s.add(UserProviderCredential(
             user_id=user.id, provider="openai",
@@ -248,9 +248,9 @@ async def test_resolve_byok_disallowed_model(app_instance):
 async def test_make_provider_factory_builds_provider_when_api_key_set():
     """The non-fallback branch goes through ``build_provider`` and is reusable."""
     ctx = ResolvedLLMContext(
-        provider_id="openai", model="gpt-5-mini",
+        provider_id="openai", model="gpt-5.4-mini",
         credential_source="byok", api_key="sk-test-key-1234567890",
-        signature=("byok", "openai", "gpt-5-mini"),
+        signature=("byok", "openai", "gpt-5.4-mini"),
     )
     provider_factory = make_provider_factory(ctx)
     # Calling it twice must produce a fresh provider each time.

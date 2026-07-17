@@ -22,7 +22,7 @@ class OpenAIProvider(OpenAICompatibleProvider):
 
     name = "openai"
     DEFAULT_BASE_URL = "https://api.openai.com/v1"
-    DEFAULT_MODEL = "gpt-5-mini"
+    DEFAULT_MODEL = "gpt-5.4-mini"
     # No extended thinking field — OpenAI reasoning models use their own
     # controls; we leave them at provider defaults.
     DEFAULT_THINKING = None
