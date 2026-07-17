@@ -10,6 +10,7 @@ Covers:
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 import pytest
 
@@ -234,4 +235,20 @@ def test_compute_cost_uses_configured_prices(monkeypatch):
     cost = compute_cost(report, settings)
     # 1000/1000 * 0.01 + 500/1000 * 0.02 = 0.01 + 0.01 = 0.02
     assert float(cost) == pytest.approx(0.02)
+    get_settings.cache_clear()
+
+
+def test_compute_cost_uses_provider_model_catalog_before_fallback(monkeypatch):
+    get_settings.cache_clear()
+    monkeypatch.setenv("TOKEN_PRICE_PER_1K_INPUT_USD", "99")
+    monkeypatch.setenv("TOKEN_PRICE_PER_1K_OUTPUT_USD", "99")
+    settings = get_settings()
+    report = UsageReport(
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000_000,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        source="api",
+    )
+    assert compute_cost(report, settings) == Decimal("0.42000000")
     get_settings.cache_clear()

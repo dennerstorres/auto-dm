@@ -51,7 +51,7 @@ services:
       AUTO_DM_PROVIDER: "${AUTO_DM_PROVIDER:-minimax}"
       AUTO_DM_API_KEY: "${AUTO_DM_API_KEY:?AUTO_DM_API_KEY must be set}"
       AUTO_DM_BASE_URL: "${AUTO_DM_BASE_URL:-}"
-      AUTO_DM_MODEL: "${AUTO_DM_MODEL:-MiniMax-Text-01}"
+      AUTO_DM_MODEL: "${AUTO_DM_MODEL:-MiniMax-M3}"
       AUTO_DM_TEMPERATURE: "${AUTO_DM_TEMPERATURE:-0.8}"
       # 8192: MiniMax thinking tokens share this budget with the visible
       # narration — 2048 truncated long openings mid-word.

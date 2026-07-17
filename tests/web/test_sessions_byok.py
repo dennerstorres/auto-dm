@@ -86,7 +86,7 @@ async def test_get_with_different_signature_rebuilds(app_instance):
     new_calls: list[str] = []
     initial_factory = _make_factory("A-initial", initial_calls)
     new_factory = _make_factory("B-new", new_calls)
-    sig_a = ("byok", "openai", "gpt-5-mini")
+    sig_a = ("byok", "openai", "gpt-5.4-mini")
     sig_b = ("byok", "anthropic", "claude-sonnet-5")
     sess = await sm.create(
         3, state, provider_factory=initial_factory, provider_signature=sig_a,

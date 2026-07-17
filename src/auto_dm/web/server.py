@@ -410,6 +410,44 @@ def _ensure_byok_tables(conn) -> None:
             logger.info("Added usage_events.credential_source column")
 
 
+def _migrate_llm_model_ids(conn) -> None:
+    """Move persisted BYOK selections away from retired model ids.
+
+    The operation is deliberately idempotent and runs only after the BYOK
+    table bootstrap. It prevents an otherwise valid saved selection from
+    failing the registry allowlist immediately after a deployment upgrade.
+    """
+    from sqlalchemy import inspect
+
+    if "user_llm_settings" not in inspect(conn).get_table_names():
+        return
+
+    replacements = {
+        ("openai", "gpt-5-mini"): "gpt-5.4-mini",
+        ("openai", "gpt-5.1"): "gpt-5.4",
+        ("gemini", "gemini-2.5-flash"): "gemini-3.5-flash",
+        ("gemini", "gemini-2.5-pro"): "gemini-3.5-flash",
+        ("deepseek", "deepseek-chat"): "deepseek-v4-flash",
+        ("deepseek", "deepseek-reasoner"): "deepseek-v4-flash",
+    }
+    migrated = 0
+    for (provider, old_model), new_model in replacements.items():
+        result = conn.execute(
+            text(
+                "UPDATE user_llm_settings SET model = :new_model "
+                "WHERE provider = :provider AND model = :old_model"
+            ),
+            {
+                "provider": provider,
+                "old_model": old_model,
+                "new_model": new_model,
+            },
+        )
+        migrated += result.rowcount or 0
+    if migrated:
+        logger.info("Migrated %s persisted BYOK model selection(s)", migrated)
+
+
 async def _seed_admin(settings) -> None:
     """Create the single admin account at startup if configured.
 
@@ -483,6 +521,7 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(_ensure_user_preferences)
         await conn.run_sync(_ensure_system_llm_access)
         await conn.run_sync(_ensure_byok_tables)
+        await conn.run_sync(_migrate_llm_model_ids)
     logger.info("DB schema ready")
 
     # BYOK readiness: flag on without a usable master key means the IA tab

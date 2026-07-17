@@ -1,6 +1,8 @@
 """Tests for the central provider registry (Phase 51a)."""
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from auto_dm.llm.registry import (
@@ -15,6 +17,7 @@ from auto_dm.llm.deepseek import DeepSeekProvider
 from auto_dm.llm.gemini import GeminiProvider
 from auto_dm.llm.minimax import MinimaxProvider
 from auto_dm.llm.openai_provider import OpenAIProvider
+from auto_dm.llm.pricing import get_token_price
 
 
 EXPECTED_IDS = {"minimax", "openai", "anthropic", "gemini", "deepseek"}
@@ -84,7 +87,7 @@ def test_build_provider_rejects_unknown_provider():
 
 
 def test_build_provider_uses_default_model_when_none():
-    # minimax only allows MiniMax-M3; building without a model must default to it.
+    # Building without a model must select the provider's production default.
     provider = build_provider("minimax", api_key="k")
     assert provider.config.model == "MiniMax-M3"
 
@@ -123,6 +126,28 @@ def test_build_provider_sets_base_url_from_spec_for_openai_compat():
 def test_validation_model_is_in_allowlist():
     for spec in PROVIDER_REGISTRY.values():
         assert spec.validation_model in spec.allowed_models
+
+
+def test_every_catalog_model_has_a_standard_price():
+    for spec in PROVIDER_REGISTRY.values():
+        for model in spec.allowed_models:
+            assert get_token_price(spec.id, model) is not None, (spec.id, model)
+
+
+def test_sonnet_5_intro_price_expires_automatically():
+    intro = get_token_price("anthropic", "claude-sonnet-5", as_of=date(2026, 8, 31))
+    standard = get_token_price("anthropic", "claude-sonnet-5", as_of=date(2026, 9, 1))
+    assert intro is not None and (intro.input_per_million_usd, intro.output_per_million_usd) == (2, 10)
+    assert standard is not None
+    assert (standard.input_per_million_usd, standard.output_per_million_usd) == (3, 15)
+
+
+def test_catalog_uses_current_production_defaults():
+    assert get_spec("minimax").default_model == "MiniMax-M3"
+    assert get_spec("openai").default_model == "gpt-5.4-mini"
+    assert get_spec("anthropic").default_model == "claude-sonnet-5"
+    assert get_spec("gemini").default_model == "gemini-3.5-flash"
+    assert get_spec("deepseek").default_model == "deepseek-v4-flash"
 
 
 def test_validate_api_key_calls_chat_on_validation_model(monkeypatch):

@@ -5,9 +5,9 @@ trivial subclass that only fixes the endpoint and default model. Usage
 metadata comes back in the standard ``response.usage`` shape, so the base
 ``chat_with_usage`` reports real tokens.
 
-Note: ``deepseek-reasoner`` returns its reasoning in a separate
-``reasoning_content`` field rather than inline ``<think>`` tags, so
-``strip_thinking`` is a harmless no-op for it.
+DeepSeek V4 supports thinking and non-thinking modes on both current model
+ids. Thinking is enabled explicitly so gameplay behaviour does not depend
+on a provider-side default.
 """
 from __future__ import annotations
 
@@ -19,5 +19,5 @@ class DeepSeekProvider(OpenAICompatibleProvider):
 
     name = "deepseek"
     DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
-    DEFAULT_MODEL = "deepseek-chat"
-    DEFAULT_THINKING = None
+    DEFAULT_MODEL = "deepseek-v4-flash"
+    DEFAULT_THINKING = "enabled"

@@ -98,8 +98,8 @@ class Settings(BaseSettings):
         default=120,
         description="Default daily active-minutes cap per user (NULL → this).",
     )
-    # Token pricing in USD per 1k tokens — used to compute cost_usd on
-    # each UsageEvent. Adjust to match your provider's actual rates.
+    # Fallback token pricing in USD per 1k tokens. Known provider/model pairs
+    # use the catalog in ``llm.pricing``; these values cover custom/legacy ids.
     token_price_per_1k_input_usd: float = Field(
         default=0.001, description="USD per 1k input (prompt) tokens.",
     )
