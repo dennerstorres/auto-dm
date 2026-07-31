@@ -191,6 +191,22 @@ Os testes de navegador cobrem landing, autenticação, lobby, wizard, mesa e
 administração em viewports mobile, tablet e desktop, incluindo acessibilidade
 com axe e snapshots visuais.
 
+### PWA (instalação e cache offline)
+
+O app é instalável: `static/manifest.webmanifest` + `static/sw.js` pré-cacheiam
+o shell (HTML, CSS, módulos e ícones) e nunca cacheiam `/api/`. Ao alterar
+qualquer arquivo do shell, bumpe `CACHE_VERSION` em `sw.js` e mantenha as
+querystrings `?v=` iguais às de `index.html` — `tests/web/test_pwa_phase_53.py`
+falha se as listas divergirem.
+
+Os ícones (d20 da marca) são gerados por script e versionados; rode-o só quando
+a identidade visual mudar:
+
+```bash
+pip install pillow
+python scripts/generate_icons.py
+```
+
 ## Arquitetura
 
 | Módulo | Responsabilidade |

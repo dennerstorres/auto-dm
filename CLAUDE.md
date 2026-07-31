@@ -142,6 +142,10 @@ ruff check .               # lint
   ```` ```check ```` e fixa a CD antes; `GameState.pending_check` guarda o
   pedido, `roll-check` pontua contra a CD e o front encadeia a linha
   `[TESTE]` de volta ao mestre. Rolagem avulsa não custa LLM.
+- **Fase 53** — PWA instalável: `manifest.webmanifest`, ícones do d20 gerados
+  por `scripts/generate_icons.py`, service worker (`sw.js`) que pré-cacheia o
+  shell e nunca cacheia `/api/`, e botões "Instalar" via `beforeinstallprompt`.
+  Ao mexer no shell, bumpe `CACHE_VERSION` em `sw.js` junto com os `?v=`.
 
 **Arquivadas (não voltarão):** Fase 10 (adapters globais → substituída pela
 51), Fase 26b (SSE), Fase 34 (CLI removido — produto é 100% web).

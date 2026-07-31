@@ -8,6 +8,18 @@
             name="description"
             content="Viva campanhas solo de fantasia com um mestre de jogo movido por IA e regras 5e."
         />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <meta name="theme-color" content="#0a0c0f" />
+        <meta name="color-scheme" content="dark" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Auto DM" />
+        <link rel="icon" href="/assets/icons/d20.svg" type="image/svg+xml" />
+        <link rel="icon" href="/assets/icons/favicon-32.png" sizes="32x32" type="image/png" />
+        <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png" />
+        <link rel="modulepreload" href="/app.js?v=69" />
+        <link rel="modulepreload" href="/shell.js?v=63" />
         <link rel="stylesheet" href="/css/tokens.css?v=65" />
         <link rel="stylesheet" href="/css/base.css?v=65" />
         <link rel="stylesheet" href="/css/components.css?v=65" />
@@ -30,6 +42,7 @@
                 </a>
                 <nav id="landing-nav" class="landing-nav" aria-label="Navegação principal">
                     <a href="#como-funciona">A experiência</a>
+                    <button class="nav-login" type="button" data-install-app hidden>Instalar app</button>
                     <button id="nav-login" class="nav-login" type="button">Entrar</button>
                     <button id="nav-signup" class="nav-signup" type="button">Criar conta</button>
                 </nav>
@@ -78,6 +91,10 @@
                             <span id="who"></span>
                             <span id="user-role" class="user-role" hidden></span>
                         </span>
+                        <button class="shell-logout" type="button" data-install-app hidden aria-label="Instalar o aplicativo">
+                            <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#download"></use></svg>
+                            <span class="shell-nav-label">Instalar</span>
+                        </button>
                         <button id="logout-btn" class="shell-logout" type="button" aria-label="Sair da conta">
                             <svg class="icon icon-compact" aria-hidden="true"><use href="/assets/icons/lucide.svg#log-out"></use></svg>
                             <span class="shell-nav-label">Sair</span>
@@ -1302,5 +1319,6 @@
         </div>
 
         <script src="/app.js?v=69" type="module"></script>
+        <script src="/pwa.js?v=70" type="module"></script>
     </body>
 </html>

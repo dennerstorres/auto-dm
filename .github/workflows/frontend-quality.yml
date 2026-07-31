@@ -37,11 +37,14 @@ jobs:
           tests/web/test_game_phase_48.py
           tests/web/test_admin_phase_49.py
           tests/web/test_frontend_quality_phase_50.py
+          tests/web/test_pwa_phase_53.py
       - name: Frontend syntax and Phase 50 lint
         run: |
           node --check src/auto_dm/web/static/app.js
           node --check src/auto_dm/web/static/shell.js
-          ruff check tests/web/test_frontend_quality_phase_50.py
+          node --check src/auto_dm/web/static/pwa.js
+          node --check src/auto_dm/web/static/sw.js
+          ruff check tests/web/test_frontend_quality_phase_50.py tests/web/test_pwa_phase_53.py
       - name: Asset budgets
         run: npm run test:assets
       - name: Functional, visual and accessibility tests

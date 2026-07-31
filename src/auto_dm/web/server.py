@@ -12,6 +12,7 @@ can pull it via :func:`get_app_state`.
 from __future__ import annotations
 
 import logging
+import mimetypes
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,9 @@ logger = logging.getLogger(__name__)
 
 # Static dir lives next to this file.
 STATIC_DIR = Path(__file__).parent / "static"
+
+# O tipo do manifest PWA não vem no registro padrão do Windows (Fase 53).
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 DESIGN_SYSTEM_REFERENCE = Path(__file__).parent / "design_system.html"
 
 

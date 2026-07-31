@@ -28,6 +28,10 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4173",
     locale: "pt-BR",
     timezoneId: "America/Cuiaba",
+    // O service worker da Fase 53 intercepta a rede antes do `page.route`,
+    // e os mocks de `/api/**` deixariam de valer. Aqui testamos a UI; o SW
+    // tem contratos próprios em tests/web/test_pwa_phase_53.py.
+    serviceWorkers: "block",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

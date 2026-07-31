@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Auto DM">
+  <rect width="512" height="512" rx="92" ry="92" fill="rgb(10, 12, 15)" />
+  <polygon points="256.00,153.60 344.68,307.20 167.32,307.20" fill="rgb(179, 55, 60)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="256.00,153.60 78.64,153.60 256.00,51.20" fill="rgb(168, 51, 56)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="256.00,153.60 256.00,51.20 433.36,153.60" fill="rgb(168, 51, 56)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="256.00,153.60 433.36,153.60 344.68,307.20" fill="rgb(154, 45, 50)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="344.68,307.20 433.36,153.60 433.36,358.40" fill="rgb(142, 41, 46)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="344.68,307.20 433.36,358.40 256.00,460.80" fill="rgb(125, 34, 39)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="344.68,307.20 256.00,460.80 167.32,307.20" fill="rgb(128, 36, 40)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="167.32,307.20 256.00,460.80 78.64,358.40" fill="rgb(125, 34, 39)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="167.32,307.20 78.64,358.40 78.64,153.60" fill="rgb(142, 41, 46)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="167.32,307.20 78.64,153.60 256.00,153.60" fill="rgb(154, 45, 50)" stroke="rgb(209, 163, 74)" stroke-width="3" stroke-opacity="0.6" />
+  <polygon points="256.00,51.20 433.36,153.60 433.36,358.40 256.00,460.80 78.64,358.40 78.64,153.60" fill="none" stroke="rgb(209, 163, 74)" stroke-width="7" stroke-linejoin="round" />
+  <text x="256" y="252" fill="rgb(232, 199, 111)" font-family="Georgia, 'Times New Roman', serif" font-size="61" font-weight="700" text-anchor="middle" dominant-baseline="central">20</text>
+</svg>

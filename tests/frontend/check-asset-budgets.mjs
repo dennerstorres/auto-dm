@@ -6,7 +6,16 @@ const html = await readFile(path.join(root, "index.html"), "utf8");
 
 const stylesheetPaths = [...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"?]+)/g)]
   .map((match) => match[1]);
-const modulePaths = ["/app.js", "/shell.js"];
+const modulePaths = ["/app.js", "/shell.js", "/pwa.js"];
+const pwaIconPaths = [
+  "/assets/icons/icon-192.png",
+  "/assets/icons/icon-512.png",
+  "/assets/icons/icon-maskable-192.png",
+  "/assets/icons/icon-maskable-512.png",
+  "/assets/icons/apple-touch-icon.png",
+  "/assets/icons/favicon-32.png",
+  "/assets/icons/d20.svg",
+];
 
 async function totalBytes(paths) {
   const sizes = await Promise.all(paths.map(async (asset) => {
@@ -18,7 +27,8 @@ async function totalBytes(paths) {
 
 const budgets = [
   { name: "CSS inicial", actual: await totalBytes(stylesheetPaths), limit: 130 * 1024 },
-  { name: "JavaScript inicial", actual: await totalBytes(modulePaths), limit: 165 * 1024 },
+  { name: "JavaScript inicial", actual: await totalBytes(modulePaths), limit: 180 * 1024 },
+  { name: "Ícones PWA", actual: await totalBytes(pwaIconPaths), limit: 200 * 1024 },
   {
     name: "Hero AVIF",
     actual: (await stat(path.join(root, "assets/hero-party-dragon.avif"))).size,
