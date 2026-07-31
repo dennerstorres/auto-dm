@@ -4,6 +4,18 @@ body[data-screen="game-screen"] {
   overflow: hidden;
 }
 
+/* O shell usa `height: auto; min-height: 100dvh` (shell.css), então o
+   #app cresce junto com o conteúdo. Na mesa isso quebra o layout de
+   altura fixa: a linha `1fr` do grid resolve contra um container maior
+   que a viewport, o log e a barra lateral nunca chegam ao próprio
+   overflow, e o `overflow: hidden` do body corta o excedente sem
+   oferecer rolagem. Travar a altura aqui devolve o scroll interno. */
+body[data-screen="game-screen"] #app {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
 body[data-screen="game-screen"] .app-main {
   display: flex;
   flex: 1 1 auto;
