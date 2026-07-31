@@ -11,13 +11,25 @@ def read_static(filename: str) -> str:
     return (STATIC_DIR / filename).read_text(encoding="utf-8")
 
 
+def asset_ref(html: str, path: str) -> str:
+    """Return the cache-busted reference to ``path`` (e.g. ``/app.js?v=68``).
+
+    Version-agnostic on purpose: the contract is "cache-busted and loaded
+    in this order", not "pinned to the version current when this test was
+    written".
+    """
+    match = re.search(rf"{re.escape(path)}\?v=\d+", html)
+    assert match, f"{path} must be referenced with a ?v= cache buster"
+    return match.group(0)
+
+
 def test_admin_styles_are_isolated_tokenized_and_loaded_last() -> None:
     html = read_static("index.html")
     css = read_static("css/admin.css")
 
-    assert '/css/admin.css?v=66' in html
-    assert '/app.js?v=65' in html
-    assert html.index('/css/game.css?v=65') < html.index('/css/admin.css?v=66')
+    admin_css = asset_ref(html, "/css/admin.css")
+    asset_ref(html, "/app.js")
+    assert html.index(asset_ref(html, "/css/game.css")) < html.index(admin_css)
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert 'body[data-screen="admin-panel-screen"]' in css
     assert "var(--status-danger)" in css

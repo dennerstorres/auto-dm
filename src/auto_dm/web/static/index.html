@@ -17,7 +17,7 @@
         <link rel="stylesheet" href="/css/lobby.css?v=65" />
         <link rel="stylesheet" href="/css/landing.css?v=65" />
         <link rel="stylesheet" href="/css/wizard.css?v=65" />
-        <link rel="stylesheet" href="/css/game.css?v=67" />
+        <link rel="stylesheet" href="/css/game.css?v=68" />
         <link rel="stylesheet" href="/css/admin.css?v=66" />
     </head>
     <body class="auth-visible">
@@ -665,6 +665,31 @@
                         ></div>
                     </div>
                     <div class="roll-panel" data-game-tool="roll">
+                        <div
+                            id="pending-check"
+                            class="pending-check"
+                            role="status"
+                            hidden
+                        >
+                            <p class="pending-check-eyebrow">
+                                O Mestre pediu um teste
+                            </p>
+                            <p class="pending-check-title">
+                                <span id="pending-check-label"></span>
+                                <span
+                                    id="pending-check-dc"
+                                    class="pending-check-dc"
+                                ></span>
+                            </p>
+                            <p
+                                id="pending-check-reason"
+                                class="pending-check-reason"
+                            ></p>
+                            <p
+                                id="pending-check-mode"
+                                class="pending-check-mode"
+                            ></p>
+                        </div>
                         <label>
                             <span class="lbl">Teste pedido pelo DM</span>
                             <select id="roll-check"></select>
@@ -1276,6 +1301,6 @@
             <div id="toast-region" class="toast-region" aria-label="Notificações"></div>
         </div>
 
-        <script src="/app.js?v=65" type="module"></script>
+        <script src="/app.js?v=68" type="module"></script>
     </body>
 </html>

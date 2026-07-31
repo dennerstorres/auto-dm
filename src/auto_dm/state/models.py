@@ -819,3 +819,19 @@ class GameState(BaseModel):
     # vezes só para rerolar até conseguir "nenhum encontro".
     world_event_cooldown_minutes: int = 30
     last_world_event_minute: int = 0
+
+    # Phase 52 — teste de perícia/atributo pedido pelo mestre.
+    # O DM emite um bloco ```check``` com a CD; o motor guarda o pedido aqui
+    # até o jogador rolar. A rolagem no painel lateral só vira consequência
+    # narrativa quando casa com este pedido — rolagens avulsas continuam
+    # sendo só dados na mesa, sem custo de LLM.
+    # Shape (ver ``engine/checks.py::build_pending_check``):
+    #     {"id": str, "kind": "skill"|"ability"|"save", "key": str,
+    #      "label": str, "ability": str, "dc": int, "reason": str,
+    #      "character_id": str | None, "advantage": bool, "disadvantage": bool,
+    #      "requested_at": str, "resolved": bool,
+    #      "outcome": "success"|"failure"|None, "total": int | None,
+    #      "natural": int | None}
+    # ``None`` = nenhum teste pendente. Só um pedido fica aberto por vez:
+    # um novo bloco ```check`` substitui o anterior.
+    pending_check: Optional[dict] = Field(default=None)

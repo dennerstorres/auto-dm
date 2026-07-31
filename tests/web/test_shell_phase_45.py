@@ -11,15 +11,27 @@ def read_static(filename: str) -> str:
     return (STATIC_DIR / filename).read_text(encoding="utf-8")
 
 
+def asset_ref(html: str, path: str) -> str:
+    """Return the cache-busted reference to ``path`` (e.g. ``/app.js?v=68``).
+
+    The contract is that the asset carries a ``?v=`` buster and that the
+    load order holds — not the specific number, which changes on every
+    frontend bump.
+    """
+    match = re.search(rf"{re.escape(path)}\?v=\d+", html)
+    assert match, f"{path} must be referenced with a ?v= cache buster"
+    return match.group(0)
+
+
 def test_shell_styles_and_module_are_loaded_with_current_cache_version() -> None:
     html = read_static("index.html")
 
     assert '<body class="auth-visible">' in html
-    assert '<script src="/app.js?v=65" type="module"></script>' in html
-    assert '/css/shell.css?v=65' in html
-    assert '/app.js?v=65' in html
-    assert html.index('/style.css?v=65') < html.index('/css/shell.css?v=65')
-    assert html.index('/css/shell.css?v=65') < html.index('/css/landing.css?v=65')
+    app_js = asset_ref(html, "/app.js")
+    assert f'<script src="{app_js}" type="module"></script>' in html
+    shell_css = asset_ref(html, "/css/shell.css")
+    assert html.index(asset_ref(html, "/style.css")) < html.index(shell_css)
+    assert html.index(shell_css) < html.index(asset_ref(html, "/css/landing.css"))
 
 
 def test_authenticated_header_is_shared_and_contextual() -> None:

@@ -11,6 +11,19 @@ def read_static(filename: str) -> str:
     return (STATIC_DIR / filename).read_text(encoding="utf-8")
 
 
+def asset_ref(html: str, path: str) -> str:
+    """Return the cache-busted reference to ``path`` (e.g. ``/app.js?v=68``).
+
+    Asserting on the literal version pins the test to whatever bump came
+    last, which is not the contract — the contract is that the asset is
+    cache-busted at all, and that load order holds. Fails loudly when the
+    ``?v=`` marker is missing.
+    """
+    match = re.search(rf"{re.escape(path)}\?v=\d+", html)
+    assert match, f"{path} must be referenced with a ?v= cache buster"
+    return match.group(0)
+
+
 def game_markup() -> str:
     html = read_static("index.html")
     start = html.index('<section id="game-screen"')
@@ -22,8 +35,8 @@ def test_game_styles_are_isolated_tokenized_and_loaded_last() -> None:
     html = read_static("index.html")
     css = read_static("css/game.css")
 
-    assert '/css/game.css?v=65' in html
-    assert html.index('/css/wizard.css?v=65') < html.index('/css/game.css?v=65')
+    game_css = asset_ref(html, "/css/game.css")
+    assert html.index(asset_ref(html, "/css/wizard.css")) < html.index(game_css)
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert 'body[data-screen="game-screen"]' in css
     for token in (

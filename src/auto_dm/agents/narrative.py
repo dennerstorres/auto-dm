@@ -25,6 +25,7 @@ from auto_dm.agents.companion_turn import CompanionTurnResult
 from auto_dm.agents.dm import DMAgent, DMResponse
 from auto_dm.agents.prompts import get_followup_max_sentences
 from auto_dm.agents.summarizer import NarrativeSummarizer, summarize_once
+from auto_dm.engine.checks import build_pending_check
 from auto_dm.engine.combat_engine import CombatEngine
 from auto_dm.engine.world import resolve_travel
 from auto_dm.llm.usage import UsageReport
@@ -54,6 +55,10 @@ class NarrativeResult:
     action: Optional[Action] = None
     action_result: Optional[ActionResult] = None
     follow_up_narration: Optional[str] = None
+    # Phase 52 — the check the DM asked for this turn, already stored on
+    # ``state.pending_check`` (same dict). None when no check was
+    # requested or when the DM's request was malformed and got dropped.
+    pending_check: Optional[dict] = None
     # Phase 25h: companion turns that fired during this cycle (empty when
     # the player isn't in combat, or when no companion had a turn yet).
     companion_results: list[CompanionTurnResult] = field(default_factory=list)
@@ -95,6 +100,11 @@ def process_player_action(
     Returns a :class:`NarrativeResult` with everything the CLI needs
     to print and any state mutations already applied.
     """
+    # Phase 52 — a check that was already rolled has served its purpose;
+    # drop it before building the DM context so the DM narrates the
+    # ``[TESTE]`` outcome instead of being told to keep waiting for it.
+    _consume_resolved_check(state_manager)
+
     _log_player(state_manager, player_input)
     dm_response = dm_agent.ask(player_input)
     _log_dm(state_manager, dm_response)
@@ -105,6 +115,11 @@ def process_player_action(
     )
     if dm_response.usage is not None:
         result.usages.append(dm_response.usage)
+
+    # Phase 52 — register the DM's check request (with its DC) on the state
+    # so the dice panel can open. Done before dispatching the action: even
+    # if the action blows up, the player still gets the roll he was asked for.
+    result.pending_check = _register_check_request(state_manager, dm_response)
 
     if dm_response.action is None:
         _maybe_summarize(state_manager, summarizer, result)
@@ -139,6 +154,48 @@ def process_player_action(
     _maybe_summarize(state_manager, summarizer, result)
 
     return result
+
+
+def _consume_resolved_check(state_manager: StateManager) -> None:
+    """Clear ``pending_check`` once its roll has been scored.
+
+    ``roll-check`` marks the request ``resolved`` and leaves it in place so
+    the UI can show the outcome. The next narrative turn is where it gets
+    consumed — that turn *is* the DM narrating the result.
+    """
+    pending = state_manager.state.pending_check
+    if pending and pending.get("resolved"):
+        state_manager.state.pending_check = None
+
+
+def _register_check_request(
+    state_manager: StateManager, dm_response: DMResponse
+) -> Optional[dict]:
+    """Store the DM's ```check``` request on the state, if it emitted one.
+
+    Returns the stored payload, or ``None`` when the DM asked for nothing
+    or named a check the engine can't resolve ("teste de vibe"). An
+    unresolvable request is dropped with a warning rather than raised:
+    a hallucinated skill name must not kill the player's turn.
+    """
+    request = dm_response.check_request
+    if request is None:
+        return None
+    try:
+        pending = build_pending_check(
+            request.check,
+            request.dc,
+            kind=request.kind,
+            reason=request.reason,
+            character_id=request.character_id,
+            advantage=request.advantage,
+            disadvantage=request.disadvantage,
+        )
+    except ValueError as exc:
+        logger.warning("DM requested an unresolvable check: %s", exc)
+        return None
+    state_manager.state.pending_check = pending
+    return pending
 
 
 def _maybe_summarize(

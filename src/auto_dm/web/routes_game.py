@@ -36,7 +36,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auto_dm.agents import generate_opening, process_player_action
-from auto_dm.engine.checks import ABILITY_LABELS, roll_character_check
+from auto_dm.engine.checks import (
+    ABILITY_LABELS,
+    check_matches_pending,
+    resolve_check,
+    resolve_pending_check,
+    roll_character_check,
+)
 from auto_dm.engine.combat_engine import CombatEngine
 from auto_dm.llm.errors import (
     ProviderAuthError,
@@ -113,6 +119,10 @@ class RollCheckOut(BaseModel):
     notation: str
     advantage: bool = False
     disadvantage: bool = False
+    # Phase 52 — the resolution of the pending check the DM asked for,
+    # present only when this roll answered one. ``None`` for free rolls
+    # (the player poking the dice panel on his own).
+    resolution: dict[str, Any] | None = None
 
 
 class AwardXPRequest(BaseModel):
@@ -351,6 +361,13 @@ async def session_roll_check(
     "salvaguarda de Destreza", pulls the correct ability/proficiency
     bonuses from the current player character, and returns the full
     breakdown for display at the virtual table.
+
+    Phase 52: when the roll answers the DM's open ``pending_check``, the
+    engine scores it against the DC fixed *before* the roll, marks the
+    request resolved, and returns a ``resolution`` carrying the outcome
+    plus the ``[TESTE]`` line the frontend feeds back to the DM. Rolls
+    that match no pending request stay what they always were — dice on
+    the table, no state change, no LLM cost.
     """
     sess = await sm.get(user.id, session_id)
     if sess is None:
@@ -371,19 +388,38 @@ async def session_roll_check(
             detail="No player character in this session",
         )
     try:
-        result = roll_character_check(
-            player,
-            body.check,
-            kind=body.kind,
-            advantage=body.advantage,
-            disadvantage=body.disadvantage,
-        )
+        spec = resolve_check(body.check, body.kind)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         )
+
+    # Phase 52 — does this roll answer the DM's open request? If so, the
+    # circumstantial advantage/disadvantage the DM granted is folded in
+    # with whatever the player ticked; adv + dis cancel out (PHB p. 173).
+    pending = state.pending_check
+    answers_pending = check_matches_pending(spec, pending)
+    advantage = body.advantage or (answers_pending and bool(pending.get("advantage")))
+    disadvantage = body.disadvantage or (
+        answers_pending and bool(pending.get("disadvantage"))
+    )
+
+    result = roll_character_check(
+        player,
+        spec.key,
+        kind=spec.kind,
+        advantage=advantage,
+        disadvantage=disadvantage,
+    )
+
+    resolution: dict[str, Any] | None = None
+    if answers_pending:
+        resolution = resolve_pending_check(pending, result)
+        await sm.save(sess)
+
     return RollCheckOut(
+        resolution=resolution,
         character_id=result.character_id,
         character_name=result.character_name,
         kind=result.spec.kind,
@@ -543,9 +579,16 @@ async def session_input(
         "narration": getattr(result, "narration", None),
         "action": getattr(result, "action", None),
         "action_result": getattr(result, "action_result", None),
-        "follow_up": getattr(result, "follow_up", None),
+        # The dataclass field is ``follow_up_narration``; reading a bare
+        # ``follow_up`` silently yielded None on every turn, so the second
+        # DM call (narrating the mechanical result) was paid for and thrown
+        # away. Keep the wire name the frontend already expects.
+        "follow_up": getattr(result, "follow_up_narration", None),
         "error": getattr(result, "error", None),
         "companion_results": getattr(result, "companion_results", None),
+        # Phase 52 — the check the DM asked for this turn (with its DC),
+        # so the frontend can open the dice panel on the right skill.
+        "pending_check": getattr(result, "pending_check", None),
     }
     return {
         "session_id": session_id,

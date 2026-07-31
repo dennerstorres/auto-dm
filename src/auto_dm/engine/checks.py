@@ -1,9 +1,18 @@
-"""Ability checks, skill checks, and saving throws for the virtual table."""
+"""Ability checks, skill checks, and saving throws for the virtual table.
+
+Phase 52 adds the *pending check* protocol: the DM announces a check and
+fixes its DC **before** the player rolls (``build_pending_check``), and the
+engine alone decides success or failure (``resolve_pending_check``). The
+LLM never compares a total to a DC — it only narrates the outcome the
+engine hands it.
+"""
 from __future__ import annotations
 
 import random
 import unicodedata
+import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from auto_dm.engine.dice import DiceRoll, roll_d20
 from auto_dm.state.models import Ability, Character, Skill
@@ -276,4 +285,172 @@ def roll_character_check(
         roll=roll,
         advantage=advantage and not disadvantage,
         disadvantage=disadvantage and not advantage,
+    )
+
+
+# ============================================================================
+# Pending checks (Phase 52)
+# ============================================================================
+
+
+# PHB p. 174 "Typical Difficulty Classes". The DM picks a DC from this
+# band; anything outside it is clamped so a hallucinated "DC 90" can never
+# make a check unwinnable.
+DC_MIN = 5
+DC_MAX = 30
+DEFAULT_DC = 15
+
+DC_LABELS: dict[int, str] = {
+    5: "muito facil",
+    10: "facil",
+    15: "media",
+    20: "dificil",
+    25: "muito dificil",
+    30: "quase impossivel",
+}
+
+
+def clamp_dc(value: object) -> int:
+    """Coerce the DM's proposed DC into the PHB band [5, 30].
+
+    Anything non-numeric (missing key, ``"quinze"``, ``None``) falls back
+    to :data:`DEFAULT_DC` — a missing DC must never block the check.
+    """
+    try:
+        dc = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return DEFAULT_DC
+    return max(DC_MIN, min(DC_MAX, dc))
+
+
+def dc_label(dc: int) -> str:
+    """Return the pt-BR difficulty band for a DC (nearest PHB tier)."""
+    tier = min(DC_LABELS, key=lambda t: (abs(t - dc), t))
+    return DC_LABELS[tier]
+
+
+def build_pending_check(
+    check: str,
+    dc: object,
+    *,
+    kind: str | None = None,
+    reason: str = "",
+    character_id: str | None = None,
+    advantage: bool = False,
+    disadvantage: bool = False,
+) -> dict:
+    """Build the ``GameState.pending_check`` payload for a DM request.
+
+    ``check`` goes through :func:`resolve_check`, so the DM may write
+    "Investigação", "investigation", or "teste de Percepção" and still land
+    on the same skill. Raises ``ValueError`` when the check text can't be
+    resolved — the caller drops the request rather than storing junk.
+
+    Advantage and disadvantage are the *circumstantial* ones the DM grants
+    ("você tem uma lupa"); they cancel out when both are set, per PHB.
+    """
+    spec = resolve_check(check, kind)
+    adv = bool(advantage) and not bool(disadvantage)
+    dis = bool(disadvantage) and not bool(advantage)
+    return {
+        "id": uuid.uuid4().hex[:12],
+        "kind": spec.kind,
+        "key": spec.key,
+        "label": spec.label,
+        "ability": spec.ability.value,
+        "dc": clamp_dc(dc),
+        "reason": (reason or "").strip()[:200],
+        "character_id": character_id,
+        "advantage": adv,
+        "disadvantage": dis,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "resolved": False,
+        "outcome": None,
+        "total": None,
+        "natural": None,
+    }
+
+
+def pending_check_is_open(pending: dict | None) -> bool:
+    """True when ``pending`` is a check still waiting on a roll."""
+    return bool(pending) and not pending.get("resolved")
+
+
+def check_matches_pending(spec: CheckSpec, pending: dict | None) -> bool:
+    """True when a rolled check answers the open pending request.
+
+    Matches on kind + key, so rolling Percepção against a pending
+    Investigação request is treated as a free roll, not an answer.
+    """
+    if not pending_check_is_open(pending):
+        return False
+    return pending.get("kind") == spec.kind and pending.get("key") == spec.key
+
+
+def resolve_pending_check(pending: dict, result: CharacterCheckResult) -> dict:
+    """Score a roll against the pending check's DC and close the request.
+
+    Mutates ``pending`` in place (``resolved``/``outcome``/``total``/
+    ``natural``) and returns the resolution the web layer publishes.
+
+    A natural 20 or 1 on an ability check is **not** an automatic
+    success/failure in 5e (PHB p. 7 — that rule is for attack rolls and
+    death saves). We report ``natural`` for flavor and nothing else.
+    """
+    dc = clamp_dc(pending.get("dc"))
+    total = result.roll.total
+    natural = result.roll.kept[0]
+    success = total >= dc
+
+    pending["resolved"] = True
+    pending["outcome"] = "success" if success else "failure"
+    pending["total"] = total
+    pending["natural"] = natural
+
+    return {
+        "id": pending.get("id"),
+        "kind": pending.get("kind"),
+        "key": pending.get("key"),
+        "label": pending.get("label"),
+        "dc": dc,
+        "dc_label": dc_label(dc),
+        "total": total,
+        "natural": natural,
+        "success": success,
+        "outcome": pending["outcome"],
+        "margin": total - dc,
+        "reason": pending.get("reason", ""),
+        "narration_line": describe_check_outcome(pending, result, dc=dc),
+    }
+
+
+def describe_check_outcome(
+    pending: dict,
+    result: CharacterCheckResult,
+    *,
+    dc: int | None = None,
+) -> str:
+    """Build the ``[TESTE]`` line handed to the DM to narrate.
+
+    Deliberately terse and fully numeric: every value already came out of
+    the engine, so the DM has nothing left to invent — it only describes
+    what the roll means in the fiction. See the "Testes de perícia" section
+    of ``DM_SYSTEM_PROMPT``.
+    """
+    dc = clamp_dc(pending.get("dc")) if dc is None else dc
+    total = result.roll.total
+    success = total >= dc
+    verdict = "SUCESSO" if success else "FALHA"
+    margin = abs(total - dc)
+    mode = ""
+    if result.advantage:
+        mode = " (com vantagem)"
+    elif result.disadvantage:
+        mode = " (com desvantagem)"
+    reason = pending.get("reason") or ""
+    context = f" Motivo do teste: {reason}." if reason else ""
+    return (
+        f"[TESTE] {result.character_name} rolou {pending.get('label')}{mode}: "
+        f"{total} contra CD {dc} — {verdict} por {margin}.{context} "
+        "Narre a consequência desse resultado."
     )

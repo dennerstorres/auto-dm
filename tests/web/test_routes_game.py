@@ -528,3 +528,75 @@ async def _signup(client, username, password):
     assert resp.status_code == 201, resp.text
     body = resp.json()
     return body["token"], body["user"]
+
+
+# ============================================================================
+# Follow-up narration reaches the client
+#
+# The DM makes a second LLM call to narrate an action's mechanical result
+# (``_narrate_action_result``). The route used to serialize it as
+# ``getattr(result, "follow_up", None)`` while the dataclass field is
+# ``follow_up_narration`` — so it was always None: paid for, logged to the
+# campaign diary, and never shown to the player.
+# ============================================================================
+
+
+def _patch_narrative(monkeypatch, **fields):
+    """Replace process_player_action with one returning a real NarrativeResult.
+
+    Patches the name bound inside ``routes_game`` (the module imports it
+    directly, so patching ``auto_dm.agents`` would be a no-op), and uses
+    the genuine dataclass so this test fails if the field is renamed.
+    """
+    from auto_dm.agents.narrative import NarrativeResult
+    from auto_dm.web import routes_game as rg
+
+    async def _no_quota(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(rg, "check_quota", _no_quota)
+    monkeypatch.setattr(
+        rg, "process_player_action", lambda *_a, **_kw: NarrativeResult(**fields),
+    )
+
+
+@pytest.mark.asyncio
+async def test_input_returns_follow_up_narration(client, admin_token, monkeypatch):
+    _, _, headers = admin_token
+    _patch_narrative(
+        monkeypatch,
+        narration="Você golpeia o goblin.",
+        follow_up_narration="O goblin cambaleia e cai.",
+    )
+    created = await client.post(
+        "/api/sessions", json={"state": _empty_state()}, headers=headers,
+    )
+    sid = created.json()["session_id"]
+
+    resp = await client.post(
+        f"/api/sessions/{sid}/input", json={"line": "ataco"}, headers=headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["narration"] == "Você golpeia o goblin."
+    assert result["follow_up"] == "O goblin cambaleia e cai."
+
+
+@pytest.mark.asyncio
+async def test_input_follow_up_is_null_when_the_dm_produced_none(
+    client, admin_token, monkeypatch,
+):
+    _, _, headers = admin_token
+    _patch_narrative(monkeypatch, narration="Nada acontece.")
+    created = await client.post(
+        "/api/sessions", json={"state": _empty_state()}, headers=headers,
+    )
+    sid = created.json()["session_id"]
+
+    resp = await client.post(
+        f"/api/sessions/{sid}/input", json={"line": "olho"}, headers=headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"]["follow_up"] is None

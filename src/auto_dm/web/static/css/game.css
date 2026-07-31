@@ -469,6 +469,57 @@ body[data-screen="game-screen"] #game-screen {
   color: var(--status-success);
 }
 
+/* Phase 52 — the check the DM asked for, with its DC fixed up front. */
+#game-screen .pending-check {
+  background: var(--ink-850);
+  border: 1px solid var(--brand-gold);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+}
+
+#game-screen .pending-check[hidden] {
+  display: none;
+}
+
+#game-screen .pending-check-eyebrow {
+  color: var(--brand-gold);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+#game-screen .pending-check-title {
+  align-items: baseline;
+  color: var(--text-on-dark);
+  display: flex;
+  flex-wrap: wrap;
+  font-weight: 600;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+}
+
+#game-screen .pending-check-dc {
+  background: var(--ink-900);
+  border-radius: var(--radius-sm);
+  color: var(--brand-gold);
+  font-size: var(--font-size-xs);
+  padding: 0 var(--space-1);
+}
+
+#game-screen .pending-check-reason,
+#game-screen .pending-check-mode {
+  color: var(--text-on-dark-muted);
+  font-size: var(--font-size-sm);
+  margin: var(--space-1) 0 0;
+}
+
+#game-screen .pending-check-reason:empty,
+#game-screen .pending-check-mode:empty {
+  display: none;
+}
+
 .game-composer {
   background: var(--ink-850);
   border: 1px solid var(--ink-700);

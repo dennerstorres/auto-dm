@@ -138,6 +138,10 @@ ruff check .               # lint
   provedor, `usage_events.credential_source` ("legacy"/"byok").
 - **Fase 51c** — cadastro aberto com `system_llm_access`: convite válido libera
   IA global + BYOK; sem convite a conta fica estritamente BYOK-only.
+- **Fase 52** — testes pendentes com CD: o DM pede a rolagem num bloco
+  ```` ```check ```` e fixa a CD antes; `GameState.pending_check` guarda o
+  pedido, `roll-check` pontua contra a CD e o front encadeia a linha
+  `[TESTE]` de volta ao mestre. Rolagem avulsa não custa LLM.
 
 **Arquivadas (não voltarão):** Fase 10 (adapters globais → substituída pela
 51), Fase 26b (SSE), Fase 34 (CLI removido — produto é 100% web).

@@ -1513,6 +1513,7 @@ function renderCharacterTools() {
       openItemModal(btn.dataset.charId, btn.dataset.itemName));
   }
   renderShopButtons();
+  renderPendingCheck();  // Phase 52 — must run before the preview reads the select
   updateRollPreview();
   syncGameSessionState();
 }
@@ -1967,6 +1968,58 @@ function rollLabel(kind, key) {
   return `Teste de ${abilityLabel(key)}`;
 }
 
+// ============================================================================
+// Phase 52 — pending check requested by the DM
+//
+// The DM fixes the DC before the player rolls and publishes the request on
+// ``state.pending_check``. The dice panel surfaces it; rolling the matching
+// skill resolves it server-side and chains the outcome back to the DM.
+// Rolling anything else stays a free roll.
+// ============================================================================
+
+function getPendingCheck() {
+  const pending = currentGameState && currentGameState.pending_check;
+  if (!pending || pending.resolved) return null;
+  return pending;
+}
+
+function renderPendingCheck() {
+  const box = document.getElementById("pending-check");
+  const select = document.getElementById("roll-check");
+  if (!box || !select) return;
+  const pending = getPendingCheck();
+  if (!pending) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const label = rollLabel(pending.kind, pending.key);
+  setText("pending-check-label", label);
+  setText("pending-check-dc", `CD ${pending.dc}`);
+  setText("pending-check-reason", pending.reason || "");
+  setText(
+    "pending-check-mode",
+    pending.advantage
+      ? "O Mestre concedeu vantagem neste teste."
+      : pending.disadvantage
+        ? "O Mestre impôs desvantagem neste teste."
+        : "",
+  );
+  // Point the selector at the requested check and pre-tick the
+  // circumstantial adv/dis the DM granted. Both stay editable — the
+  // player may still roll something else as a free roll.
+  select.value = `${pending.kind}:${pending.key}`;
+  const adv = document.getElementById("roll-adv");
+  const dis = document.getElementById("roll-dis");
+  if (adv && pending.advantage) adv.checked = true;
+  if (dis && pending.disadvantage) dis.checked = true;
+}
+
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
 function updateRollPreview() {
   const preview = document.getElementById("roll-preview");
   const select = document.getElementById("roll-check");
@@ -1984,8 +2037,21 @@ function updateRollPreview() {
   const profText = parts.proficient
     ? ` + prof ${fmtMod(parts.profBonus)}`
     : " + sem prof";
+  // Tell the player whether this roll answers the DM or is just dice.
+  const pending = getPendingCheck();
+  let suffix = "";
+  if (pending) {
+    suffix = (pending.kind === kind && pending.key === key)
+      ? " — responde ao pedido do Mestre"
+      : " — rolagem avulsa (não responde ao pedido do Mestre)";
+  }
   preview.textContent =
-    `${rollLabel(kind, key)}: ${abilityShort(parts.ability)} ${fmtMod(parts.abilityMod)}${profText} = ${fmtMod(parts.total)}`;
+    `${rollLabel(kind, key)}: ${abilityShort(parts.ability)} ${fmtMod(parts.abilityMod)}${profText} = ${fmtMod(parts.total)}${suffix}`;
+  if (btn) {
+    btn.textContent = pending && pending.kind === kind && pending.key === key
+      ? "Rolar teste pedido"
+      : "Rolar teste";
+  }
 }
 
 function describeRollResult(r) {
@@ -2002,12 +2068,25 @@ function describeRollResult(r) {
 async function rollCheck(check, kind = null, advantage = false, disadvantage = false) {
   if (busy || readOnlyMode || !currentSessionId) return;
   lockUi();
+  // Phase 52 — set when this roll answered the DM's pending request. The
+  // server already scored it against the DC; we only relay the verdict.
+  let resolution = null;
   try {
     const res = await api(`/api/sessions/${currentSessionId}/roll-check`, {
       method: "POST",
       body: { check, kind, advantage, disadvantage },
     });
     appendLog("Dados", describeRollResult(res), "system");
+    resolution = res.resolution || null;
+    if (resolution) {
+      appendLog("Teste", describeCheckResolution(resolution), "system");
+      // Hide the banner immediately; the authoritative clear arrives with
+      // the state from the DM turn we chain below.
+      if (currentGameState && currentGameState.pending_check) {
+        currentGameState.pending_check.resolved = true;
+      }
+      renderPendingCheck();
+    }
   } catch (e) {
     if (e && (e.status === 401 || e.status === 404)) {
       sessionExpired = true;
@@ -2020,6 +2099,25 @@ async function rollCheck(check, kind = null, advantage = false, disadvantage = f
     unlockUi();
     updateRollPreview();
   }
+
+  // Hand the outcome to the DM so the scene actually moves. Done outside
+  // the lock above because sendInputClassic takes its own. Free rolls
+  // (no pending request) stop here and cost no LLM call.
+  if (resolution && resolution.narration_line) {
+    lockUi();
+    showTyping();
+    try {
+      await sendInputClassic(resolution.narration_line);
+    } finally {
+      unlockUi();
+      hideTyping();
+    }
+  }
+}
+
+function describeCheckResolution(r) {
+  const verdict = r.success ? "SUCESSO" : "FALHA";
+  return `${r.label} — ${r.total} contra CD ${r.dc}: ${verdict} por ${Math.abs(r.margin)}.`;
 }
 
 async function rollSelectedCheck() {
@@ -2075,9 +2173,6 @@ async function sendInputClassic(line) {
     } else {
       if (r.narration) {
         appendLog("DM", r.narration, "narration");
-        lastDmNarration = r.narration;  // Phase 42 — 🔊 replay + auto-TTS
-        refreshAudioButtons();
-        maybeAutoPlayTTS(r.narration);
       }
       if (r.action_result) {
         const ar = typeof r.action_result === "string"
@@ -2085,12 +2180,36 @@ async function sendInputClassic(line) {
           : JSON.stringify(r.action_result);
         appendLog("Ação", ar, "system");
       }
+      // The follow-up is the DM narrating the mechanical result, so it
+      // belongs after the action it describes.
+      if (r.follow_up) {
+        appendLog("DM", r.follow_up, "narration");
+      }
+      // Phase 42 — 🔊 replay + auto-TTS. Speak the turn's full DM prose as
+      // one clip; two clips back to back would talk over each other.
+      const dmText = [r.narration, r.follow_up].filter(Boolean).join("\n\n");
+      if (dmText) {
+        lastDmNarration = dmText;
+        refreshAudioButtons();
+        maybeAutoPlayTTS(dmText);
+      }
       if (r.companion_results && r.companion_results.length) {
         for (const c of r.companion_results) {
           const who = c.character_name || "Companheiro";
           const body = (c.narration || c.action || "").trim();
           if (body) appendLog(who, body, "companion");
         }
+      }
+      // Phase 52 — the DM asked for a roll. Call it out in the feed so the
+      // player knows the scene is waiting on the dice panel, not stalled.
+      if (r.pending_check) {
+        const pc = r.pending_check;
+        appendLog(
+          "Sistema",
+          `Teste pedido: ${rollLabel(pc.kind, pc.key)} (CD ${pc.dc}). ` +
+            "Abra o painel de dados para rolar.",
+          "system",
+        );
       }
     }
   } catch (e) {

@@ -10,10 +10,12 @@ The DM agent is the bridge between the LLM and the engine. It:
 3. Parses the LLM's text response into a DMResponse:
    - Narration (free text)
    - Optional Action (parsed from a fenced ```action``` block)
+   - Optional CheckRequest (parsed from a fenced ```check``` block —
+     Phase 52: the DM asking for a skill check and fixing its DC)
 
-If the LLM response is malformed or no action block is present, the
-agent returns narration only. Action parsing is forgiving — if a JSON
-block is present but invalid, it is dropped (not raised) and logged.
+If the LLM response is malformed or no block is present, the agent
+returns narration only. Block parsing is forgiving — if a JSON block is
+present but invalid, it is dropped (not raised) and logged.
 """
 from __future__ import annotations
 
@@ -47,10 +49,41 @@ _ACTION_FENCE_RE = re.compile(
     re.DOTALL,
 )
 
+# Phase 52 — the DM asks for a check and fixes its DC up front:
+# ```check
+# { "check": "investigação", "dc": 15, "reason": "..." }
+# ```
+_CHECK_FENCE_RE = re.compile(
+    r"```check\s*\n(?P<body>\{.*?\})\s*```",
+    re.DOTALL,
+)
+
 
 # ============================================================================
 # Response types
 # ============================================================================
+
+
+@dataclass
+class CheckRequest:
+    """A skill/ability/save check the DM asked for, with its DC (Phase 52).
+
+    The DM fixes the DC *before* seeing the roll — that's the whole point
+    of publishing it as a structured block instead of leaving it in prose.
+    ``dc`` is carried raw here; :func:`auto_dm.engine.checks.clamp_dc`
+    normalizes it when the request is stored on the state.
+
+    ``advantage``/``disadvantage`` are circumstantial grants from the DM
+    ("você tem tempo de sobra", "está escuro"), not sheet-derived ones.
+    """
+
+    check: str
+    dc: object = None
+    kind: Optional[str] = None
+    reason: str = ""
+    character_id: Optional[str] = None
+    advantage: bool = False
+    disadvantage: bool = False
 
 
 @dataclass
@@ -60,18 +93,24 @@ class DMResponse:
     Attributes:
         narration: The free-text narration (always present).
         action: The structured Action if the DM emitted one; None otherwise.
+        check_request: The CheckRequest if the DM asked for a roll (Phase 52).
         raw_text: The full LLM response text, useful for debugging.
         usage: Token-usage report for the underlying LLM call, if any.
     """
 
     narration: str
     action: Optional[Action] = None
+    check_request: Optional[CheckRequest] = None
     raw_text: str = ""
     usage: Optional[UsageReport] = None
 
     @property
     def has_action(self) -> bool:
         return self.action is not None
+
+    @property
+    def has_check_request(self) -> bool:
+        return self.check_request is not None
 
 
 # ============================================================================
@@ -95,28 +134,91 @@ def parse_dm_response(
 ) -> DMResponse:
     """Parse the LLM's raw output into a DMResponse.
 
-    Splits out the optional ```action``` fenced JSON block. If no block
-    is present, the whole text is narration. If a block is present but
-    malformed JSON, the block is dropped (logged) and narration is the
-    whole text minus the block.
+    Splits out the optional ```action``` and ```check``` fenced JSON
+    blocks. Whatever is left over is the narration. If a block is present
+    but malformed JSON, the block is dropped (logged) and narration is
+    still the whole text minus that block — a bad block never leaks the
+    raw JSON into the player's feed.
     """
     raw_text = raw_text or ""
-    match = _ACTION_FENCE_RE.search(raw_text)
-    if not match:
-        # No action block — whole text is narration
-        return DMResponse(narration=raw_text.strip(), raw_text=raw_text, usage=usage)
 
-    body = match.group("body")
-    narration = (raw_text[: match.start()] + raw_text[match.end() :]).strip()
+    action_match = _ACTION_FENCE_RE.search(raw_text)
+    check_match = _CHECK_FENCE_RE.search(raw_text)
 
-    try:
-        data = json.loads(body)
-        action = _dict_to_action(data)
-    except (json.JSONDecodeError, ValueError, KeyError) as exc:
-        logger.warning("DM emitted a malformed action block: %s", exc)
-        action = None
+    action: Optional[Action] = None
+    if action_match:
+        try:
+            action = _dict_to_action(json.loads(action_match.group("body")))
+        except (json.JSONDecodeError, ValueError, KeyError) as exc:
+            logger.warning("DM emitted a malformed action block: %s", exc)
 
-    return DMResponse(narration=narration, action=action, raw_text=raw_text, usage=usage)
+    check_request: Optional[CheckRequest] = None
+    if check_match:
+        try:
+            check_request = _dict_to_check_request(
+                json.loads(check_match.group("body"))
+            )
+        except (json.JSONDecodeError, ValueError, KeyError) as exc:
+            logger.warning("DM emitted a malformed check block: %s", exc)
+
+    narration = _strip_spans(
+        raw_text, [m.span() for m in (action_match, check_match) if m]
+    )
+
+    return DMResponse(
+        narration=narration,
+        action=action,
+        check_request=check_request,
+        raw_text=raw_text,
+        usage=usage,
+    )
+
+
+def _strip_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    """Remove the given (start, end) slices from ``text`` and trim.
+
+    Cut back-to-front so earlier spans keep their original offsets.
+    """
+    for start, end in sorted(spans, reverse=True):
+        text = text[:start] + text[end:]
+    return text.strip()
+
+
+def _dict_to_check_request(data: dict) -> CheckRequest:
+    """Translate the DM's ```check``` JSON into a typed CheckRequest.
+
+    Only ``check`` is required — a request without a named skill is
+    meaningless. A missing or nonsense ``dc`` is tolerated here and
+    normalized downstream by ``clamp_dc`` (defaults to DC 15).
+    """
+    if not isinstance(data, dict):
+        raise ValueError("check block must be a JSON object")
+
+    check = data.get("check") or data.get("skill") or data.get("pericia")
+    if not check or not isinstance(check, str):
+        raise ValueError("check is required and must be a string")
+
+    reason = data.get("reason") or data.get("motivo") or ""
+    if not isinstance(reason, str):
+        reason = str(reason)
+
+    kind = data.get("kind")
+    if kind is not None and not isinstance(kind, str):
+        kind = None
+
+    character_id = data.get("character_id") or None
+    if character_id is not None and not isinstance(character_id, str):
+        character_id = None
+
+    return CheckRequest(
+        check=check,
+        dc=data.get("dc"),
+        kind=kind,
+        reason=reason,
+        character_id=character_id,
+        advantage=bool(data.get("advantage")),
+        disadvantage=bool(data.get("disadvantage")),
+    )
 
 
 def _dict_to_action(data: dict) -> Action:
