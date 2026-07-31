@@ -1,7 +1,6 @@
 """Repository contracts for the Phase 50 frontend quality gates."""
-from pathlib import Path
 import json
-
+from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
 STATIC = ROOT / "src" / "auto_dm" / "web" / "static"
