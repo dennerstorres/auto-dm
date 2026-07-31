@@ -1241,6 +1241,36 @@ function renderNarrativeLog(entries) {
   }
 }
 
+// Render an ActionResult as the feed's "Ação" line. The engine already writes
+// `message` as pt-BR prose carrying the rolls ("...d20(14) + 5 = 19 vs AC 13
+// → ACERTOU! 7 de dano cortante"), and `mechanical` is the machine-readable
+// mirror of it — so the line is the prose plus only the handful of fields the
+// prose doesn't already say. Anything not listed here stays out of the feed.
+const MECHANICAL_CHIPS = [
+  ["damage_rolls", (v) =>
+    Array.isArray(v) && v.length > 1 ? `dados ${v.join("+")}` : null],
+  ["attacks_remaining", (v) =>
+    typeof v === "number" && v > 0
+      ? `${v} ataque${v > 1 ? "s" : ""} restante${v > 1 ? "s" : ""}`
+      : null],
+  ["error", (v) => (v ? `erro: ${v}` : null)],
+];
+
+function formatActionResult(result) {
+  if (!result) return "";
+  if (typeof result === "string") return result.trim();
+  const parts = [];
+  const message = (result.message || "").trim();
+  if (message) parts.push(message);
+  const mech = result.mechanical || {};
+  for (const [key, render] of MECHANICAL_CHIPS) {
+    if (!(key in mech)) continue;
+    const chip = render(mech[key]);
+    if (chip) parts.push(chip);
+  }
+  return parts.join(" · ");
+}
+
 // ============================================================================
 // Character sheet + virtual check roller
 // ============================================================================
@@ -2175,10 +2205,8 @@ async function sendInputClassic(line) {
         appendLog("DM", r.narration, "narration");
       }
       if (r.action_result) {
-        const ar = typeof r.action_result === "string"
-          ? r.action_result
-          : JSON.stringify(r.action_result);
-        appendLog("Ação", ar, "system");
+        const ar = formatActionResult(r.action_result);
+        if (ar) appendLog("Ação", ar, "system");
       }
       // The follow-up is the DM narrating the mechanical result, so it
       // belongs after the action it describes.
