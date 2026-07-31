@@ -1,5 +1,9 @@
 # Auto DM
 
+**[Jogar em autodm.dennerstorres.dev](https://autodm.dennerstorres.dev)** ·
+[Como o acesso à IA funciona](#como-o-acesso-à-ia-funciona) ·
+[Rodar localmente](#início-rápido-com-docker)
+
 Mestre de jogo solo inspirado nas regras 5e, com companions controlados por IA,
 motor de regras determinístico e interface web completa.
 
@@ -25,6 +29,7 @@ recursos, iniciativa e progressão não ficam a critério da IA.
 - Memória narrativa de longo prazo por sumarização periódica.
 - Narração por voz e música ambiente opcionais.
 - Interface responsiva, acessível e testada com Playwright.
+- PWA instalável: ícone próprio, abertura em janela e shell em cache.
 - Providers Minimax, OpenAI, Anthropic Claude, Google Gemini e DeepSeek.
 - BYOK: cada usuário pode armazenar sua própria chave de API criptografada.
 

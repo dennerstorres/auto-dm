@@ -1,6 +1,6 @@
 [project]
 name = "auto-dm"
-version = "0.1.0"
+version = "1.0.0"
 description = "AI-powered solo D&D 5e game master"
 requires-python = ">=3.11"
 authors = [{ name = "Auto DM contributors" }]

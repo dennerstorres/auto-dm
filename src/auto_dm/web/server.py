@@ -577,7 +577,7 @@ def create_app(provider_factory: Optional[Callable] = None) -> FastAPI:
 
     app = FastAPI(
         title="Auto DM",
-        version="0.1.0",
+        version="1.0.0",
         description="AI-powered solo D&D 5e game master (web backend).",
         lifespan=lifespan,
     )
@@ -609,7 +609,7 @@ def create_app(provider_factory: Optional[Callable] = None) -> FastAPI:
     # Health check (no auth required)
     @app.get("/api/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": "1.0.0"}
 
     @app.get("/design-system", include_in_schema=False)
     async def design_system_reference() -> FileResponse:
