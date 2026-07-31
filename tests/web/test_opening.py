@@ -1,8 +1,7 @@
-"""Tests for the campaign-opening endpoints (auto narration on game start).
+"""Tests for the campaign-opening endpoint (auto narration on game start).
 
-Covers:
-- POST /api/sessions/{sid}/opening        (sync)
-- POST /api/sessions/{sid}/opening/stream (SSE)
+Covers POST /api/sessions/{sid}/opening. The SSE variant of this endpoint
+was removed with Phase 26b and its tests went with it.
 
 The opening is generated without player input: the DM picks a starting
 location (via a ``move`` action) and the backend applies it to
@@ -11,9 +10,7 @@ narrative log) must NOT call the LLM again (idempotency).
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from typing import Iterator
 
 import pytest
 
@@ -33,7 +30,7 @@ _OPENING_TEXT = (
 
 
 class _OpeningProvider:
-    """Provider whose ``chat``/``stream`` return the scripted opening.
+    """Provider whose ``chat`` returns the scripted opening.
 
     Counts calls so the idempotency test can assert the LLM was skipped.
     """
@@ -48,15 +45,6 @@ class _OpeningProvider:
         if self.fail:
             raise self.fail
         return self.text
-
-    def stream(self, messages) -> Iterator[str]:
-        self.call_count += 1
-        if self.fail:
-            raise self.fail
-        # Yield in two chunks so we can assert accumulation.
-        mid = len(self.text) // 2
-        yield self.text[:mid]
-        yield self.text[mid:]
 
     def count_tokens(self, messages) -> int:
         return 0
@@ -98,25 +86,8 @@ async def _install_stub(app_instance, **provider_kwargs) -> _OpeningProvider:
     return stub
 
 
-def _parse_sse(body: bytes) -> list[dict]:
-    text = body.decode("utf-8")
-    events: list[dict] = []
-    for raw in text.split("\n\n"):
-        raw = raw.strip()
-        if not raw:
-            continue
-        for line in raw.split("\n"):
-            if line.startswith("data:"):
-                payload = line[5:].strip()
-                try:
-                    events.append(json.loads(payload))
-                except json.JSONDecodeError:
-                    events.append({"type": "_raw", "data": payload})
-    return events
-
-
 # ============================================================================
-# Sync endpoint
+# Opening endpoint
 # ============================================================================
 
 
@@ -183,67 +154,4 @@ async def test_opening_sync_idempotent_when_log_nonempty(
     assert resp.status_code == 200
     assert resp.json()["narration"] == "Abertura anterior já existente."
     # The LLM was NOT called.
-    assert stub.call_count == 0
-
-
-# ============================================================================
-# Stream endpoint
-# ============================================================================
-
-
-@pytest.mark.asyncio
-async def test_opening_stream_emits_start_token_done_and_sets_location(
-    client, admin_token, app_instance
-):
-    await _install_stub(app_instance)
-    _, _, headers = admin_token
-    sid = (await client.post(
-        "/api/sessions", json={"state": _empty_state()}, headers=headers,
-    )).json()["session_id"]
-
-    resp = await client.post(
-        f"/api/sessions/{sid}/opening/stream", json={}, headers=headers
-    )
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/event-stream")
-    events = _parse_sse(resp.content)
-    types = [e["type"] for e in events]
-    assert types[0] == "start"
-    assert types[-1] == "done"
-    # Tokens accumulate into the opening narration.
-    joined = "".join(e["data"] for e in events if e["type"] == "token")
-    assert "estrada poeirenta" in joined
-    # The done payload is the serialized GameState with location set.
-    done_state = json.loads(events[-1]["data"])
-    assert done_state["current_location"] == "Estrada do Norte"
-    assert [e["role"] for e in done_state["narrative_log"]] == ["dm"]
-
-
-@pytest.mark.asyncio
-async def test_opening_stream_idempotent(client, admin_token, app_instance):
-    """Non-empty log: only start + done, no tokens, no LLM call."""
-    pre = [
-        {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "role": "dm",
-            "speaker": "DM",
-            "content": "Já narrado.",
-        }
-    ]
-    stub = await _install_stub(app_instance)
-    _, _, headers = admin_token
-    sid = (await client.post(
-        "/api/sessions",
-        json={"state": _empty_state(narrative_log=pre)},
-        headers=headers,
-    )).json()["session_id"]
-
-    resp = await client.post(
-        f"/api/sessions/{sid}/opening/stream", json={}, headers=headers
-    )
-    events = _parse_sse(resp.content)
-    types = [e["type"] for e in events]
-    assert types[0] == "start"
-    assert types[-1] == "done"
-    assert "token" not in types
     assert stub.call_count == 0
