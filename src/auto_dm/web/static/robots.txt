@@ -1,0 +1,6 @@
+# Auto DM — https://autodm.dennerstorres.dev
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://autodm.dennerstorres.dev/sitemap.xml

@@ -25,7 +25,7 @@ def test_design_system_stylesheets_are_loaded_before_legacy_css() -> None:
 
     positions = [html.index(path) for path in foundation]
     assert positions == sorted(positions)
-    assert html.index("/style.css?v=65") < html.index("/css/landing.css?v=65")
+    assert html.index("/style.css?v=65") < html.index("/css/landing.css?v=71")
 
 
 def test_tokens_match_design_specification() -> None:

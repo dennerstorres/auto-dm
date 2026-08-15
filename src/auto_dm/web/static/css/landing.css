@@ -186,15 +186,31 @@ body:not(.auth-visible) .brand-die {
   width: 2.8rem;
 }
 
-.hero-content h1 {
+.hero-title {
+  margin: 0;
+}
+
+.hero-title-brand {
   color: var(--text-on-dark);
+  display: block;
   font-family: var(--font-display);
   font-size: 5.75rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 0.92;
-  margin: 0;
   text-shadow: 0 3px 24px rgba(0, 0, 0, 0.55);
+}
+
+.hero-title-tag {
+  color: var(--text-on-dark-muted);
+  display: block;
+  font-family: var(--font-interface);
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  margin-top: 0.85rem;
+  max-width: 32rem;
 }
 
 .hero-lead {
@@ -385,6 +401,45 @@ body:not(.auth-visible) .brand-die {
 .story-grid article > p:last-child {
   color: var(--text-on-light-muted);
   line-height: 1.7;
+}
+
+.landing-faq {
+  background: var(--ink-950);
+  color: var(--text-on-dark);
+  padding: 5.5rem clamp(1.5rem, 7%, 7rem);
+}
+
+.faq-inner {
+  margin: 0 auto;
+  max-width: 60rem;
+}
+
+.faq-inner h2 {
+  font-family: var(--font-display);
+  font-size: 2.4rem;
+  letter-spacing: 0;
+  line-height: 1.1;
+  margin: 0.6rem 0 2.6rem;
+}
+
+.faq-list {
+  display: grid;
+  gap: 2rem;
+  margin: 0;
+}
+
+.faq-list dt {
+  color: var(--brand-gold-soft);
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  margin-bottom: 0.55rem;
+}
+
+.faq-list dd {
+  color: var(--text-on-dark-muted);
+  line-height: 1.75;
+  margin: 0;
+  max-width: 48rem;
 }
 
 .landing-cta {
@@ -694,8 +749,13 @@ body.auth-modal-open {
       linear-gradient(90deg, rgba(5, 8, 11, 0.42), transparent 80%);
   }
 
-  .hero-content h1 {
+  .hero-title-brand {
     font-size: 3.6rem;
+  }
+
+  .hero-title-tag {
+    font-size: 0.95rem;
+    margin-top: 0.6rem;
   }
 
   .hero-lead {
@@ -730,6 +790,19 @@ body.auth-modal-open {
 
   .landing-story {
     padding: 4.5rem 1.25rem;
+  }
+
+  .landing-faq {
+    padding: 4rem 1.25rem;
+  }
+
+  .faq-inner h2 {
+    font-size: 1.9rem;
+    margin-bottom: 2rem;
+  }
+
+  .faq-list {
+    gap: 1.6rem;
   }
 
   .story-intro {

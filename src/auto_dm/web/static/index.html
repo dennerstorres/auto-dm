@@ -3,11 +3,34 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Auto DM | Sua aventura, suas escolhas</title>
+        <title>Auto DM | Jogue D&amp;D 5e solo com um mestre de RPG por IA</title>
         <meta
             name="description"
-            content="Viva campanhas solo de fantasia com um mestre de jogo movido por IA e regras 5e."
+            content="Jogue RPG de mesa sozinho: o Auto DM é um mestre de D&amp;D 5e movido por inteligência artificial. Crie seu personagem, reúna companheiros e viva campanhas solo em português, direto no navegador."
         />
+        <link rel="canonical" href="https://autodm.dennerstorres.dev/" />
+        <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+        <meta name="author" content="Denner Torres" />
+
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Auto DM" />
+        <meta property="og:locale" content="pt_BR" />
+        <meta property="og:url" content="https://autodm.dennerstorres.dev/" />
+        <meta property="og:title" content="Auto DM | Jogue D&amp;D 5e solo com um mestre de RPG por IA" />
+        <meta
+            property="og:description"
+            content="Um mestre de D&amp;D 5e por inteligência artificial, sempre à mesa. Crie seu herói, reúna companheiros e jogue campanhas solo em português, direto no navegador."
+        />
+        <meta property="og:image" content="https://autodm.dennerstorres.dev/assets/icons/icon-512.png" />
+        <meta property="og:image:alt" content="Ícone de um dado d20 dourado — Auto DM" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Auto DM | Jogue D&amp;D 5e solo com um mestre de RPG por IA" />
+        <meta
+            name="twitter:description"
+            content="Um mestre de D&amp;D 5e por inteligência artificial, sempre à mesa. Campanhas solo em português, direto no navegador."
+        />
+        <meta name="twitter:image" content="https://autodm.dennerstorres.dev/assets/icons/icon-512.png" />
+
         <link rel="manifest" href="/manifest.webmanifest" />
         <meta name="theme-color" content="#0a0c0f" />
         <meta name="color-scheme" content="dark" />
@@ -27,10 +50,93 @@
         <link rel="stylesheet" href="/style.css?v=65" />
         <link rel="stylesheet" href="/css/shell.css?v=65" />
         <link rel="stylesheet" href="/css/lobby.css?v=65" />
-        <link rel="stylesheet" href="/css/landing.css?v=65" />
+        <link rel="stylesheet" href="/css/landing.css?v=71" />
         <link rel="stylesheet" href="/css/wizard.css?v=65" />
         <link rel="stylesheet" href="/css/game.css?v=68" />
         <link rel="stylesheet" href="/css/admin.css?v=66" />
+
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@graph": [
+                    {
+                        "@type": "WebSite",
+                        "@id": "https://autodm.dennerstorres.dev/#website",
+                        "url": "https://autodm.dennerstorres.dev/",
+                        "name": "Auto DM",
+                        "inLanguage": "pt-BR",
+                        "description": "Mestre de D&D 5e movido por inteligência artificial para jogar RPG de mesa sozinho."
+                    },
+                    {
+                        "@type": "SoftwareApplication",
+                        "@id": "https://autodm.dennerstorres.dev/#app",
+                        "name": "Auto DM",
+                        "url": "https://autodm.dennerstorres.dev/",
+                        "applicationCategory": "GameApplication",
+                        "applicationSubCategory": "RPG de mesa",
+                        "operatingSystem": "Web (navegador), instalável como PWA",
+                        "inLanguage": "pt-BR",
+                        "image": "https://autodm.dennerstorres.dev/assets/icons/icon-512.png",
+                        "description": "Auto DM é um mestre de jogo de D&D 5e por inteligência artificial que permite jogar RPG de mesa solo. Você cria um personagem seguindo as regras 5e, escolhe companheiros controlados pela IA e joga uma campanha inteira em português — o motor de regras em Python resolve rolagens, combate e progressão, enquanto a IA narra.",
+                        "featureList": [
+                            "Mestre de jogo por IA que narra e reage às suas escolhas",
+                            "Regras de D&D 5e aplicadas por um motor determinístico",
+                            "Criação de personagem completa: raça, classe, subclasse, background e magias",
+                            "Companheiros de party controlados pela IA",
+                            "Campanhas salvas com memória de longo prazo",
+                            "Narração por voz e música ambiente",
+                            "Jogue em português, no navegador ou instalado como app"
+                        ],
+                        "offers": {
+                            "@type": "Offer",
+                            "price": "0",
+                            "priceCurrency": "BRL",
+                            "availability": "https://schema.org/InStock",
+                            "description": "Uso gratuito com sua própria chave de API (BYOK); acesso à IA global por convite."
+                        },
+                        "author": { "@type": "Person", "name": "Denner Torres" }
+                    },
+                    {
+                        "@type": "FAQPage",
+                        "@id": "https://autodm.dennerstorres.dev/#faq",
+                        "mainEntity": [
+                            {
+                                "@type": "Question",
+                                "name": "Dá para jogar D&D sozinho?",
+                                "acceptedAnswer": {
+                                    "@type": "Answer",
+                                    "text": "Sim. No Auto DM a inteligência artificial assume o papel de mestre de jogo e também controla os companheiros da party, então uma pessoa sozinha consegue jogar uma campanha de D&D 5e completa, sem precisar marcar sessão com um grupo."
+                                }
+                            },
+                            {
+                                "@type": "Question",
+                                "name": "O Auto DM segue as regras de D&D 5e?",
+                                "acceptedAnswer": {
+                                    "@type": "Answer",
+                                    "text": "Sim. As regras vêm do SRD 5.1 e são aplicadas por um motor determinístico em Python: rolagens de dados, testes de resistência, combate, condições, descansos e progressão de nível. A IA narra a história, mas não decide mecânica."
+                                }
+                            },
+                            {
+                                "@type": "Question",
+                                "name": "Preciso pagar ou ter uma chave de API?",
+                                "acceptedAnswer": {
+                                    "@type": "Answer",
+                                    "text": "O Auto DM é gratuito e funciona com sua própria chave de API (BYOK) de provedores como OpenAI, Anthropic, Gemini, DeepSeek ou Minimax. Contas com código de convite também podem usar a IA global do serviço."
+                                }
+                            },
+                            {
+                                "@type": "Question",
+                                "name": "O jogo está em português?",
+                                "acceptedAnswer": {
+                                    "@type": "Answer",
+                                    "text": "Sim. A interface, a criação de personagem e toda a narração do mestre são em português do Brasil."
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        </script>
     </head>
     <body class="auth-visible">
         <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
@@ -122,12 +228,15 @@
                     <div class="hero-shade" aria-hidden="true"></div>
                     <div class="hero-content">
                         <p class="hero-eyebrow"><span></span> O destino aguarda sua jogada</p>
-                        <h1>AUTO DM</h1>
+                        <h1 class="hero-title">
+                            <span class="hero-title-brand">AUTO DM</span>
+                            <span class="hero-title-tag">Jogue D&amp;D 5e solo com um mestre de RPG por IA</span>
+                        </h1>
                         <p class="hero-lead">Sua lenda não precisa esperar a próxima sessão.</p>
                         <p class="hero-copy">
                             Entre em um mundo que reage às suas escolhas. Explore masmorras,
-                            enfrente criaturas lendárias e escreva uma campanha única com um
-                            Mestre de Jogo sempre à mesa.
+                            enfrente criaturas lendárias e escreva uma campanha de RPG de mesa
+                            inteira — sozinho, em português, com um Mestre de Jogo sempre à mesa.
                         </p>
                         <div class="hero-actions">
                             <button id="hero-signup" class="button button-primary hero-primary" type="button">
@@ -139,8 +248,8 @@
                             </button>
                         </div>
                         <div class="hero-details" aria-label="Destaques">
-                            <span><b>D20</b> Regras 5e</span>
-                            <span><b>∞</b> Histórias únicas</span>
+                            <span><b>D20</b> Regras de D&amp;D 5e</span>
+                            <span><b>∞</b> Campanhas únicas</span>
                             <span><b>1</b> Herói necessário</span>
                         </div>
                     </div>
@@ -153,10 +262,11 @@
                 <section id="como-funciona" class="landing-story" aria-labelledby="story-title">
                     <div class="story-intro">
                         <p class="section-kicker">Além do mapa</p>
-                        <h2 id="story-title">Uma campanha que pertence a você.</h2>
+                        <h2 id="story-title">Uma campanha de RPG solo que pertence a você.</h2>
                         <p>
-                            Sem trilhos. Sem respostas prontas. O mundo se lembra dos seus
-                            aliados, das suas cicatrizes e das promessas que você decidiu quebrar.
+                            Sem trilhos. Sem respostas prontas. A IA narra e os dados decidem
+                            pelas regras 5e — e o mundo se lembra dos seus aliados, das suas
+                            cicatrizes e das promessas que você decidiu quebrar.
                         </p>
                     </div>
                     <div class="story-grid">
@@ -165,16 +275,22 @@
                             <p class="story-icon" aria-hidden="true">
                                 <svg class="icon"><use href="/assets/icons/lucide.svg#swords"></use></svg>
                             </p>
-                            <h3>Escolha seu caminho</h3>
-                            <p>Crie seu herói, reúna companheiros e encare cada desafio do seu jeito.</p>
+                            <h3>Crie seu personagem de D&amp;D</h3>
+                            <p>
+                                Raça, classe, subclasse e magias pelas regras 5e. Reúna
+                                companheiros controlados pela IA e encare cada desafio do seu jeito.
+                            </p>
                         </article>
                         <article>
                             <span class="story-number">02</span>
                             <p class="story-icon" aria-hidden="true">
                                 <svg class="icon"><use href="/assets/icons/lucide.svg#sparkles"></use></svg>
                             </p>
-                            <h3>O mundo responde</h3>
-                            <p>Conversas, combates e decisões transformam o rumo da campanha.</p>
+                            <h3>O mestre de jogo por IA responde</h3>
+                            <p>
+                                Conversas, combates e decisões transformam o rumo da campanha —
+                                narrados pela IA, resolvidos pelos dados.
+                            </p>
                         </article>
                         <article>
                             <span class="story-number">03</span>
@@ -182,8 +298,54 @@
                                 <svg class="icon"><use href="/assets/icons/lucide.svg#scroll-text"></use></svg>
                             </p>
                             <h3>Sua lenda persiste</h3>
-                            <p>Salve sua jornada e retorne à fogueira exatamente de onde parou.</p>
+                            <p>
+                                A campanha fica salva com toda a sua história. Volte à fogueira
+                                exatamente de onde parou, no navegador ou no app instalado.
+                            </p>
                         </article>
+                    </div>
+                </section>
+
+                <section id="perguntas" class="landing-faq" aria-labelledby="faq-title">
+                    <div class="faq-inner">
+                        <p class="section-kicker">Antes de rolar o d20</p>
+                        <h2 id="faq-title">Perguntas frequentes</h2>
+                        <dl class="faq-list">
+                            <div>
+                                <dt>Dá para jogar D&amp;D sozinho?</dt>
+                                <dd>
+                                    Sim. A inteligência artificial assume o papel de mestre de jogo
+                                    e também controla os companheiros da sua party — uma pessoa
+                                    sozinha joga uma campanha de D&amp;D 5e inteira, sem precisar
+                                    marcar sessão com um grupo.
+                                </dd>
+                            </div>
+                            <div>
+                                <dt>O Auto DM segue as regras de D&amp;D 5e?</dt>
+                                <dd>
+                                    Segue. As regras vêm do SRD 5.1 e são aplicadas por um motor
+                                    determinístico: rolagens, testes de resistência, combate,
+                                    condições, descansos e progressão de nível. A IA narra a
+                                    história, mas não decide mecânica.
+                                </dd>
+                            </div>
+                            <div>
+                                <dt>Preciso pagar ou ter uma chave de API?</dt>
+                                <dd>
+                                    O Auto DM é gratuito e funciona com a sua própria chave de API
+                                    (BYOK) de provedores como OpenAI, Anthropic, Gemini, DeepSeek
+                                    ou Minimax. Contas com código de convite também usam a IA
+                                    global do serviço.
+                                </dd>
+                            </div>
+                            <div>
+                                <dt>O jogo está em português?</dt>
+                                <dd>
+                                    Está. A interface, a criação de personagem e toda a narração do
+                                    mestre são em português do Brasil.
+                                </dd>
+                            </div>
+                        </dl>
                     </div>
                 </section>
 
@@ -199,8 +361,11 @@
 
                 <footer class="landing-footer">
                     <span class="brand-name">AUTO <b>DM</b></span>
-                    <p>Fantasia, escolhas e dados. Uma aventura de cada vez.</p>
-                    <span>Experiência compatível com regras 5e.</span>
+                    <p>
+                        Auto DM — mestre de D&amp;D 5e com inteligência artificial para jogar
+                        RPG de mesa solo, em português.
+                    </p>
+                    <span>Regras derivadas do SRD 5.1 (OGL / CC BY 4.0).</span>
                 </footer>
 
                 <div id="auth-dialog" class="auth-dialog" hidden>

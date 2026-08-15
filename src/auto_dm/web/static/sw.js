@@ -11,7 +11,7 @@
 // Ao mexer em qualquer arquivo do shell: bumpe `CACHE_VERSION` e mantenha
 // as querystrings `?v=` iguais às de `index.html` (há teste checando isso).
 
-const CACHE_VERSION = "auto-dm-v70";
+const CACHE_VERSION = "auto-dm-v71";
 
 const PRECACHE_URLS = [
   "/",
@@ -22,7 +22,7 @@ const PRECACHE_URLS = [
   "/style.css?v=65",
   "/css/shell.css?v=65",
   "/css/lobby.css?v=65",
-  "/css/landing.css?v=65",
+  "/css/landing.css?v=71",
   "/css/wizard.css?v=65",
   "/css/game.css?v=68",
   "/css/admin.css?v=66",
